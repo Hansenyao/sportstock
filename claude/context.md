@@ -63,6 +63,7 @@ The solution: a digital platform where clubs register, managers log assets, and 
 | Backend API | Node.js (ExpressJS) — Vercel |
 | Database | PostgreSQL (Azure) |
 | Web frontend | React + Ant Design (responsive — PC / Pad / Phone) — Vercel |
+| Auth | Clerk (embedded UI + JWT verification) |
 | File storage | Supabase |
 | Push | Firebase Cloud Messaging (Web Push) |
 | Deployment | PostgreSQL on Azure; backend + frontend as separate Vercel projects |

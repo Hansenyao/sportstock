@@ -19,6 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Backend API | Node.js (ExpressJS) — deployed on Vercel |
 | Database | PostgreSQL (hosted on Azure) |
 | Web frontend | React + Ant Design (responsive — PC / Pad / Phone) — deployed on Vercel |
+| Auth | Clerk — embedded `<SignIn />`/`<SignUp />` on frontend; backend verifies JWT via Clerk JWKS |
 | File storage | Supabase |
 | Push notifications | Firebase Cloud Messaging (Web Push) |
 | Deployment | PostgreSQL on Azure; backend + frontend as separate Vercel projects |
@@ -53,7 +54,7 @@ Backend and frontend are **separate Vercel projects** with independent deploymen
 Core entities (all scoped to `club_id`):
 
 - **CLUB** — tenant root; one club = one tenant
-- **USER** — roles: `club_admin`, `asset_manager`, `coach`, `super_admin`
+- **USER** — `clerk_id` (unique, links to Clerk account), roles: `club_admin`, `asset_manager`, `coach`, `super_admin`; no password stored
 - **ASSET** — equipment with status: `available | on_loan | maintenance | retired`; tracks `total_quantity` and `available_quantity`
 - **LOAN** — borrow/return transaction with status: `pending | approved | rejected | checked_out | returned`
 - **STOCK_MOVEMENT** — append-only audit trail for every inventory change (purchase, loan_out, loan_return, write_off, adjustment)
@@ -68,7 +69,7 @@ Depreciation uses straight-line method: `Annual = purchase_price / useful_life_y
 
 **Asset lifecycle:** Available → OnLoan → Available (good return) or UnderMaintenance (damaged) → Available (repaired) or Retired (beyond repair).
 
-**Auth:** JWT with short-lived access token + refresh token rotation. All protected routes require Bearer token.
+**Auth:** Handled by Clerk. Frontend embeds Clerk `<SignIn />` / `<SignUp />` components. Every API request carries the Clerk-issued JWT as `Authorization: Bearer <token>`. Backend middleware verifies the JWT via Clerk's JWKS endpoint, extracts `clerk_id`, looks up (or creates) the user profile in DB, then injects `club_id` and `role` into the request context. No passwords are stored in the project database.
 
 ---
 

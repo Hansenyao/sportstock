@@ -14,6 +14,8 @@ SportStock is a **multi-tenant SaaS platform** that digitalizes asset management
 
 Each club is an independent **tenant**. Data is fully isolated — no club can access another's records.
 
+Authentication is delegated to **Clerk** (third-party auth service). Clerk's `<SignIn />` and `<SignUp />` components are embedded directly in the login/register pages. The backend verifies Clerk-issued JWTs on every protected request. The project database stores no passwords — only a `clerk_id` reference per user.
+
 ---
 
 ## 2. System Architecture
@@ -26,7 +28,7 @@ graph TB
 
     subgraph Backend["Backend (Vercel)"]
         API[REST API Server<br/>Node.js / ExpressJS]
-        AUTH[Auth Service<br/>JWT]
+        AUTH[Auth Middleware<br/>Clerk JWT Verification]
         NOTIF[Notification Service<br/>FCM Web Push]
         JOBS[Background Jobs<br/>Depreciation / Overdue alerts]
     end
@@ -36,8 +38,12 @@ graph TB
         FILES[Supabase Storage]
     end
 
+    CLERK[Clerk<br/>Auth Service]
+
     WEB -->|HTTPS / REST| API
+    WEB <-->|Embedded SignIn / SignUp| CLERK
     API --> AUTH
+    AUTH -->|Verify JWT via JWKS| CLERK
     API --> DB
     API --> FILES
     API --> NOTIF
@@ -67,9 +73,10 @@ erDiagram
     USER {
         uuid id PK
         uuid club_id FK
+        string clerk_id UK "Clerk user ID — no password stored"
         string name
         string email
-        string password_hash
+        string phone
         enum role "club_admin | asset_manager | coach"
         boolean is_active
     }
@@ -131,23 +138,41 @@ erDiagram
 
 ### 4.1 User Authentication Flow
 
+Authentication is fully delegated to Clerk. The project handles only profile lookup/creation after token verification.
+
 ```mermaid
 flowchart TD
-    A([User opens App / Web]) --> B[Enter email + password]
-    B --> C{Credentials valid?}
-    C -- No --> D[Return 401 error]
-    D --> B
-    C -- Yes --> E[Generate JWT\naccess token + refresh token]
-    E --> F[Return tokens to client]
-    F --> G[Client stores tokens]
-    G --> H([Access protected resources])
+    subgraph Frontend["Frontend (Clerk embedded components)"]
+        A([User visits Login / Register page])
+        B[Clerk SignIn or SignUp component renders]
+        C[User enters credentials]
+        D{Clerk authenticates}
+        E[Clerk component shows error]
+        F[Clerk issues signed JWT\nand manages session]
+    end
 
-    H --> I{Access token expired?}
-    I -- No --> H
-    I -- Yes --> J[Send refresh token]
-    J --> K{Refresh token valid?}
-    K -- Yes --> E
-    K -- No --> L([Force re-login])
+    subgraph BackendMiddleware["Backend — Auth Middleware"]
+        G[Extract Bearer token from request header]
+        H[Verify JWT signature\nvia Clerk JWKS endpoint]
+        I{Token valid?}
+        J[Return 401 Unauthorized]
+        K[Extract clerk_id from token claims]
+        L{User profile\nexists in DB?}
+        M[Create user profile\nclerk_id · name · email]
+        N[Inject profile into request context\nid · club_id · role · clerk_id]
+    end
+
+    A --> B --> C --> D
+    D -- Failure --> E --> C
+    D -- Success --> F
+
+    F -->|"Bearer token on every API request"| G
+    G --> H --> I
+    I -- Invalid / Expired --> J
+    I -- Valid --> K --> L
+    L -- Not found\nfirst login --> M --> N
+    L -- Found --> N
+    N --> O([Route handler proceeds])
 ```
 
 ---
@@ -282,7 +307,7 @@ flowchart TD
 
 | Resource | Base Path | Notes |
 |----------|-----------|-------|
-| Auth | `/api/v1/auth` | Login, refresh token, logout |
+| Auth | `/api/v1/auth` | `GET /me` — fetch or sync current user profile (called on first login) |
 | Clubs | `/api/v1/clubs` | Registration, profile |
 | Users | `/api/v1/users` | Invite, role assignment, deactivate |
 | Assets | `/api/v1/assets` | CRUD, bulk import, status update |
@@ -297,12 +322,12 @@ flowchart TD
 
 | Concern | Approach |
 |---------|---------|
-| Authentication | JWT (short-lived access token + refresh token rotation) |
-| Authorization | Role-based access control (RBAC) enforced server-side |
-| Tenant isolation | `club_id` injected from JWT claims — never trusted from request body |
+| Authentication | Delegated to Clerk; backend verifies Clerk-issued JWTs via JWKS on every protected request |
+| Credential storage | No passwords in project DB — Clerk owns all credentials and session management |
+| Authorization | RBAC enforced server-side using `role` from user profile |
+| Tenant isolation | `club_id` looked up from user profile (keyed by `clerk_id`) — never trusted from request body |
 | Transport security | HTTPS enforced on all endpoints |
 | Sensitive operations | Audit log records who did what and when |
-| Password storage | Bcrypt hashing with sufficient cost factor |
 
 ---
 

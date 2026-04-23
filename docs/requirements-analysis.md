@@ -200,7 +200,9 @@ Delivery: Web push notification via browser (primary); in-app notification when 
 ### 4.3 Security
 
 - All API communication over HTTPS
-- JWT-based authentication and authorization
+- Authentication via Clerk (third-party auth service); frontend embeds Clerk `<SignIn />` / `<SignUp />` components directly in login/register pages
+- Backend verifies Clerk-issued JWTs on every protected request via Clerk's JWKS endpoint; no passwords stored in project database
+- RBAC enforced server-side using `role` field from user profile
 - Audit log for sensitive operations (asset deletion, permission changes)
 
 ### 4.4 Usability
@@ -292,6 +294,7 @@ Purchased → Available → On Loan → Returned → Available
 | Backend API | Node.js (ExpressJS) |
 | Database | PostgreSQL (hosted on Azure) |
 | Web frontend | React + Ant Design (responsive — PC / Pad / Phone) |
+| Auth | Clerk (embedded components + JWT verification) |
 | File storage | Supabase |
 | Push notifications | Firebase Cloud Messaging (Web Push) |
 | Deployment | PostgreSQL on Azure; backend + frontend on Vercel (separate projects) |

@@ -38,6 +38,7 @@ The solution: a responsive web application where clubs register, managers log as
 | Backend API | Node.js (ExpressJS) |
 | Database | PostgreSQL (hosted on Azure) |
 | Web frontend | React + Ant Design (responsive — PC / Pad / Phone) |
+| Auth | Clerk (embedded components + JWT verification) |
 | File storage | Supabase |
 | Push | Firebase Cloud Messaging (Web Push) |
 | Deployment | PostgreSQL on Azure; backend + frontend on Vercel (separate projects) |

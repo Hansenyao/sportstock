@@ -1,0 +1,26 @@
+import { Router } from 'express';
+import authenticate from '../middleware/auth';
+
+import authRouter          from './auth';
+import clubsRouter         from './clubs';
+import usersRouter         from './users';
+import assetsRouter        from './assets';
+import loansRouter         from './loans';
+import inventoryRouter     from './inventory';
+import reportsRouter       from './reports';
+import notificationsRouter from './notifications';
+
+const router = Router();
+
+router.use(authenticate);
+
+router.use('/auth',          authRouter);
+router.use('/clubs',         clubsRouter);
+router.use('/users',         usersRouter);
+router.use('/assets',        assetsRouter);
+router.use('/loans',         loansRouter);
+router.use('/inventory',     inventoryRouter);
+router.use('/reports',       reportsRouter);
+router.use('/notifications', notificationsRouter);
+
+export default router;

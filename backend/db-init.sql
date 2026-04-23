@@ -16,6 +16,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Tables (reverse dependency order; CASCADE drops indexes, triggers, constraints)
 DROP TABLE IF EXISTS stocktake_items     CASCADE;
+DROP TABLE IF EXISTS user_invites        CASCADE;
 DROP TABLE IF EXISTS stocktake_sessions  CASCADE;
 DROP TABLE IF EXISTS fcm_tokens          CASCADE;
 DROP TABLE IF EXISTS notifications       CASCADE;
@@ -255,6 +256,20 @@ CREATE TABLE stocktake_sessions (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT stocktake_status_check CHECK (status IN ('in_progress', 'completed', 'cancelled'))
 );
+
+-- USER_INVITES: pending club invitations (consumed on first login)
+CREATE TABLE user_invites (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id     UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    invited_by  UUID        NOT NULL REFERENCES users(id),
+    email       VARCHAR(255) NOT NULL,
+    role        user_role   NOT NULL DEFAULT 'coach',
+    accepted_at TIMESTAMPTZ,
+    expires_at  TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX uq_user_invites_pending ON user_invites(email, club_id) WHERE accepted_at IS NULL;
+CREATE INDEX idx_user_invites_email ON user_invites(email) WHERE accepted_at IS NULL;
 
 -- STOCKTAKE_ITEMS: per-asset physical count within a stocktake session
 CREATE TABLE stocktake_items (

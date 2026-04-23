@@ -60,15 +60,14 @@ The solution: a digital platform where clubs register, managers log assets, and 
 
 | Layer | Technology |
 |-------|-----------|
-| Backend API | Node.js (NestJS) or Go |
-| Database | PostgreSQL + Redis |
-| Web frontend | React + Ant Design |
-| Mobile app | React Native or Flutter |
-| File storage | AWS S3 or Alibaba Cloud OSS |
-| Push | Firebase Cloud Messaging + APNs |
-| Deployment | Docker + cloud (AWS or Alibaba Cloud) |
+| Backend API | Node.js (ExpressJS) — Vercel |
+| Database | PostgreSQL (Azure) |
+| Web frontend | React + Ant Design (responsive — PC / Pad / Phone) — Vercel |
+| File storage | Supabase |
+| Push | Firebase Cloud Messaging (Web Push) |
+| Deployment | PostgreSQL on Azure; backend + frontend as separate Vercel projects |
 
-> Tech stack is not finalized — confirm with user before starting implementation.
+> No separate native mobile app. Single responsive web application covers all devices.
 
 ---
 
@@ -81,10 +80,9 @@ The solution: a digital platform where clubs register, managers log assets, and 
 
 ## Open Questions & Decisions Pending
 
-- [ ] Confirm final tech stack (backend language, mobile framework)
-- [ ] Confirm deployment target (AWS vs Alibaba Cloud)
 - [ ] Define business/pricing model (free tier vs paid tier scope)
-- [ ] Decide whether to support offline mode in mobile app for poor-network venues
+- [ ] Decide whether to introduce caching/job queue (e.g. Redis/Upstash) when scaling beyond demo stage
+- [ ] Decide whether to support offline caching in browser for poor-network venues
 - [ ] Clarify data privacy requirements for handling youth member data
 
 ---

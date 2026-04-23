@@ -6,7 +6,7 @@
 
 The core problem: these clubs own lots of equipment (balls, jerseys, training gear, etc.) but manage it informally — coaches ask staff in person, staff write entries by hand. There is no visibility, no inventory tracking, no financial record.
 
-The solution: a digital platform where clubs register, managers log assets, and coaches request loans via web application which can be used on both PC and mobile devices.
+The solution: a responsive web application where clubs register, managers log assets, and coaches request loans — accessible from PC, pad, and phone browsers with a fluid layout that adapts to all screen sizes.
 
 
 ## User Roles (summary)
@@ -36,8 +36,8 @@ The solution: a digital platform where clubs register, managers log assets, and 
 | Layer | Technology |
 |-------|-----------|
 | Backend API | Node.js (ExpressJS) |
-| Database | PostgreSQL + Redis |
-| Web frontend | React + Ant Design |
-| File storage | supabase or others |
-| Push | Firebase Cloud Messaging + APNs |
-| Deployment | Azure + Vercel |
+| Database | PostgreSQL (hosted on Azure) |
+| Web frontend | React + Ant Design (responsive — PC / Pad / Phone) |
+| File storage | Supabase |
+| Push | Firebase Cloud Messaging (Web Push) |
+| Deployment | PostgreSQL on Azure; backend + frontend on Vercel (separate projects) |

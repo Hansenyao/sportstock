@@ -172,7 +172,7 @@ Rejected → Coach notified with reason
 | Loan overdue | Coach, Asset Manager |
 | Stock below alert threshold | Asset Manager |
 
-Delivery: In-app push notification (primary); optional email notification.
+Delivery: Web push notification via browser (primary); in-app notification when user is active; optional email notification.
 
 ### 3.7 Reports & Analytics
 
@@ -189,8 +189,7 @@ Delivery: In-app push notification (primary); optional email notification.
 
 | Client | Purpose |
 |--------|---------|
-| Web admin dashboard | For Club Admins and Asset Managers (desktop browser) |
-| Mobile app | For coaches and managers on the go (iOS + Android) |
+| Web Application (responsive) | Single responsive web app serving all user roles — fluid layout adapts to PC, Pad, and Phone (iOS/Android browsers) |
 | Backend API | Unified data layer with multi-tenant isolation |
 
 ### 4.2 Multi-Tenancy
@@ -290,13 +289,12 @@ Purchased → Available → On Loan → Returned → Available
 
 | Layer | Technology |
 |-------|-----------|
-| Backend API | Node.js (NestJS) or Go |
-| Database | PostgreSQL (primary) + Redis (cache / queues) |
-| Web frontend | React + Ant Design |
-| Mobile app | React Native (cross-platform) or Flutter |
-| File storage | AWS S3 or Alibaba Cloud OSS |
-| Push notifications | Firebase Cloud Messaging (FCM) + APNs |
-| Deployment | Docker + cloud (AWS or Alibaba Cloud) |
+| Backend API | Node.js (ExpressJS) |
+| Database | PostgreSQL (hosted on Azure) |
+| Web frontend | React + Ant Design (responsive — PC / Pad / Phone) |
+| File storage | Supabase |
+| Push notifications | Firebase Cloud Messaging (Web Push) |
+| Deployment | PostgreSQL on Azure; backend + frontend on Vercel (separate projects) |
 
 ---
 

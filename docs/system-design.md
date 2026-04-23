@@ -7,11 +7,10 @@
 
 ## 1. System Overview
 
-SportStock is a **multi-tenant SaaS platform** that digitalizes asset management for small youth sports clubs. It consists of three clients sharing a single backend API:
+SportStock is a **multi-tenant SaaS platform** that digitalizes asset management for small youth sports clubs. It consists of a responsive web application and a backend API:
 
-- **Web Dashboard** — for Club Admins and Asset Managers to manage assets, review loans, and view reports (desktop browser)
-- **Mobile App** — for Coaches to browse assets and submit loan requests, and for Managers to process check-outs/returns on the go (iOS + Android)
-- **Backend API** — RESTful service that enforces multi-tenant isolation and serves both clients
+- **Web Application** — a single responsive web app serving all user roles (Club Admin, Asset Manager, Coach). The fluid layout adapts to PC, Pad, and Phone (iOS/Android browsers). No separate native mobile app.
+- **Backend API** — RESTful service that enforces multi-tenant isolation and serves the web application
 
 Each club is an independent **tenant**. Data is fully isolated — no club can access another's records.
 
@@ -22,36 +21,30 @@ Each club is an independent **tenant**. Data is fully isolated — no club can a
 ```mermaid
 graph TB
     subgraph Clients
-        WEB[Web Dashboard<br/>React + Ant Design]
-        APP[Mobile App<br/>React Native / Flutter]
+        WEB[Web Application<br/>React + Ant Design<br/>Responsive — PC / Pad / Phone]
     end
 
-    subgraph Backend
-        API[REST API Server<br/>NestJS / Go]
+    subgraph Backend["Backend (Vercel)"]
+        API[REST API Server<br/>Node.js / ExpressJS]
         AUTH[Auth Service<br/>JWT]
-        NOTIF[Notification Service<br/>FCM + APNs]
+        NOTIF[Notification Service<br/>FCM Web Push]
         JOBS[Background Jobs<br/>Depreciation / Overdue alerts]
     end
 
     subgraph Storage
-        DB[(PostgreSQL<br/>Primary DB)]
-        CACHE[(Redis<br/>Cache + Job Queue)]
-        FILES[Object Storage<br/>AWS S3 / OSS]
+        DB[(PostgreSQL<br/>Azure)]
+        FILES[Supabase Storage]
     end
 
     WEB -->|HTTPS / REST| API
-    APP -->|HTTPS / REST| API
     API --> AUTH
     API --> DB
-    API --> CACHE
     API --> FILES
     API --> NOTIF
-    CACHE --> JOBS
     JOBS --> DB
     JOBS --> NOTIF
 
-    NOTIF -->|Push| APP
-    NOTIF -->|Email| WEB
+    NOTIF -->|Web Push / Email| WEB
 ```
 
 ---

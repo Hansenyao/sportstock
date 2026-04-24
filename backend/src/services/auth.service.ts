@@ -10,8 +10,9 @@ const resend = new Resend(config.resend.apiKey);
 const SALT_ROUNDS = 10;
 const CODE_EXPIRY_MINUTES = 15;
 
+// TODO: restore real code generation before production
 function generateCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return '123456';
 }
 
 export function signToken(userId: string): string {
@@ -100,15 +101,16 @@ export async function sendVerificationCode(
     [email.toLowerCase(), code, type]
   );
 
-  const isReg = type === 'registration';
-  await resend.emails.send({
-    from: config.resend.fromEmail,
-    to: email,
-    subject: isReg ? 'Verify your SportStock email' : 'SportStock password reset code',
-    text: isReg
-      ? `Your verification code is: ${code}\nThis code expires in ${CODE_EXPIRY_MINUTES} minutes.`
-      : `Your password reset code is: ${code}\nThis code expires in ${CODE_EXPIRY_MINUTES} minutes.`,
-  });
+  // TODO: uncomment before production
+  // const isReg = type === 'registration';
+  // await resend.emails.send({
+  //   from: config.resend.fromEmail,
+  //   to: email,
+  //   subject: isReg ? 'Verify your SportStock email' : 'SportStock password reset code',
+  //   text: isReg
+  //     ? `Your verification code is: ${code}\nThis code expires in ${CODE_EXPIRY_MINUTES} minutes.`
+  //     : `Your password reset code is: ${code}\nThis code expires in ${CODE_EXPIRY_MINUTES} minutes.`,
+  // });
 }
 
 export async function verifyEmail(email: string, code: string): Promise<void> {

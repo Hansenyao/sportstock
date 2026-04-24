@@ -3,7 +3,7 @@ import config from '../config';
 
 const pool = new Pool({
   connectionString: config.db.connectionString,
-  ssl: config.nodeEnv === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },
   max: 20,
   idleTimeoutMillis: 30000,
 });

@@ -63,13 +63,8 @@ export async function register(data: {
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows: userRows } = await client.query<{ id: string }>(
-      `INSERT INTO users (email, password_hash, name, phone, role, email_verified, club_id)
-       VALUES ($1, $2, $3, $4, 'coach', false, NULL) RETURNING id`,
-      [user.email.toLowerCase(), passwordHash, user.name.trim(), user.phone ?? null]
-    );
-    const userId = userRows[0].id;
 
+    // Create club first so we have a club_id for the user (DB constraint requires it)
     const { rows: clubRows } = await client.query<{ id: string }>(
       `INSERT INTO clubs (name, sport_type, address, contact_email)
        VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -78,9 +73,11 @@ export async function register(data: {
     const clubId = clubRows[0].id;
 
     await client.query(
-      'UPDATE users SET club_id = $1, role = $2 WHERE id = $3',
-      [clubId, 'club_admin', userId]
+      `INSERT INTO users (email, password_hash, name, phone, role, email_verified, club_id)
+       VALUES ($1, $2, $3, $4, 'club_admin', false, $5)`,
+      [user.email.toLowerCase(), passwordHash, user.name.trim(), user.phone ?? null, clubId]
     );
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');

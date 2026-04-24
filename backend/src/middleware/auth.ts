@@ -9,8 +9,8 @@ async function authenticate(req: Request, res: Response, next: NextFunction): Pr
       return;
     }
 
-    const payload = await authService.verifyToken(authHeader.slice(7));
-    const user = await authService.getOrCreateUser(payload.sub);
+    const payload = authService.verifyToken(authHeader.slice(7));
+    const user = await authService.getUserById(payload.sub);
 
     if (!user.is_active) {
       res.status(403).json({ statusCode: 403, error: 'Forbidden', message: 'Account is deactivated' });

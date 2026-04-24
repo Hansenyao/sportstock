@@ -8,17 +8,17 @@
 -- ============================================================
 
 -- Tables (reverse dependency order; CASCADE drops indexes, triggers, constraints)
-DROP TABLE IF EXISTS stocktake_items     CASCADE;
-DROP TABLE IF EXISTS user_invites        CASCADE;
-DROP TABLE IF EXISTS stocktake_sessions  CASCADE;
-DROP TABLE IF EXISTS fcm_tokens          CASCADE;
-DROP TABLE IF EXISTS notifications       CASCADE;
-DROP TABLE IF EXISTS stock_movements     CASCADE;
-DROP TABLE IF EXISTS loans               CASCADE;
-DROP TABLE IF EXISTS assets              CASCADE;
-DROP TABLE IF EXISTS users               CASCADE;
-DROP TABLE IF EXISTS asset_categories    CASCADE;
-DROP TABLE IF EXISTS clubs               CASCADE;
+DROP TABLE IF EXISTS stocktake_items      CASCADE;
+DROP TABLE IF EXISTS stocktake_sessions   CASCADE;
+DROP TABLE IF EXISTS fcm_tokens           CASCADE;
+DROP TABLE IF EXISTS notifications        CASCADE;
+DROP TABLE IF EXISTS stock_movements      CASCADE;
+DROP TABLE IF EXISTS loans                CASCADE;
+DROP TABLE IF EXISTS assets               CASCADE;
+DROP TABLE IF EXISTS users                CASCADE;
+DROP TABLE IF EXISTS asset_categories     CASCADE;
+DROP TABLE IF EXISTS clubs                CASCADE;
+DROP TABLE IF EXISTS email_verifications  CASCADE;
 
 -- Functions and procedures
 DROP PROCEDURE IF EXISTS purchase_stock(UUID, UUID, INT, TEXT);
@@ -96,6 +96,21 @@ CREATE TYPE notification_type AS ENUM (
 -- Tables
 -- ============================================================
 
+-- EMAIL_VERIFICATIONS: OTP codes for email verification and password reset
+CREATE TABLE email_verifications (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    email      VARCHAR(255) NOT NULL,
+    code       VARCHAR(6)  NOT NULL,
+    type       VARCHAR(20) NOT NULL CHECK (type IN ('registration', 'password_reset')),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '15 minutes',
+    used_at    TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_email_verifications_lookup
+    ON email_verifications(email, type)
+    WHERE used_at IS NULL;
+
 -- CLUBS: tenant root; one row = one tenant
 CREATE TABLE clubs (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -129,18 +144,20 @@ CREATE UNIQUE INDEX uq_asset_categories_system_name
     ON asset_categories(name)
     WHERE club_id IS NULL;
 
--- USERS: club members; super_admin rows have club_id = NULL
+-- USERS: platform users; super_admin rows have club_id = NULL
+-- Authentication: email + bcrypt-hashed password; no external auth provider
 CREATE TABLE users (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    club_id     UUID        REFERENCES clubs(id) ON DELETE CASCADE,
-    clerk_id    VARCHAR(255) NOT NULL UNIQUE,   -- Clerk user ID; no password stored
-    name        VARCHAR(255) NOT NULL,
-    email       VARCHAR(255) NOT NULL,
-    phone       VARCHAR(50),
-    role        user_role   NOT NULL DEFAULT 'coach',
-    is_active   BOOLEAN     NOT NULL DEFAULT true,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id         UUID        REFERENCES clubs(id) ON DELETE CASCADE,
+    email           VARCHAR(255) NOT NULL UNIQUE,
+    password_hash   TEXT        NOT NULL,
+    name            VARCHAR(255) NOT NULL,
+    phone           VARCHAR(50),
+    role            user_role   NOT NULL DEFAULT 'coach',
+    email_verified  BOOLEAN     NOT NULL DEFAULT false,
+    is_active       BOOLEAN     NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT club_required_for_club_roles CHECK (
         role = 'super_admin' OR club_id IS NOT NULL
     )
@@ -168,9 +185,9 @@ CREATE TABLE assets (
     is_active           BOOLEAN     NOT NULL DEFAULT true,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT total_qty_non_negative    CHECK (total_quantity >= 0),
+    CONSTRAINT total_qty_non_negative     CHECK (total_quantity >= 0),
     CONSTRAINT available_qty_non_negative CHECK (available_quantity >= 0),
-    CONSTRAINT available_lte_total       CHECK (available_quantity <= total_quantity)
+    CONSTRAINT available_lte_total        CHECK (available_quantity <= total_quantity)
 );
 
 -- LOANS: borrow/return transaction lifecycle
@@ -221,7 +238,7 @@ CREATE TABLE notifications (
     type        notification_type NOT NULL,
     title       VARCHAR(255)      NOT NULL,
     body        TEXT,
-    data        JSONB,            -- arbitrary payload (e.g. loan_id, asset_id)
+    data        JSONB,
     is_read     BOOLEAN           NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ       NOT NULL DEFAULT NOW()
 );
@@ -250,30 +267,16 @@ CREATE TABLE stocktake_sessions (
     CONSTRAINT stocktake_status_check CHECK (status IN ('in_progress', 'completed', 'cancelled'))
 );
 
--- USER_INVITES: pending club invitations (consumed on first login)
-CREATE TABLE user_invites (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    club_id     UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-    invited_by  UUID        NOT NULL REFERENCES users(id),
-    email       VARCHAR(255) NOT NULL,
-    role        user_role   NOT NULL DEFAULT 'coach',
-    accepted_at TIMESTAMPTZ,
-    expires_at  TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE UNIQUE INDEX uq_user_invites_pending ON user_invites(email, club_id) WHERE accepted_at IS NULL;
-CREATE INDEX idx_user_invites_email ON user_invites(email) WHERE accepted_at IS NULL;
-
 -- STOCKTAKE_ITEMS: per-asset physical count within a stocktake session
 CREATE TABLE stocktake_items (
-    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id       UUID NOT NULL REFERENCES stocktake_sessions(id) ON DELETE CASCADE,
-    asset_id         UUID NOT NULL REFERENCES assets(id),
-    system_quantity  INT  NOT NULL,
-    physical_quantity INT NOT NULL,
-    variance         INT  GENERATED ALWAYS AS (physical_quantity - system_quantity) STORED,
-    notes            TEXT,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id        UUID NOT NULL REFERENCES stocktake_sessions(id) ON DELETE CASCADE,
+    asset_id          UUID NOT NULL REFERENCES assets(id),
+    system_quantity   INT  NOT NULL,
+    physical_quantity INT  NOT NULL,
+    variance          INT  GENERATED ALWAYS AS (physical_quantity - system_quantity) STORED,
+    notes             TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (session_id, asset_id)
 );
 
@@ -283,8 +286,8 @@ CREATE TABLE stocktake_items (
 -- ============================================================
 
 -- Users
-CREATE INDEX idx_users_club_id  ON users(club_id);
-CREATE INDEX idx_users_clerk_id ON users(clerk_id);
+CREATE INDEX idx_users_club_id ON users(club_id);
+CREATE INDEX idx_users_email   ON users(email);
 
 -- Assets
 CREATE INDEX idx_assets_club_id       ON assets(club_id);
@@ -292,12 +295,12 @@ CREATE INDEX idx_assets_club_status   ON assets(club_id, status);
 CREATE INDEX idx_assets_club_category ON assets(club_id, category_id);
 
 -- Loans
-CREATE INDEX idx_loans_club_id       ON loans(club_id);
-CREATE INDEX idx_loans_asset_id      ON loans(asset_id);
-CREATE INDEX idx_loans_coach_id      ON loans(coach_id);
-CREATE INDEX idx_loans_club_status   ON loans(club_id, status);
+CREATE INDEX idx_loans_club_id     ON loans(club_id);
+CREATE INDEX idx_loans_asset_id    ON loans(asset_id);
+CREATE INDEX idx_loans_coach_id    ON loans(coach_id);
+CREATE INDEX idx_loans_club_status ON loans(club_id, status);
 -- Partial index for overdue-check background job
-CREATE INDEX idx_loans_active_due    ON loans(due_date) WHERE status = 'checked_out';
+CREATE INDEX idx_loans_active_due  ON loans(due_date) WHERE status = 'checked_out';
 
 -- Stock movements
 CREATE INDEX idx_stock_movements_club_id  ON stock_movements(club_id);
@@ -365,8 +368,8 @@ BEGIN
         ) AS net_book_value
     FROM assets a
     WHERE a.id = p_asset_id
-      AND a.purchase_price   IS NOT NULL
-      AND a.purchase_date    IS NOT NULL
+      AND a.purchase_price    IS NOT NULL
+      AND a.purchase_date     IS NOT NULL
       AND a.useful_life_years IS NOT NULL
       AND a.useful_life_years > 0;
 END;
@@ -403,9 +406,9 @@ BEGIN
                 'threshold',          v_threshold
             )
         FROM users u
-        WHERE u.club_id   = NEW.club_id
-          AND u.role       IN ('asset_manager', 'club_admin')
-          AND u.is_active  = true;
+        WHERE u.club_id  = NEW.club_id
+          AND u.role      IN ('asset_manager', 'club_admin')
+          AND u.is_active = true;
     END IF;
 
     RETURN NEW;
@@ -544,9 +547,9 @@ CREATE OR REPLACE PROCEDURE return_loan(
     p_notes       TEXT DEFAULT NULL
 ) LANGUAGE plpgsql AS $$
 DECLARE
-    v_club_id        UUID;
-    v_asset_id       UUID;
-    v_quantity       INT;
+    v_club_id          UUID;
+    v_asset_id         UUID;
+    v_quantity         INT;
     v_available_before INT;
 BEGIN
     SELECT club_id, asset_id, quantity
@@ -562,11 +565,11 @@ BEGIN
     FROM   assets WHERE id = v_asset_id;
 
     UPDATE loans
-    SET status               = 'returned',
-        return_confirmed_by  = p_operator_id,
-        returned_at          = NOW(),
-        return_condition     = p_condition,
-        return_notes         = p_notes
+    SET status              = 'returned',
+        return_confirmed_by = p_operator_id,
+        returned_at         = NOW(),
+        return_condition    = p_condition,
+        return_notes        = p_notes
     WHERE id = p_loan_id;
 
     IF p_condition IN ('good'::return_condition, 'minor_damage'::return_condition) THEN
@@ -602,13 +605,13 @@ $$;
 
 -- Mark maintenance done and restore available quantity
 CREATE OR REPLACE PROCEDURE complete_maintenance(
-    p_asset_id         UUID,
-    p_operator_id      UUID,
+    p_asset_id          UUID,
+    p_operator_id       UUID,
     p_quantity_restored INT,
-    p_notes            TEXT DEFAULT NULL
+    p_notes             TEXT DEFAULT NULL
 ) LANGUAGE plpgsql AS $$
 DECLARE
-    v_club_id        UUID;
+    v_club_id          UUID;
     v_available_before INT;
 BEGIN
     SELECT club_id, available_quantity
@@ -646,8 +649,8 @@ CREATE OR REPLACE PROCEDURE retire_asset(
     p_notes       TEXT DEFAULT NULL
 ) LANGUAGE plpgsql AS $$
 DECLARE
-    v_club_id        UUID;
-    v_total_qty      INT;
+    v_club_id          UUID;
+    v_total_qty        INT;
     v_available_before INT;
 BEGIN
     SELECT club_id, total_quantity, available_quantity
@@ -692,7 +695,7 @@ CREATE OR REPLACE PROCEDURE purchase_stock(
     p_notes       TEXT DEFAULT NULL
 ) LANGUAGE plpgsql AS $$
 DECLARE
-    v_club_id        UUID;
+    v_club_id          UUID;
     v_available_before INT;
 BEGIN
     IF p_quantity <= 0 THEN
@@ -711,7 +714,6 @@ BEGIN
     UPDATE assets
     SET total_quantity     = total_quantity + p_quantity,
         available_quantity = available_quantity + p_quantity,
-        -- if previously retired and stock arrives, reactivate
         status = CASE WHEN status = 'retired' THEN 'available'::asset_status ELSE status END
     WHERE id = p_asset_id;
 
@@ -727,12 +729,18 @@ $$;
 
 
 -- ============================================================
--- Seed Data: system-wide asset categories
+-- Seed Data
 -- ============================================================
 
+-- System-wide asset categories
 INSERT INTO asset_categories (club_id, name, is_system) VALUES
-    (NULL, 'Balls',               true),
-    (NULL, 'Training Equipment',  true),
-    (NULL, 'Apparel & Gear',      true),
-    (NULL, 'Facility Equipment',  true),
-    (NULL, 'Office Supplies',     true);
+    (NULL, 'Balls',              true),
+    (NULL, 'Training Equipment', true),
+    (NULL, 'Apparel & Gear',     true),
+    (NULL, 'Facility Equipment', true),
+    (NULL, 'Office Supplies',    true);
+
+-- NOTE: Default super admin must be created by running:
+--   npx ts-node scripts/seed-admin.ts
+-- Default credentials: admin@sportstock.com / Admin@SportStock2024
+-- Change the password immediately after first login.

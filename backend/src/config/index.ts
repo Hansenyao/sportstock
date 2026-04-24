@@ -8,9 +8,14 @@ const config = {
     connectionString: process.env.DATABASE_URL,
   },
 
-  clerk: {
-    secretKey: process.env.CLERK_SECRET_KEY,
-    publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+  jwt: {
+    secret: process.env.JWT_SECRET ?? 'sportstock-jwt-secret-change-in-production',
+    expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
+  },
+
+  resend: {
+    apiKey: process.env.RESEND_API_KEY ?? '',
+    fromEmail: process.env.RESEND_FROM_EMAIL ?? 'noreply@sportstock.com',
   },
 
   supabase: {

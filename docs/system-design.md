@@ -1,7 +1,7 @@
 # SportStock — System Design
 
-> Document Version: v1.0
-> Created: 2026-04-04
+> Document Version: v2.0
+> Updated: 2026-04-24
 
 ---
 
@@ -14,7 +14,7 @@ SportStock is a **multi-tenant SaaS platform** that digitalizes asset management
 
 Each club is an independent **tenant**. Data is fully isolated — no club can access another's records.
 
-Authentication is delegated to **Clerk** (third-party auth service). Clerk's `<SignIn />` and `<SignUp />` components are embedded directly in the login/register pages. The backend verifies Clerk-issued JWTs on every protected request. The project database stores no passwords — only a `clerk_id` reference per user.
+Authentication is **platform-owned**: users register with email + password, login returns a signed JWT. Email verification and password reset use OTP codes delivered via **Resend**. No external auth provider is used.
 
 ---
 
@@ -28,7 +28,7 @@ graph TB
 
     subgraph Backend["Backend (Vercel)"]
         API[REST API Server<br/>Node.js / ExpressJS]
-        AUTH[Auth Middleware<br/>Clerk JWT Verification]
+        AUTH[Auth Middleware<br/>JWT Verification]
         NOTIF[Notification Service<br/>FCM Web Push]
         JOBS[Background Jobs<br/>Depreciation / Overdue alerts]
     end
@@ -38,15 +38,17 @@ graph TB
         FILES[Supabase Storage]
     end
 
-    CLERK[Clerk<br/>Auth Service]
+    subgraph Email
+        RESEND[Resend<br/>Email Service]
+    end
 
     WEB -->|HTTPS / REST| API
-    WEB <-->|Embedded SignIn / SignUp| CLERK
     API --> AUTH
-    AUTH -->|Verify JWT via JWKS| CLERK
+    AUTH -->|Verify JWT| API
     API --> DB
     API --> FILES
     API --> NOTIF
+    API --> RESEND
     JOBS --> DB
     JOBS --> NOTIF
 
@@ -61,6 +63,16 @@ Each resource is scoped to a `club_id`, ensuring complete isolation between tena
 
 ```mermaid
 erDiagram
+    EMAIL_VERIFICATIONS {
+        uuid id PK
+        string email
+        string code "6-digit OTP"
+        string type "registration | password_reset"
+        timestamp expires_at
+        timestamp used_at
+        timestamp created_at
+    }
+
     CLUB {
         uuid id PK
         string name
@@ -73,11 +85,12 @@ erDiagram
     USER {
         uuid id PK
         uuid club_id FK
-        string clerk_id UK "Clerk user ID — no password stored"
+        string email UK
+        string password_hash "bcrypt hash"
         string name
-        string email
         string phone
         enum role "club_admin | asset_manager | coach"
+        boolean email_verified
         boolean is_active
     }
 
@@ -106,7 +119,7 @@ erDiagram
         uuid approved_by FK
         int quantity
         string reason
-        enum status "pending | approved | rejected | returned"
+        enum status "pending | approved | rejected | checked_out | returned"
         date due_date
         timestamp checked_out_at
         timestamp returned_at
@@ -138,52 +151,87 @@ erDiagram
 
 ### 4.1 User Authentication Flow
 
-Authentication is fully delegated to Clerk. The project handles only profile lookup/creation after token verification.
+Authentication is fully owned by the platform. No external auth provider.
 
 ```mermaid
 flowchart TD
-    subgraph Frontend["Frontend (Clerk embedded components)"]
-        A([User visits Login / Register page])
-        B[Clerk SignIn or SignUp component renders]
-        C[User enters credentials]
-        D{Clerk authenticates}
-        E[Clerk component shows error]
-        F[Clerk issues signed JWT\nand manages session]
+    subgraph Registration["Club Registration (Public)"]
+        A([Club registers: POST /auth/register])
+        B[Validate inputs\nCheck email + club name uniqueness]
+        C[Create user + club atomically\nemail_verified = false]
+        D[Send 6-digit OTP to email via Resend]
+        E[POST /auth/verify-email with OTP]
+        F[Mark email_verified = true]
     end
 
-    subgraph BackendMiddleware["Backend — Auth Middleware"]
-        G[Extract Bearer token from request header]
-        H[Verify JWT signature\nvia Clerk JWKS endpoint]
-        I{Token valid?}
-        J[Return 401 Unauthorized]
-        K[Extract clerk_id from token claims]
-        L{User profile\nexists in DB?}
-        M[Create user profile\nclerk_id · name · email]
-        N[Inject profile into request context\nid · club_id · role · clerk_id]
+    subgraph Login
+        G([POST /auth/login])
+        H[Verify email + password\nbcrypt.compare]
+        I{Email verified?}
+        J[Return 403 — unverified]
+        K[Sign JWT sub=userId\nReturn token + user profile]
     end
 
-    A --> B --> C --> D
-    D -- Failure --> E --> C
-    D -- Success --> F
+    subgraph Protected["Protected API Request"]
+        L[Extract Bearer token]
+        M[jwt.verify → userId]
+        N[Load user from DB by userId]
+        O([Route handler proceeds])
+    end
 
-    F -->|"Bearer token on every API request"| G
+    A --> B --> C --> D --> E --> F
+
     G --> H --> I
-    I -- Invalid / Expired --> J
-    I -- Valid --> K --> L
-    L -- Not found\nfirst login --> M --> N
-    L -- Found --> N
-    N --> O([Route handler proceeds])
+    I -- No --> J
+    I -- Yes --> K
+
+    K -->|Bearer token| L --> M --> N --> O
+```
+
+### 4.2 User Management Flow
+
+```mermaid
+flowchart TD
+    A([Club Admin creates user\nPOST /api/v1/users])
+    B[Validate email uniqueness]
+    C[Generate random temp password]
+    D[Hash password with bcrypt]
+    E[Insert user with email_verified = true]
+    F[Email temp password to new user via Resend]
+    G([User logs in with temp password])
+    H([User changes password via PUT /auth/password])
+
+    A --> B --> C --> D --> E --> F --> G --> H
+```
+
+### 4.3 Password Reset Flow
+
+```mermaid
+flowchart TD
+    A([POST /auth/forgot-password with email])
+    B{Email exists and verified?}
+    C[Silent response — never reveal existence]
+    D[Insert 6-digit OTP in email_verifications]
+    E[Send OTP email via Resend]
+    F([POST /auth/reset-password with email + OTP + new_password])
+    G[Validate OTP not expired and unused]
+    H[Mark OTP as used]
+    I[Hash + save new password]
+
+    A --> B
+    B -- No --> C
+    B -- Yes --> D --> E --> F --> G --> H --> I
 ```
 
 ---
 
-### 4.2 Loan Request & Approval Flow
+### 4.4 Loan Request & Approval Flow
 
 ```mermaid
 flowchart TD
     A([Coach opens app]) --> B[Browse available assets]
     B --> C[Select asset + quantity]
-    C --> D[Fill in reason\n& due date]
+    C --> D[Fill in reason & due date]
     D --> E[Submit loan request]
     E --> F[Loan saved as PENDING\nNotification sent to manager]
 
@@ -201,7 +249,7 @@ flowchart TD
     L -- Overdue --> N[Alert coach + manager]
 
     K --> O[Coach initiates return via app]
-    O --> P[Manager confirms receipt\n& records condition]
+    O --> P[Manager confirms receipt & records condition]
 
     P --> Q{Item condition?}
     Q -- Good --> R[Loan status → RETURNED\nAvailable qty restored]
@@ -219,20 +267,20 @@ flowchart TD
 
 ---
 
-### 4.3 Asset Lifecycle
+### 4.5 Asset Lifecycle
 
 ```mermaid
 stateDiagram-v2
     [*] --> Available : Purchase / receive stock
 
-    Available --> OnLoan : Loan approved\n& checked out
-    OnLoan --> Available : Returned in good\nor minor damage condition
+    Available --> OnLoan : Loan approved & checked out
+    OnLoan --> Available : Returned in good or minor damage condition
     OnLoan --> UnderMaintenance : Returned severely damaged
 
-    Available --> UnderMaintenance : Manually flagged\nfor repair
+    Available --> UnderMaintenance : Manually flagged for repair
     UnderMaintenance --> Available : Repair completed
 
-    Available --> Retired : Decommissioned\nby manager
+    Available --> Retired : Decommissioned by manager
     UnderMaintenance --> Retired : Beyond repair
 
     Retired --> [*]
@@ -240,47 +288,17 @@ stateDiagram-v2
 
 ---
 
-### 4.4 Inventory Stock Movement
-
-```mermaid
-flowchart LR
-    subgraph Inbound
-        A[Purchase / Receive]
-        B[Return from loan\nin good condition]
-        C[Repair completed]
-    end
-
-    subgraph Stock[Available Inventory]
-        D((Available\nQty))
-    end
-
-    subgraph Outbound
-        E[Loan checked out]
-        F[Written off / Retired]
-        G[Sent for repair]
-    end
-
-    A -->|+qty| D
-    B -->|+qty| D
-    C -->|+qty| D
-    D -->|-qty| E
-    D -->|-qty| F
-    D -->|-qty| G
-```
-
----
-
-### 4.5 Depreciation Calculation (Straight-Line Method)
+### 4.6 Depreciation Calculation (Straight-Line Method)
 
 ```mermaid
 flowchart TD
-    A[Asset recorded with:\nPurchase Price P\nUseful Life Y years\nPurchase Date] --> B[Annual Depreciation\n= P ÷ Y]
-    B --> C{Current date vs\npurchase date}
+    A[Asset recorded with:\nPurchase Price P\nUseful Life Y years\nPurchase Date] --> B[Annual Depreciation = P ÷ Y]
+    B --> C{Current date vs purchase date}
     C --> D[Years Elapsed = N]
-    D --> E[Accumulated Depreciation\n= Annual Depreciation × N]
+    D --> E[Accumulated Depreciation = Annual × N]
     E --> F{Accumulated ≥ P?}
     F -- Yes --> G[Net Book Value = 0\nAsset fully depreciated]
-    F -- No --> H[Net Book Value\n= P − Accumulated Depreciation]
+    F -- No --> H[Net Book Value = P − Accumulated]
     G --> I([Report shown to Club Admin])
     H --> I
 ```
@@ -290,8 +308,8 @@ flowchart TD
 ## 5. API Design Principles
 
 - **RESTful** — standard HTTP verbs (GET, POST, PUT, PATCH, DELETE)
-- **Multi-tenant scoping** — all endpoints implicitly scoped to the authenticated user's `club_id`; no cross-club access possible
-- **JWT auth** — Bearer token required on all protected routes
+- **Multi-tenant scoping** — all protected endpoints implicitly scoped to the authenticated user's `club_id`
+- **JWT auth** — Bearer token required on all protected routes; issued by `POST /auth/login`
 - **Versioning** — URL-based versioning (`/api/v1/...`)
 - **Pagination** — all list endpoints support `page` + `limit` query params
 - **Consistent error format**:
@@ -305,16 +323,17 @@ flowchart TD
 
 ### Key API Resource Groups
 
-| Resource | Base Path | Notes |
-|----------|-----------|-------|
-| Auth | `/api/v1/auth` | `GET /me` — fetch or sync current user profile (called on first login) |
-| Clubs | `/api/v1/clubs` | Registration, profile |
-| Users | `/api/v1/users` | Invite, role assignment, deactivate |
-| Assets | `/api/v1/assets` | CRUD, bulk import, status update |
-| Loans | `/api/v1/loans` | Request, approve/reject, check-out, return |
-| Inventory | `/api/v1/inventory` | Stock movements, stocktake |
-| Reports | `/api/v1/reports` | Financial summary, depreciation, usage stats |
-| Notifications | `/api/v1/notifications` | List, mark as read |
+| Resource | Base Path | Auth | Notes |
+|----------|-----------|------|-------|
+| Auth (public) | `/api/v1/auth` | None | `POST /register`, `/login`, `/verify-email`, `/forgot-password`, `/reset-password` |
+| Auth (protected) | `/api/v1/auth` | JWT | `GET /me`, `PUT /password` |
+| Clubs | `/api/v1/clubs` | JWT | `GET /me`, `PUT /me`, `PUT /me/logo` |
+| Users | `/api/v1/users` | JWT | CRUD; `POST /` (admin only — creates user directly) |
+| Assets | `/api/v1/assets` | JWT | CRUD, categories, depreciation |
+| Loans | `/api/v1/loans` | JWT | Request, approve/reject, check-out, return |
+| Inventory | `/api/v1/inventory` | JWT | Stock movements, stocktake |
+| Reports | `/api/v1/reports` | JWT | Financial summary, depreciation, usage stats |
+| Notifications | `/api/v1/notifications` | JWT | List, mark as read, FCM tokens |
 
 ---
 
@@ -322,12 +341,26 @@ flowchart TD
 
 | Concern | Approach |
 |---------|---------|
-| Authentication | Delegated to Clerk; backend verifies Clerk-issued JWTs via JWKS on every protected request |
-| Credential storage | No passwords in project DB — Clerk owns all credentials and session management |
+| Authentication | Platform-owned JWT auth; `POST /auth/login` issues signed JWT |
+| Password storage | bcrypt (10 rounds) — passwords never stored in plaintext |
+| Email verification | 6-digit OTP via Resend, 15-minute expiry, single-use |
 | Authorization | RBAC enforced server-side using `role` from user profile |
-| Tenant isolation | `club_id` looked up from user profile (keyed by `clerk_id`) — never trusted from request body |
+| Tenant isolation | `club_id` loaded from DB via JWT sub (userId) — never trusted from request body |
 | Transport security | HTTPS enforced on all endpoints |
 | Sensitive operations | Audit log records who did what and when |
+
+---
+
+## 7. Default Super Admin
+
+A default platform super admin is created by running the seed script after initializing the schema:
+
+```bash
+npm run seed:admin
+```
+
+Default credentials: `admin@sportstock.com` / `Admin@SportStock2024`
+**Change the password immediately after first login.**
 
 ---
 

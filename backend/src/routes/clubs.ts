@@ -6,9 +6,8 @@ import requireRole from '../middleware/requireRole';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-router.post('/',         ctrl.register);
-router.get('/me',        ctrl.getMyClub);
-router.put('/me',        requireRole('club_admin'), ctrl.updateMyClub);
-router.put('/me/logo',   requireRole('club_admin'), upload.single('logo'), ctrl.uploadLogo);
+router.get('/me',      ctrl.getMyClub);
+router.put('/me',      requireRole('club_admin'), ctrl.updateMyClub);
+router.put('/me/logo', requireRole('club_admin'), upload.single('logo'), ctrl.uploadLogo);
 
 export default router;

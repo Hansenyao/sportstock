@@ -37,20 +37,10 @@ export const deactivateUser: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const inviteUser: RequestHandler = async (req, res, next) => {
+export const createUser: RequestHandler = async (req, res, next) => {
   try {
-    const { email, role } = req.body as { email: string; role?: string };
-    const invite = await userService.inviteUser(req.user.club_id as string, req.user.id, email, role);
-    res.status(201).json(invite);
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const listInvites: RequestHandler = async (req, res, next) => {
-  try {
-    const invites = await userService.listInvites(req.user.club_id as string);
-    res.json(invites);
+    const user = await userService.createUser(req.user.club_id as string, req.body);
+    res.status(201).json(user);
   } catch (err) {
     next(err);
   }

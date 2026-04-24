@@ -63,7 +63,7 @@ Build a **multi-tenant SaaS platform + mobile app** where each club registers in
 ### 3.1 Club Management
 
 - **Club registration**: Name, sport type, address, contact info
-- **Member management**: Invite via email/link, assign roles, deactivate accounts
+- **Member management**: Club admin creates member accounts (asset_manager/coach) directly; system emails temporary password to new user; role assignment and deactivation
 - **Club profile**: Edit basic info, upload logo
 
 ### 3.2 Asset Management
@@ -200,8 +200,9 @@ Delivery: Web push notification via browser (primary); in-app notification when 
 ### 4.3 Security
 
 - All API communication over HTTPS
-- Authentication via Clerk (third-party auth service); frontend embeds Clerk `<SignIn />` / `<SignUp />` components directly in login/register pages
-- Backend verifies Clerk-issued JWTs on every protected request via Clerk's JWKS endpoint; no passwords stored in project database
+- Authentication: platform-owned system — email + bcrypt-hashed password; JWT issued on login
+- Email verification required at registration (OTP via Resend)
+- Password reset via email OTP (Resend)
 - RBAC enforced server-side using `role` field from user profile
 - Audit log for sensitive operations (asset deletion, permission changes)
 
@@ -294,7 +295,7 @@ Purchased → Available → On Loan → Returned → Available
 | Backend API | Node.js (ExpressJS) |
 | Database | PostgreSQL (hosted on Azure) |
 | Web frontend | React + Ant Design (responsive — PC / Pad / Phone) |
-| Auth | Clerk (embedded components + JWT verification) |
+| Auth | Platform-owned: email + password, JWT, email OTP via Resend |
 | File storage | Supabase |
 | Push notifications | Firebase Cloud Messaging (Web Push) |
 | Deployment | PostgreSQL on Azure; backend + frontend on Vercel (separate projects) |

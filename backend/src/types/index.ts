@@ -10,7 +10,6 @@ export type NotificationType =
 export interface AuthUser {
   id: string;
   club_id: string | null;
-  clerk_id: string;
   name: string;
   email: string;
   role: UserRole;

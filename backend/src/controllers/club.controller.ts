@@ -2,16 +2,6 @@ import type { RequestHandler } from 'express';
 import * as clubService from '../services/club.service';
 import AppError from '../utils/AppError';
 
-export const register: RequestHandler = async (req, res, next) => {
-  try {
-    if (req.user.club_id) throw new AppError('You already belong to a club', 409);
-    const club = await clubService.registerClub(req.user.id, req.body);
-    res.status(201).json(club);
-  } catch (err) {
-    next(err);
-  }
-};
-
 export const getMyClub: RequestHandler = async (req, res, next) => {
   try {
     if (!req.user.club_id) throw new AppError('You have not joined a club yet', 404);

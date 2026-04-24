@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authenticate from '../middleware/auth';
+import * as authCtrl from '../controllers/auth.controller';
 
 import authRouter          from './auth';
 import clubsRouter         from './clubs';
@@ -12,6 +13,15 @@ import notificationsRouter from './notifications';
 
 const router = Router();
 
+// ── Public auth endpoints (no JWT required) ──────────────────
+router.post('/auth/register',            authCtrl.register);
+router.post('/auth/verify-email',        authCtrl.verifyEmail);
+router.post('/auth/resend-verification', authCtrl.resendVerification);
+router.post('/auth/login',               authCtrl.login);
+router.post('/auth/forgot-password',     authCtrl.forgotPassword);
+router.post('/auth/reset-password',      authCtrl.resetPassword);
+
+// ── All routes below require a valid JWT ─────────────────────
 router.use(authenticate);
 
 router.use('/auth',          authRouter);

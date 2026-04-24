@@ -1,8 +1,17 @@
-import { query } from '../../src/db';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { query, pool } from '../../src/db';
 
-/** Token format recognised by our Clerk mock: "test|{clerkId}" */
-export function authHeader(clerkId: string): Record<string, string> {
-  return { Authorization: `Bearer test|${clerkId}` };
+const JWT_SECRET = process.env.JWT_SECRET ?? 'sportstock-jwt-secret-change-in-production';
+
+// Test password used when creating test users via the helpers
+export const TEST_PASSWORD = 'TestPass@123';
+// Bcrypt hash computed once at module load (rounds=1 for speed)
+const TEST_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 1);
+
+export function authHeader(userId: string): Record<string, string> {
+  const token = jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: '1h' });
+  return { Authorization: `Bearer ${token}` };
 }
 
 export async function createClub(name: string): Promise<string> {
@@ -13,19 +22,26 @@ export async function createClub(name: string): Promise<string> {
   return rows[0].id;
 }
 
-interface TestUser { id: string; club_id: string | null; clerk_id: string; role: string; }
+export interface TestUser {
+  id: string;
+  club_id: string | null;
+  email: string;
+  role: string;
+}
 
 export async function createUser(
-  clerkId: string,
+  email: string,
   clubId: string | null,
   role: string
 ): Promise<TestUser> {
   const { rows } = await query<TestUser>(
-    `INSERT INTO users (clerk_id, name, email, club_id, role)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (clerk_id) DO UPDATE SET club_id = EXCLUDED.club_id, role = EXCLUDED.role
-     RETURNING id, club_id, clerk_id, role`,
-    [clerkId, `Test ${role}`, `${clerkId}@test.com`, clubId, role]
+    `INSERT INTO users (email, password_hash, name, club_id, role, email_verified)
+     VALUES ($1, $2, $3, $4, $5, true)
+     ON CONFLICT (email) DO UPDATE
+       SET club_id = EXCLUDED.club_id,
+           role    = EXCLUDED.role
+     RETURNING id, club_id, email, role`,
+    [email, TEST_PASSWORD_HASH, `Test ${role}`, clubId, role]
   );
   return rows[0];
 }
@@ -36,7 +52,7 @@ export async function createAsset(
   name: string,
   quantity = 5
 ): Promise<string> {
-  const client = await (await import('../../src/db')).pool.connect();
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query<{ id: string }>(
@@ -46,7 +62,8 @@ export async function createAsset(
     );
     const assetId = rows[0].id;
     await client.query(
-      `INSERT INTO stock_movements (club_id, asset_id, operator_id, type, quantity_delta, quantity_before, quantity_after, notes)
+      `INSERT INTO stock_movements
+         (club_id, asset_id, operator_id, type, quantity_delta, quantity_before, quantity_after, notes)
        VALUES ($1,$2,$3,'purchase',$4,0,$4,'Test setup')`,
       [clubId, assetId, operatorId, quantity]
     );
@@ -64,8 +81,8 @@ export async function deleteClub(clubId: string): Promise<void> {
   await query('DELETE FROM clubs WHERE id = $1', [clubId]);
 }
 
-export async function deleteUsers(clerkIds: string[]): Promise<void> {
-  for (const id of clerkIds) {
-    await query('DELETE FROM users WHERE clerk_id = $1', [id]);
+export async function deleteUsers(emails: string[]): Promise<void> {
+  for (const email of emails) {
+    await query('DELETE FROM users WHERE email = $1', [email]);
   }
 }

@@ -1,8 +1,18 @@
+import bcrypt from 'bcryptjs';
+import { Resend } from 'resend';
 import * as db from '../db';
+import config from '../config';
 import AppError from '../utils/AppError';
 import type { PaginatedResult } from '../types';
 
+const resend = new Resend(config.resend.apiKey);
+
 const CLUB_ROLES = ['club_admin', 'asset_manager', 'coach'];
+
+function generateTempPassword(): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
 
 export async function listUsers(
   clubId: string,
@@ -73,7 +83,11 @@ export async function updateUser(
   return rows[0];
 }
 
-export async function deactivateUser(targetId: string, clubId: string, requesterId: string): Promise<void> {
+export async function deactivateUser(
+  targetId: string,
+  clubId: string,
+  requesterId: string
+): Promise<void> {
   if (targetId === requesterId) throw new AppError('You cannot deactivate your own account', 400);
   const { rows } = await db.query<{ id: string }>(
     'UPDATE users SET is_active = false WHERE id = $1 AND club_id = $2 RETURNING id',
@@ -82,40 +96,41 @@ export async function deactivateUser(targetId: string, clubId: string, requester
   if (!rows.length) throw new AppError('User not found', 404);
 }
 
-export async function inviteUser(
+export async function createUser(
   clubId: string,
-  inviterId: string,
-  email: string,
-  role = 'coach'
+  { email, name, role = 'coach', phone }: {
+    email: string;
+    name: string;
+    role?: string;
+    phone?: string;
+  }
 ): Promise<Record<string, unknown>> {
   if (!email) throw new AppError('email is required', 400);
+  if (!name?.trim()) throw new AppError('name is required', 400);
   if (!CLUB_ROLES.includes(role)) throw new AppError('Invalid role', 400);
 
   const { rows: existing } = await db.query<{ id: string }>(
-    'SELECT id FROM users WHERE email = $1 AND club_id = $2',
-    [email, clubId]
+    'SELECT id FROM users WHERE email = $1',
+    [email.toLowerCase()]
   );
-  if (existing.length) throw new AppError('This email is already a member of your club', 409);
+  if (existing.length) throw new AppError('This email is already registered', 409);
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
 
   const { rows } = await db.query<Record<string, unknown>>(
-    `INSERT INTO user_invites (club_id, invited_by, email, role)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT ON CONSTRAINT uq_user_invites_pending
-       DO UPDATE SET role = EXCLUDED.role, expires_at = NOW() + INTERVAL '7 days'
-     RETURNING *`,
-    [clubId, inviterId, email, role]
+    `INSERT INTO users (email, password_hash, name, phone, club_id, role, email_verified)
+     VALUES ($1, $2, $3, $4, $5, $6, true)
+     RETURNING id, email, name, phone, club_id, role, is_active, created_at`,
+    [email.toLowerCase(), passwordHash, name.trim(), phone ?? null, clubId, role]
   );
+
+  resend.emails.send({
+    from: config.resend.fromEmail,
+    to: email,
+    subject: 'Welcome to SportStock',
+    text: `Hi ${name},\n\nYour account has been created.\nEmail: ${email}\nTemporary password: ${tempPassword}\n\nPlease log in and change your password immediately.`,
+  }).catch(() => {});
+
   return rows[0];
-}
-
-export async function listInvites(clubId: string): Promise<Record<string, unknown>[]> {
-  const { rows } = await db.query<Record<string, unknown>>(
-    `SELECT ui.*, u.name AS invited_by_name
-     FROM user_invites ui
-     JOIN users u ON u.id = ui.invited_by
-     WHERE ui.club_id = $1 AND ui.accepted_at IS NULL AND ui.expires_at > NOW()
-     ORDER BY ui.created_at DESC`,
-    [clubId]
-  );
-  return rows;
 }

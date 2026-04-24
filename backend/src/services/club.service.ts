@@ -2,41 +2,6 @@ import * as db from '../db';
 import * as storage from './storage';
 import AppError from '../utils/AppError';
 
-export async function registerClub(
-  userId: string,
-  { name, sport_type, address, contact_email }: {
-    name?: string;
-    sport_type?: string;
-    address?: string;
-    contact_email?: string;
-  }
-): Promise<Record<string, unknown>> {
-  if (!name?.trim()) throw new AppError('name is required', 400);
-  if (!contact_email) throw new AppError('contact_email is required', 400);
-
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { rows } = await client.query<Record<string, unknown>>(
-      `INSERT INTO clubs (name, sport_type, address, contact_email)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [name.trim(), sport_type ?? null, address ?? null, contact_email]
-    );
-    const club = rows[0];
-    await client.query(
-      `UPDATE users SET club_id = $1, role = 'club_admin' WHERE id = $2`,
-      [club.id, userId]
-    );
-    await client.query('COMMIT');
-    return club;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
 export async function getClub(clubId: string): Promise<Record<string, unknown>> {
   const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM clubs WHERE id = $1', [clubId]);
   if (!rows.length) throw new AppError('Club not found', 404);

@@ -5,7 +5,7 @@ const config: Config = {
   roots: ['<rootDir>/tests'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   moduleNameMapper: {
-    '^@clerk/backend$': '<rootDir>/tests/__mocks__/clerk-backend.ts',
+    '^resend$':         '<rootDir>/tests/__mocks__/resend.ts',
     '^firebase-admin$': '<rootDir>/tests/__mocks__/firebase-admin.ts',
   },
   transform: {

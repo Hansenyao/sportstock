@@ -3,33 +3,36 @@ import app from '../src/app';
 import { authHeader, createClub, createUser, createAsset, deleteClub, deleteUsers } from './helpers';
 
 const PREFIX = 't_rpt_';
+const adminEmail   = `${PREFIX}admin@test.com`;
+const managerEmail = `${PREFIX}manager@test.com`;
+const coachEmail   = `${PREFIX}coach@test.com`;
 let clubId: string;
-let managerId_db: string;
-const adminId = `${PREFIX}admin`;
-const managerId = `${PREFIX}manager`;
-const coachId = `${PREFIX}coach`;
+let adminUserId: string;
+let managerUserId: string;
+let coachUserId: string;
 
 beforeAll(async () => {
   clubId = await createClub('Reports Test Club');
-  await createUser(adminId, clubId, 'club_admin');
-  const mgr = await createUser(managerId, clubId, 'asset_manager');
-  managerId_db = mgr.id;
-  await createUser(coachId, clubId, 'coach');
-  await createAsset(clubId, managerId_db, 'Report Test Ball', 5);
+  const admin = await createUser(adminEmail, clubId, 'club_admin');
+  adminUserId = admin.id;
+  const mgr = await createUser(managerEmail, clubId, 'asset_manager');
+  managerUserId = mgr.id;
+  const coach = await createUser(coachEmail, clubId, 'coach');
+  coachUserId = coach.id;
+  await createAsset(clubId, managerUserId, 'Report Test Ball', 5);
 });
 
 afterAll(async () => {
   await deleteClub(clubId);
-  await deleteUsers([adminId, managerId, coachId]);
+  await deleteUsers([adminEmail, managerEmail, coachEmail]);
 });
 
 describe('GET /api/v1/reports/summary', () => {
   it('returns asset summary for manager', async () => {
     const res = await request(app)
       .get('/api/v1/reports/summary')
-      .set(authHeader(managerId));
+      .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
-    // Counts come back as strings from pg COUNT()
     expect(res.body).toMatchObject({
       total_assets: expect.anything(),
       total_items: expect.anything(),
@@ -40,7 +43,7 @@ describe('GET /api/v1/reports/summary', () => {
   it('returns 403 for coach', async () => {
     const res = await request(app)
       .get('/api/v1/reports/summary')
-      .set(authHeader(coachId));
+      .set(authHeader(coachUserId));
     expect(res.status).toBe(403);
   });
 });
@@ -49,7 +52,7 @@ describe('GET /api/v1/reports/depreciation', () => {
   it('returns depreciation report with items and summary', async () => {
     const res = await request(app)
       .get('/api/v1/reports/depreciation')
-      .set(authHeader(managerId));
+      .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       items: expect.any(Array),
@@ -64,7 +67,7 @@ describe('GET /api/v1/reports/loan-usage', () => {
   it('returns loan usage report', async () => {
     const res = await request(app)
       .get('/api/v1/reports/loan-usage')
-      .set(authHeader(managerId));
+      .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       top_assets: expect.any(Array),
@@ -77,7 +80,7 @@ describe('GET /api/v1/reports/movements', () => {
   it('returns stock movement totals', async () => {
     const res = await request(app)
       .get('/api/v1/reports/movements')
-      .set(authHeader(managerId));
+      .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
   });

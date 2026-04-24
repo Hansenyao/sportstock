@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 // Mock for firebase-admin — prevents real SDK initialization in tests
 
 const mockMessaging = {

@@ -76,6 +76,52 @@ npm run dev
 | `npm run dev:watch` | Start with `nodemon` hot reload |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start` | Run compiled output |
+| `npm test` | Run full test suite |
+| `npm run test:watch` | Run tests in watch mode |
+
+## Testing
+
+The test suite uses **Jest + Supertest** and runs against the real Azure PostgreSQL database. No local database setup is required.
+
+### Test Structure
+
+```
+tests/
+├── __mocks__/
+│   ├── clerk-backend.ts     # Mocks Clerk JWT verification (no real token needed)
+│   └── firebase-admin.ts    # Mocks FCM (prevents SDK init failure)
+├── helpers/
+│   └── index.ts             # DB fixtures and auth header builder
+├── setup.ts                 # Loads .env before each suite
+├── auth.test.ts             # GET /auth/me — token validation, auto-create flow
+├── clubs.test.ts            # Club registration, profile, update
+├── assets.test.ts           # Asset CRUD, categories, depreciation
+├── loans.test.ts            # Full loan lifecycle + validation
+├── inventory.test.ts        # Stock operations, stocktake sessions
+├── reports.test.ts          # Summary, depreciation, loan-usage, movements
+└── notifications.test.ts    # Inbox, mark-read, FCM token registration
+```
+
+**59 tests across 7 suites (~30s)**
+
+### How It Works
+
+- **Auth mock** — Token format `test|{clerkId}` is parsed by the Clerk mock to extract the user identity. No real Clerk tokens needed.
+- **Real database** — Each test suite creates isolated data under a unique prefix (e.g. `t_loans_*`) in `beforeAll` and deletes it in `afterAll` via `DELETE FROM clubs CASCADE`.
+- **Firebase mock** — `firebase-admin` is replaced so FCM push calls are no-ops.
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run a single file
+npm test -- tests/loans.test.ts
+
+# Watch mode (re-runs on file changes)
+npm run test:watch
+```
 
 ## Environment Variables
 

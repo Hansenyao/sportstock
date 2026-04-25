@@ -8,6 +8,7 @@ router.get('/',   ctrl.listLoans);
 router.post('/',  ctrl.createLoan);
 
 router.get('/:id',              ctrl.getLoan);
+router.delete('/:id',           ctrl.deleteLoan);
 router.patch('/:id',            ctrl.updateLoan);
 router.post('/:id/approve',     requireRole('club_admin', 'asset_manager'), ctrl.approveLoan);
 router.post('/:id/reject',      requireRole('club_admin', 'asset_manager'), ctrl.rejectLoan);

@@ -222,6 +222,31 @@ export async function createLoan(
   }
 }
 
+// ── Delete (pending only, creator only) ─────────────────────────────────────
+
+export async function deleteLoan(
+  loanId: string,
+  clubId: string,
+  userId: string,
+  role: string
+): Promise<void> {
+  const { rows } = await db.query<Record<string, unknown>>(
+    'SELECT * FROM loans WHERE id = $1 AND club_id = $2',
+    [loanId, clubId]
+  );
+  if (!rows.length) throw new AppError('Loan not found', 404);
+  const loan = rows[0];
+
+  if (loan.status !== 'pending') throw new AppError('Only pending loans can be deleted', 409);
+
+  // Only the creator can delete (coaches or managers who submitted the loan)
+  if (loan.created_by !== userId && role !== 'super_admin') {
+    throw new AppError('Only the creator can delete this loan', 403);
+  }
+
+  await db.query('DELETE FROM loans WHERE id = $1', [loanId]);
+}
+
 // ── Update (pending only) ────────────────────────────────────────────────────
 
 export async function updateLoan(

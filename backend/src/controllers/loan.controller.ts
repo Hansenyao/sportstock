@@ -22,6 +22,13 @@ export const getLoan: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+export const deleteLoan: RequestHandler = async (req, res, next) => {
+  try {
+    await loanService.deleteLoan(req.params.id, req.user.club_id as string, req.user.id, req.user.role);
+    res.status(204).send();
+  } catch (err) { next(err); }
+};
+
 export const updateLoan: RequestHandler = async (req, res, next) => {
   try {
     const loan = await loanService.updateLoan(

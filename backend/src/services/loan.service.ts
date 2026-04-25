@@ -37,11 +37,13 @@ export async function listLoans(
     db.query<Record<string, unknown>>(
       `SELECT l.*,
               a.name AS asset_name, a.image_url AS asset_image,
-              u.name AS coach_name,
+              u.name  AS coach_name,
+              cb.name AS created_by_name,
               ap.name AS approved_by_name
        FROM loans l
-       JOIN assets a ON a.id = l.asset_id
-       JOIN users  u ON u.id = l.coach_id
+       JOIN  assets a  ON a.id  = l.asset_id
+       JOIN  users  u  ON u.id  = l.coach_id
+       LEFT JOIN users cb ON cb.id = l.created_by
        LEFT JOIN users ap ON ap.id = l.approved_by
        WHERE ${where} ORDER BY l.created_at DESC
        LIMIT $${params.push(Number(limit))} OFFSET $${params.push(offset)}`,
@@ -94,9 +96,9 @@ export async function createLoan(
   if (Number(asset.available_quantity) < Number(quantity)) throw new AppError('Insufficient available quantity', 409);
 
   const { rows } = await db.query<Record<string, unknown>>(
-    `INSERT INTO loans (club_id, asset_id, coach_id, quantity, reason, status, due_date)
-     VALUES ($1,$2,$3,$4,$5,'pending',$6) RETURNING *`,
-    [clubId, asset_id, coachId, Number(quantity), reason ?? null, due_date]
+    `INSERT INTO loans (club_id, asset_id, coach_id, created_by, quantity, reason, status, due_date)
+     VALUES ($1,$2,$3,$4,$5,$6,'pending',$7) RETURNING *`,
+    [clubId, asset_id, coachId, requesterId, Number(quantity), reason ?? null, due_date]
   );
   const loan = rows[0];
 
@@ -118,14 +120,16 @@ export async function getLoan(
 ): Promise<Record<string, unknown>> {
   const { rows } = await db.query<Record<string, unknown>>(
     `SELECT l.*,
-            a.name AS asset_name, a.image_url AS asset_image,
-            u.name AS coach_name, u.email AS coach_email,
+            a.name  AS asset_name, a.image_url AS asset_image,
+            u.name  AS coach_name, u.email AS coach_email,
+            cb.name AS created_by_name,
             ap.name AS approved_by_name,
             co.name AS checkout_by_name,
             rc.name AS return_confirmed_by_name
      FROM loans l
      JOIN  assets a  ON a.id  = l.asset_id
      JOIN  users  u  ON u.id  = l.coach_id
+     LEFT JOIN users cb ON cb.id = l.created_by
      LEFT JOIN users ap ON ap.id = l.approved_by
      LEFT JOIN users co ON co.id = l.checkout_by
      LEFT JOIN users rc ON rc.id = l.return_confirmed_by
@@ -329,4 +333,84 @@ export async function confirmReturn(
     { loan_id: loanId, condition }
   ).catch(() => {});
   return returned;
+}
+
+export async function updateLoan(
+  loanId: string,
+  clubId: string,
+  userId: string,
+  role: string,
+  { asset_id, quantity, due_date, reason, coach_id }: {
+    asset_id?: string;
+    quantity?: number | string;
+    due_date?: string;
+    reason?: string;
+    coach_id?: string;
+  }
+): Promise<Record<string, unknown>> {
+  // Fetch existing loan
+  const { rows: existing } = await db.query<Record<string, unknown>>(
+    'SELECT * FROM loans WHERE id = $1 AND club_id = $2',
+    [loanId, clubId]
+  );
+  if (!existing.length) throw new AppError('Loan not found', 404);
+  const loan = existing[0];
+
+  if (loan.status !== 'pending') throw new AppError('Only pending loans can be edited', 409);
+
+  // Coach may only edit loans where they are the borrower
+  if (role === 'coach' && loan.coach_id !== userId) {
+    throw new AppError('Access denied', 403);
+  }
+
+  // Coaches cannot reassign the borrower
+  if (role === 'coach' && coach_id && coach_id !== loan.coach_id) {
+    throw new AppError('Coaches cannot change the borrower', 403);
+  }
+
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (asset_id !== undefined) {
+    const { rows: assetRows } = await db.query<{ available_quantity: number }>(
+      'SELECT available_quantity FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
+      [asset_id, clubId]
+    );
+    if (!assetRows.length) throw new AppError('Asset not found', 404);
+    updates.push(`asset_id = $${params.push(asset_id)}`);
+  }
+
+  if (quantity !== undefined) {
+    if (Number(quantity) < 1) throw new AppError('quantity must be at least 1', 400);
+    updates.push(`quantity = $${params.push(Number(quantity))}`);
+  }
+
+  if (due_date !== undefined) {
+    if (new Date(due_date) <= new Date()) throw new AppError('due_date must be a future date', 400);
+    updates.push(`due_date = $${params.push(due_date)}`);
+  }
+
+  if (reason !== undefined) {
+    updates.push(`reason = $${params.push(reason)}`);
+  }
+
+  if (coach_id !== undefined) {
+    const { rows: coachRows } = await db.query(
+      'SELECT id FROM users WHERE id = $1 AND club_id = $2 AND is_active = true',
+      [coach_id, clubId]
+    );
+    if (!coachRows.length) throw new AppError('Borrower not found in this club', 404);
+    updates.push(`coach_id = $${params.push(coach_id)}`);
+  }
+
+  if (!updates.length) throw new AppError('No fields to update', 400);
+
+  updates.push(`updated_at = NOW()`);
+  params.push(loanId);
+
+  const { rows } = await db.query<Record<string, unknown>>(
+    `UPDATE loans SET ${updates.join(', ')} WHERE id = $${params.length} RETURNING *`,
+    params
+  );
+  return rows[0];
 }

@@ -50,6 +50,15 @@ export const initiateReturn: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+export const updateLoan: RequestHandler = async (req, res, next) => {
+  try {
+    const loan = await loanService.updateLoan(
+      req.params.id, req.user.club_id as string, req.user.id, req.user.role, req.body
+    );
+    res.json(loan);
+  } catch (err) { next(err); }
+};
+
 export const confirmReturn: RequestHandler = async (req, res, next) => {
   try {
     const { condition, notes, returned_quantity } = req.body as {

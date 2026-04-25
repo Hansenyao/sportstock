@@ -8,6 +8,7 @@ router.get('/',   ctrl.listLoans);
 router.post('/',  ctrl.createLoan);   // all roles
 
 router.get('/:id',                  ctrl.getLoan);
+router.patch('/:id',                ctrl.updateLoan);   // all roles, service enforces coach restriction
 router.post('/:id/approve',         requireRole('club_admin', 'asset_manager'), ctrl.approveLoan);
 router.post('/:id/reject',          requireRole('club_admin', 'asset_manager'), ctrl.rejectLoan);
 router.post('/:id/checkout',        requireRole('coach', 'club_admin', 'asset_manager'), ctrl.checkoutLoan);

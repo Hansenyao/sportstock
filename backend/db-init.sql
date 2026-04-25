@@ -197,6 +197,7 @@ CREATE TABLE loans (
     club_id              UUID          NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
     asset_id             UUID          NOT NULL REFERENCES assets(id),
     coach_id             UUID          NOT NULL REFERENCES users(id),
+    created_by           UUID          REFERENCES users(id),
     approved_by          UUID          REFERENCES users(id),
     checkout_by          UUID          REFERENCES users(id),
     return_confirmed_by  UUID          REFERENCES users(id),

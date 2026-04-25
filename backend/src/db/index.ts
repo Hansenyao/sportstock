@@ -4,8 +4,9 @@ import config from '../config';
 const pool = new Pool({
   connectionString: config.db.connectionString,
   ssl: { rejectUnauthorized: false },
-  max: 20,
+  max: 5, // keep low for serverless — each function instance has its own pool
   idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
 
 export function query<T extends QueryResultRow = QueryResultRow>(

@@ -68,7 +68,7 @@ export async function createAsset(
 ): Promise<Record<string, unknown>> {
   const {
     name, category_id, total_quantity = 1,
-    brand, model, purchase_date, purchase_price,
+    brand, model, size, purchase_date, purchase_price,
     useful_life_years, notes, low_stock_threshold,
   } = data;
 
@@ -81,12 +81,12 @@ export async function createAsset(
     const { rows } = await client.query<Record<string, unknown>>(
       `INSERT INTO assets
          (club_id, category_id, name, total_quantity, available_quantity, status,
-          brand, model, purchase_date, purchase_price, useful_life_years, notes, low_stock_threshold)
-       VALUES ($1,$2,$3,$4,$4,'available',$5,$6,$7,$8,$9,$10,$11)
+          brand, model, size, purchase_date, purchase_price, useful_life_years, notes, low_stock_threshold)
+       VALUES ($1,$2,$3,$4,$4,'available',$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING *`,
       [
         clubId, category_id ?? null, String(name).trim(), Number(total_quantity),
-        brand ?? null, model ?? null, purchase_date ?? null,
+        brand ?? null, model ?? null, size ?? null, purchase_date ?? null,
         purchase_price != null ? parseFloat(String(purchase_price)) : null,
         useful_life_years != null ? parseInt(String(useful_life_years)) : null,
         notes ?? null,
@@ -136,7 +136,7 @@ export async function updateAsset(
   data: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   const {
-    name, category_id, brand, model,
+    name, category_id, brand, model, size,
     purchase_date, purchase_price, useful_life_years,
     notes, low_stock_threshold, status,
   } = data;
@@ -150,16 +150,17 @@ export async function updateAsset(
        category_id         = COALESCE($2, category_id),
        brand               = COALESCE($3, brand),
        model               = COALESCE($4, model),
-       purchase_date       = COALESCE($5, purchase_date),
-       purchase_price      = COALESCE($6, purchase_price),
-       useful_life_years   = COALESCE($7, useful_life_years),
-       notes               = COALESCE($8, notes),
-       low_stock_threshold = COALESCE($9, low_stock_threshold),
-       status              = COALESCE($10::asset_status, status)
-     WHERE id = $11 AND club_id = $12 AND is_active = true
+       size                = COALESCE($5, size),
+       purchase_date       = COALESCE($6, purchase_date),
+       purchase_price      = COALESCE($7, purchase_price),
+       useful_life_years   = COALESCE($8, useful_life_years),
+       notes               = COALESCE($9, notes),
+       low_stock_threshold = COALESCE($10, low_stock_threshold),
+       status              = COALESCE($11::asset_status, status)
+     WHERE id = $12 AND club_id = $13 AND is_active = true
      RETURNING *`,
     [
-      name ?? null, category_id ?? null, brand ?? null, model ?? null,
+      name ?? null, category_id ?? null, brand ?? null, model ?? null, size ?? null,
       purchase_date ?? null,
       purchase_price != null ? parseFloat(String(purchase_price)) : null,
       useful_life_years != null ? parseInt(String(useful_life_years)) : null,
@@ -240,12 +241,12 @@ export async function bulkImport(
       const { rows } = await client.query<Record<string, unknown>>(
         `INSERT INTO assets
            (club_id, name, total_quantity, available_quantity, status,
-            brand, model, purchase_date, purchase_price, useful_life_years, notes)
-         VALUES ($1,$2,$3,$3,'available',$4,$5,$6,$7,$8,$9)
+            brand, model, size, purchase_date, purchase_price, useful_life_years, notes)
+         VALUES ($1,$2,$3,$3,'available',$4,$5,$6,$7,$8,$9,$10)
          RETURNING id, name`,
         [
           clubId, row.name, qty,
-          row.brand || null, row.model || null,
+          row.brand || null, row.model || null, row.size || null,
           row.purchase_date || null,
           row.purchase_price ? parseFloat(row.purchase_price) : null,
           row.useful_life_years ? parseInt(row.useful_life_years) : null,

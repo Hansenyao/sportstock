@@ -36,7 +36,6 @@ export default function LoginPage() {
       const res = await authApi.login(values.email, values.password);
       login(res.data.token, res.data.user);
       message.success(`Welcome back, ${res.data.user.name}!`);
-      navigate('/dashboard');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? 'Login failed. Please try again.';

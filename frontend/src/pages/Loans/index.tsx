@@ -464,22 +464,44 @@ export default function LoansPage() {
       render: (_: unknown, loan: Loan) => {
         const first = loan.items[0];
         const extra = loan.items.length - 1;
-        const createdByOther = loan.created_by_name && loan.created_by_name !== loan.coach_name;
+        const createdByOther = !isMobile && loan.created_by_name && loan.created_by_name !== loan.coach_name;
         return (
-          <Flex align="center" gap={10}>
+          <Flex align="center" gap={8}>
             <AssetThumb src={first?.asset_image} size={isMobile ? 32 : 40} />
-            <div style={{ minWidth: 0 }}>
-              <Text strong style={{ display: 'block', fontSize: isMobile ? 13 : 14 }}>
-                {first?.asset_name ?? '—'}
-                {extra > 0 && <Text style={{ fontSize: 12, color: '#8c8c8c' }}> +{extra} more</Text>}
-              </Text>
-              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
-                Borrower: {loan.coach_name}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              {/* Asset name + item count on one line, truncated */}
+              <Flex align="baseline" gap={4} style={{ overflow: 'hidden' }}>
+                <Text strong style={{
+                  fontSize: isMobile ? 13 : 14,
+                  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                  flex: 1, minWidth: 0,
+                }}>
+                  {first?.asset_name ?? '—'}
+                </Text>
+                {extra > 0 && (
+                  <Text style={{ fontSize: 11, color: '#8c8c8c', flexShrink: 0 }}>
+                    +{extra}
+                  </Text>
+                )}
+              </Flex>
+              {/* Coach name — no "Borrower:" prefix on mobile */}
+              <Text style={{
+                fontSize: 12, color: '#8c8c8c',
+                display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+              }}>
+                {isMobile ? loan.coach_name : `Borrower: ${loan.coach_name}`}
               </Text>
               {createdByOther && (
                 <Text style={{ fontSize: 11, color: '#bfbfbf', display: 'block' }}>
                   Created by: {loan.created_by_name}
                 </Text>
+              )}
+              {/* Status tag inline on mobile (Status column is hidden on mobile) */}
+              {isMobile && (
+                <Tag color={STATUS_COLOR[loan.status]}
+                  style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', marginTop: 3 }}>
+                  {STATUS_LABEL[loan.status]}
+                </Tag>
               )}
             </div>
           </Flex>
@@ -515,7 +537,8 @@ export default function LoansPage() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: isMobile ? 90 : 120,
+      width: 110,
+      responsive: ['sm'] as ('sm')[],
       render: (status: LoanStatus) => (
         <Tag color={STATUS_COLOR[status]} style={{ fontSize: 11 }}>{STATUS_LABEL[status]}</Tag>
       ),
@@ -523,7 +546,7 @@ export default function LoansPage() {
     {
       title: '',
       key: 'actions',
-      width: 130,
+      width: isMobile ? 96 : 130,
       render: (_: unknown, loan: Loan) => {
         const buttons: React.ReactNode[] = [];
 
@@ -584,7 +607,7 @@ export default function LoansPage() {
           );
         }
 
-        return <Space size={4}>{buttons}</Space>;
+        return <Space size={isMobile ? 2 : 4}>{buttons}</Space>;
       },
     },
   ];
@@ -674,7 +697,7 @@ export default function LoansPage() {
           simple: isMobile,
           onChange: p => { setPage(p); fetchLoans(p); },
         }}
-        scroll={{ x: isMobile ? 340 : 600 }}
+        scroll={{ x: isMobile ? 280 : 600 }}
       />
 
       {/* ── Create Loan Drawer ─────────────────────────────────────────────── */}

@@ -1,16 +1,25 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import config from '../config';
 
-const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
+let _client: SupabaseClient | null = null;
+
+function getClient(): SupabaseClient {
+  if (!_client) {
+    const { url, serviceRoleKey } = config.supabase;
+    if (!url || !serviceRoleKey) throw new Error('Supabase credentials not configured');
+    _client = createClient(url, serviceRoleKey);
+  }
+  return _client;
+}
 
 export async function uploadFile(buffer: Buffer, path: string, mimetype: string): Promise<string> {
-  const { data, error } = await supabase.storage
+  const { data, error } = await getClient().storage
     .from(config.supabase.bucket)
     .upload(path, buffer, { contentType: mimetype, upsert: true });
 
   if (error) throw error;
 
-  const { data: { publicUrl } } = supabase.storage
+  const { data: { publicUrl } } = getClient().storage
     .from(config.supabase.bucket)
     .getPublicUrl(data.path);
 
@@ -18,7 +27,7 @@ export async function uploadFile(buffer: Buffer, path: string, mimetype: string)
 }
 
 export async function deleteFile(path: string): Promise<void> {
-  const { error } = await supabase.storage
+  const { error } = await getClient().storage
     .from(config.supabase.bucket)
     .remove([path]);
   if (error) throw error;

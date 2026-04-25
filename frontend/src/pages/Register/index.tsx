@@ -172,8 +172,8 @@ export default function RegisterPage() {
                 </Form.Item>
               </Col>
               <Col xs={24} sm={10}>
-                <Form.Item name="sport_type" label="Sport Type">
-                  <Select placeholder="Select sport" allowClear>
+                <Form.Item name="sport_type" label="Sport Type" rules={[{ required: true, message: 'Sport type is required' }]}>
+                  <Select placeholder="Select sport">
                     {SPORT_TYPES.map((s) => (
                       <Select.Option key={s} value={s}>{s}</Select.Option>
                     ))}

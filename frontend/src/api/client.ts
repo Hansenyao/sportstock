@@ -16,7 +16,12 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    // Only force-logout on 401 from protected endpoints.
+    // Auth endpoints (/auth/login, /auth/register, etc.) returning 401 mean
+    // "wrong credentials" — let the page handle the error normally.
+    const url: string = err.config?.url ?? '';
+    const isAuthEndpoint = url.startsWith('/auth/');
+    if (err.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';

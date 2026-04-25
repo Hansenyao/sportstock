@@ -86,22 +86,35 @@ export default function DashboardPage() {
 
   const loanColumns = [
     {
-      title: 'Asset',
-      dataIndex: 'asset_name',
-      key: 'asset_name',
-      ellipsis: true,
+      title: 'Items',
+      key: 'items',
+      render: (_: unknown, loan: Loan) => {
+        const first = loan.items?.[0];
+        const extra = (loan.items?.length ?? 0) - 1;
+        return (
+          <div>
+            <Text strong style={{ fontSize: 13 }}>
+              {first?.asset_name ?? '—'}
+              {extra > 0 && <Text style={{ color: '#8c8c8c', fontWeight: 400 }}> +{extra} more</Text>}
+            </Text>
+          </div>
+        );
+      },
     },
     {
-      title: 'Requested by',
-      dataIndex: 'borrower_name',
-      key: 'borrower_name',
+      title: 'Borrower',
+      key: 'coach_name',
       ellipsis: true,
-    },
-    {
-      title: 'Qty',
-      dataIndex: 'quantity',
-      key: 'quantity',
-      width: 60,
+      render: (_: unknown, loan: Loan) => (
+        <div>
+          <Text style={{ fontSize: 13 }}>{loan.coach_name}</Text>
+          {loan.created_by_name && loan.created_by_name !== loan.coach_name && (
+            <Text style={{ fontSize: 11, color: '#bfbfbf', display: 'block' }}>
+              by {loan.created_by_name}
+            </Text>
+          )}
+        </div>
+      ),
     },
     {
       title: 'Status',
@@ -116,7 +129,7 @@ export default function DashboardPage() {
       title: 'Date',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 110,
+      width: 90,
       render: (v: string) => new Date(v).toLocaleDateString(),
     },
   ];

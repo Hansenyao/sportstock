@@ -19,10 +19,12 @@ const { useBreakpoint } = Grid;
 const SOURCE_COLOR: Record<WriteOffSource, string> = {
   manual:      'orange',
   loan_return: 'blue',
+  loan_lost:   'red',
 };
 const SOURCE_LABEL: Record<WriteOffSource, string> = {
   manual:      'Manual',
   loan_return: 'Loan Return',
+  loan_lost:   'Lost',
 };
 
 const PAGE_SIZE = 20;

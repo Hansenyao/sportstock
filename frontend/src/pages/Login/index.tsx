@@ -127,7 +127,11 @@ export default function LoginPage() {
             items={[{ title: 'Send Code' }, { title: 'Reset' }]}
           />
 
-          <Form form={forgotForm} layout="vertical" onFinish={forgotStep === 'email' ? handleForgotEmail : handleReset}>
+          <Form form={forgotForm} layout="vertical" onFinish={(values) => {
+            void (forgotStep === 'email'
+              ? handleForgotEmail(values as { email: string })
+              : handleReset(values as { code: string; new_password: string; confirm: string }));
+          }}>
             {forgotStep === 'email' ? (
               <Form.Item
                 name="email" label="Email"

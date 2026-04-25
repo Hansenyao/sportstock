@@ -19,6 +19,7 @@ export interface Asset {
   brand?: string | null;
   model?: string | null;
   size?: string | null;
+  asset_tag?: string | null;
   purchase_date?: string | null;
   purchase_price?: number | null;
   useful_life_years?: number | null;

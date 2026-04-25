@@ -5,13 +5,11 @@ import config from '../config';
 import AppError from '../utils/AppError';
 import type { PaginatedResult } from '../types';
 
-const resend = new Resend(config.resend.apiKey);
-
 const CLUB_ROLES = ['club_admin', 'asset_manager', 'coach'];
 
+// TODO: restore random generation before production
 function generateTempPassword(): string {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return '123456';
 }
 
 export async function listUsers(
@@ -125,7 +123,7 @@ export async function createUser(
     [email.toLowerCase(), passwordHash, name.trim(), phone ?? null, clubId, role]
   );
 
-  resend.emails.send({
+  new Resend(config.resend.apiKey).emails.send({
     from: config.resend.fromEmail,
     to: email,
     subject: 'Welcome to SportStock',

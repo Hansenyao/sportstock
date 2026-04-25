@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, Select, Typography, Flex, App,
   Space, Tabs, DatePicker, Popconfirm, InputNumber, Drawer, Badge,
-  Avatar, Card, List, Divider, Radio, Empty, Grid,
+  Avatar, Card, List, Divider, Empty, Grid,
 } from 'antd';
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
@@ -43,11 +43,6 @@ const STATUS_LABEL: Record<LoanStatus, string> = {
   pending: 'Pending', approved: 'Approved', rejected: 'Rejected',
   checked_out: 'Checked Out', returned: 'Returned',
 };
-const CONDITION_OPTIONS = [
-  { value: 'good',          label: 'Good' },
-  { value: 'minor_damage',  label: 'Minor Damage' },
-  { value: 'severe_damage', label: 'Severe Damage' },
-];
 
 const CART_KEY = 'sportstock_loan_cart';
 const PAGE_SIZE = 20;
@@ -267,8 +262,10 @@ export default function LoansPage() {
     setReturningLoan(loan);
     setReturnItems(loan.items.map(item => ({
       loan_item_id: item.id,
-      returned_quantity: item.quantity,
-      condition: 'good' as const,
+      good_quantity: item.quantity,
+      minor_damage_quantity: 0,
+      write_off_quantity: 0,
+      lost_quantity: 0,
     })));
     setReturnNotes('');
     setReturnOpen(true);
@@ -278,6 +275,15 @@ export default function LoansPage() {
     setReturnItems(prev => prev.map(ri =>
       ri.loan_item_id === itemId ? { ...ri, [field]: value } : ri
     ));
+  }
+
+  function buildReturnNote(ri: ReturnItemPayload): string {
+    const parts: string[] = [];
+    if (ri.good_quantity > 0)          parts.push(`${ri.good_quantity} good`);
+    if (ri.minor_damage_quantity > 0)  parts.push(`${ri.minor_damage_quantity} minor damage`);
+    if (ri.write_off_quantity > 0)     parts.push(`${ri.write_off_quantity} written off`);
+    if (ri.lost_quantity > 0)          parts.push(`${ri.lost_quantity} lost`);
+    return parts.join(', ');
   }
 
   async function handleConfirmReturn() {
@@ -377,7 +383,33 @@ export default function LoansPage() {
 
   function renderExpandedRow(loan: Loan) {
     return (
-      <div style={{ padding: '4px 0 8px 40px' }}>
+      <div style={{ padding: '4px 0 12px 40px' }}>
+
+        {/* Loan-level notes */}
+        {(loan.reason || loan.rejection_reason || loan.return_notes) && (
+          <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {loan.reason && (
+              <Text style={{ fontSize: 12 }}>
+                <Text style={{ fontSize: 12, color: '#8c8c8c' }}>Reason: </Text>
+                {loan.reason}
+              </Text>
+            )}
+            {loan.rejection_reason && (
+              <Text style={{ fontSize: 12 }}>
+                <Text style={{ fontSize: 12, color: '#ff4d4f' }}>Rejected: </Text>
+                {loan.rejection_reason}
+              </Text>
+            )}
+            {loan.return_notes && (
+              <Text style={{ fontSize: 12 }}>
+                <Text style={{ fontSize: 12, color: '#8c8c8c' }}>Return note: </Text>
+                {loan.return_notes}
+              </Text>
+            )}
+          </div>
+        )}
+
+        {/* Asset items */}
         <List
           size="small"
           dataSource={loan.items}
@@ -391,29 +423,35 @@ export default function LoansPage() {
                     {[item.brand, item.model, item.size && `Size: ${item.size}`, item.asset_tag && `#${item.asset_tag}`]
                       .filter(Boolean).join(' · ')}
                   </Text>
+                  {item.return_notes && (
+                    <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                      Note: {item.return_notes}
+                    </Text>
+                  )}
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <Text strong>×{item.quantity}</Text>
-                  {item.returned_quantity != null && (
-                    <Text style={{ fontSize: 11, color: '#52c41a', display: 'block' }}>
-                      returned: {item.returned_quantity}
-                      {item.quantity - item.returned_quantity > 0 &&
-                        `, written off: ${item.quantity - item.returned_quantity}`}
-                    </Text>
-                  )}
-                  {item.return_condition && (
-                    <Tag style={{ fontSize: 10, marginTop: 2 }}>{item.return_condition.replace('_', ' ')}</Tag>
+                  {item.good_quantity != null && (
+                    <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+                      {item.good_quantity > 0 && (
+                        <Text style={{ color: '#52c41a', display: 'block' }}>{item.good_quantity} good</Text>
+                      )}
+                      {(item.minor_damage_quantity ?? 0) > 0 && (
+                        <Text style={{ color: '#faad14', display: 'block' }}>{item.minor_damage_quantity} minor dmg</Text>
+                      )}
+                      {(item.write_off_quantity ?? 0) > 0 && (
+                        <Text style={{ color: '#ff7a45', display: 'block' }}>{item.write_off_quantity} written off</Text>
+                      )}
+                      {(item.lost_quantity ?? 0) > 0 && (
+                        <Text style={{ color: '#ff4d4f', display: 'block' }}>{item.lost_quantity} lost</Text>
+                      )}
+                    </div>
                   )}
                 </div>
               </Flex>
             </List.Item>
           )}
         />
-        {loan.return_notes && (
-          <Text style={{ fontSize: 12, color: '#8c8c8c', paddingLeft: 4 }}>
-            Note: {loan.return_notes}
-          </Text>
-        )}
       </div>
     );
   }
@@ -765,62 +803,104 @@ export default function LoansPage() {
 
       {/* ── Confirm Return Modal ──────────────────────────────────────────────── */}
       <Modal open={returnOpen} title="Confirm Return" onCancel={() => setReturnOpen(false)}
-        footer={null} width={isMobile ? '95vw' : 560} destroyOnClose>
+        footer={null} width={isMobile ? '95vw' : 580} destroyOnClose>
         {returningLoan && (
           <div style={{ marginTop: 12 }}>
-            {returningLoan.items.map((item, idx) => {
-              const ri = returnItems[idx];
+            {returningLoan.items.map((item) => {
+              const ri = returnItems.find(r => r.loan_item_id === item.id);
               if (!ri) return null;
-              const writeOff = item.quantity - ri.returned_quantity;
+              const total = ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity;
+              const isValid = total === item.quantity;
+              const autoNote = buildReturnNote(ri);
               return (
                 <Card key={item.id} size="small" style={{ marginBottom: 12 }}>
                   <Flex align="center" gap={10} style={{ marginBottom: 10 }}>
                     <AssetThumb src={item.asset_image} size={36} />
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <Text strong>{item.asset_name}</Text>
                       <Text style={{ fontSize: 12, color: '#8c8c8c', display: 'block' }}>
-                        {[item.size && `Size: ${item.size}`, item.brand].filter(Boolean).join(' · ')}
-                        {' '}· Loaned: {item.quantity}
+                        {[item.brand, item.size && `Size: ${item.size}`, item.asset_tag && `#${item.asset_tag}`]
+                          .filter(Boolean).join(' · ')}
+                        {' '}· Loaned: <Text strong>{item.quantity}</Text>
                       </Text>
                     </div>
                   </Flex>
-                  <Flex gap={12} wrap="wrap">
-                    <Form.Item label="Returned qty" style={{ marginBottom: 0, flex: 1, minWidth: 100 }}>
-                      <InputNumber min={0} max={item.quantity} value={ri.returned_quantity}
-                        onChange={v => updateReturnItem(item.id, 'returned_quantity', v ?? 0)}
-                        style={{ width: '100%' }} />
-                    </Form.Item>
-                    <Form.Item label="Condition" style={{ marginBottom: 0, flex: 2, minWidth: 160 }}>
-                      <Radio.Group value={ri.condition}
-                        onChange={e => updateReturnItem(item.id, 'condition', e.target.value)}>
-                        {CONDITION_OPTIONS.map(o => (
-                          <Radio key={o.value} value={o.value} style={{ fontSize: 12 }}>{o.label}</Radio>
-                        ))}
-                      </Radio.Group>
-                    </Form.Item>
-                  </Flex>
-                  {writeOff > 0 && (
-                    <Text type="danger" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-                      ⚠ {writeOff} item{writeOff > 1 ? 's' : ''} will be written off
-                    </Text>
-                  )}
-                  <Input.TextArea rows={1} placeholder="Item notes (optional)" style={{ marginTop: 8 }}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                    <div>
+                      <Text style={{ fontSize: 11, color: '#52c41a', display: 'block', marginBottom: 4 }}>Good</Text>
+                      <InputNumber
+                        min={0} max={item.quantity} value={ri.good_quantity} size="small"
+                        style={{ width: '100%' }}
+                        onChange={v => updateReturnItem(item.id, 'good_quantity', v ?? 0)}
+                      />
+                    </div>
+                    <div>
+                      <Text style={{ fontSize: 11, color: '#faad14', display: 'block', marginBottom: 4 }}>Minor Damage</Text>
+                      <InputNumber
+                        min={0} max={item.quantity} value={ri.minor_damage_quantity} size="small"
+                        style={{ width: '100%' }}
+                        onChange={v => updateReturnItem(item.id, 'minor_damage_quantity', v ?? 0)}
+                      />
+                    </div>
+                    <div>
+                      <Text style={{ fontSize: 11, color: '#ff7a45', display: 'block', marginBottom: 4 }}>Write-off</Text>
+                      <InputNumber
+                        min={0} max={item.quantity} value={ri.write_off_quantity} size="small"
+                        style={{ width: '100%' }}
+                        onChange={v => updateReturnItem(item.id, 'write_off_quantity', v ?? 0)}
+                      />
+                    </div>
+                    <div>
+                      <Text style={{ fontSize: 11, color: '#ff4d4f', display: 'block', marginBottom: 4 }}>Lost</Text>
+                      <InputNumber
+                        min={0} max={item.quantity} value={ri.lost_quantity} size="small"
+                        style={{ width: '100%' }}
+                        onChange={v => updateReturnItem(item.id, 'lost_quantity', v ?? 0)}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 8 }}>
+                    {isValid ? (
+                      <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Summary: {autoNote}</Text>
+                    ) : (
+                      <Text type="danger" style={{ fontSize: 11 }}>
+                        ⚠ Total must equal {item.quantity} (currently {total})
+                      </Text>
+                    )}
+                  </div>
+
+                  <Input.TextArea rows={1} placeholder="Additional notes (optional)" style={{ marginTop: 6 }}
                     value={ri.notes ?? ''} onChange={e => updateReturnItem(item.id, 'notes', e.target.value)} />
                 </Card>
               );
             })}
-            <Form.Item label="Overall notes (optional)" style={{ marginBottom: 12 }}>
+
+            <Form.Item label="Overall return notes (optional)" style={{ marginBottom: 12 }}>
               <TextArea rows={2} value={returnNotes} onChange={e => setReturnNotes(e.target.value)} />
             </Form.Item>
             <Flex gap={8} justify="flex-end">
               <Button onClick={() => setReturnOpen(false)}>Cancel</Button>
               <Popconfirm
                 title="Confirm Return"
-                description="This action cannot be undone. Any write-offs will be applied immediately."
+                description="This action cannot be undone. Write-offs and lost items will be recorded immediately."
                 onConfirm={handleConfirmReturn}
                 okText="Confirm"
+                disabled={returnItems.some(ri => {
+                  const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
+                  return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
+                })}
               >
-                <Button type="primary" loading={confirming}>Confirm Return</Button>
+                <Button
+                  type="primary" loading={confirming}
+                  disabled={returnItems.some(ri => {
+                    const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
+                    return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
+                  })}
+                >
+                  Confirm Return
+                </Button>
               </Popconfirm>
             </Flex>
           </div>

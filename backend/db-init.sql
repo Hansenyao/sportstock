@@ -85,7 +85,8 @@ CREATE TYPE stock_movement_type AS ENUM (
 
 CREATE TYPE write_off_source AS ENUM (
     'manual',
-    'loan_return'
+    'loan_return',
+    'loan_lost'
 );
 
 CREATE TYPE notification_type AS ENUM (
@@ -223,15 +224,18 @@ CREATE TABLE loans (
 
 -- LOAN_ITEMS: one row per asset within a loan
 CREATE TABLE loan_items (
-    id                 UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
-    loan_id            UUID             NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-    asset_id           UUID             NOT NULL REFERENCES assets(id),
-    quantity           INT              NOT NULL DEFAULT 1 CHECK (quantity > 0),
-    returned_quantity  INT,
-    return_condition   return_condition,
-    return_notes       TEXT,
-    created_at         TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
-    updated_at         TIMESTAMPTZ      NOT NULL DEFAULT NOW()
+    id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    loan_id               UUID        NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    asset_id              UUID        NOT NULL REFERENCES assets(id),
+    quantity              INT         NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    -- 4-bucket return breakdown (set on return; must sum to quantity)
+    good_quantity         INT,
+    minor_damage_quantity INT,
+    write_off_quantity    INT,
+    lost_quantity         INT,
+    return_notes          TEXT,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- WRITE_OFF_ORDERS: records of decommissioned assets (manual or triggered from loan return)

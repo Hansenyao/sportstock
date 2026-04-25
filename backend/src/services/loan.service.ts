@@ -12,8 +12,10 @@ interface LoanItemInput {
 
 interface ReturnItemInput {
   loan_item_id: string;
-  returned_quantity: number;
-  condition: string;
+  good_quantity: number;
+  minor_damage_quantity: number;
+  write_off_quantity: number;
+  lost_quantity: number;
   notes?: string;
 }
 
@@ -36,6 +38,7 @@ const LOAN_SELECT = `
 
 const ITEM_SELECT = `
   SELECT li.*,
+         COALESCE(li.good_quantity, 0) + COALESCE(li.minor_damage_quantity, 0) AS returned_quantity,
          a.name      AS asset_name,
          a.image_url AS asset_image,
          a.brand, a.model, a.size, a.asset_tag,
@@ -412,6 +415,15 @@ export async function checkoutLoan(
 
 // ── Confirm Return ───────────────────────────────────────────────────────────
 
+function buildReturnNote(goodQty: number, minorQty: number, writeOffQty: number, lostQty: number): string {
+  const parts: string[] = [];
+  if (goodQty > 0)      parts.push(`${goodQty} good`);
+  if (minorQty > 0)     parts.push(`${minorQty} minor damage`);
+  if (writeOffQty > 0)  parts.push(`${writeOffQty} written off`);
+  if (lostQty > 0)      parts.push(`${lostQty} lost`);
+  return parts.join(', ');
+}
+
 export async function confirmReturn(
   loanId: string,
   operatorId: string,
@@ -419,15 +431,6 @@ export async function confirmReturn(
   returnItems: ReturnItemInput[],
   loanNotes?: string
 ): Promise<Record<string, unknown>> {
-  const validConditions = ['good', 'minor_damage', 'severe_damage'];
-
-  // Validate condition values
-  for (const ri of returnItems) {
-    if (!validConditions.includes(ri.condition)) {
-      throw new AppError('condition must be: good, minor_damage, or severe_damage', 400);
-    }
-  }
-
   // Fetch and validate loan
   const { rows: loanRows } = await db.query<Record<string, unknown>>(
     'SELECT * FROM loans WHERE id = $1 AND club_id = $2 AND status = $3',
@@ -442,18 +445,23 @@ export async function confirmReturn(
     [loanId]
   );
 
-  // Validate all loan_item_ids are in this loan
+  // Validate all loan_item_ids and quantity sums
   const itemMap = new Map(existingItems.map(i => [i.id as string, i]));
   for (const ri of returnItems) {
     if (!itemMap.has(ri.loan_item_id)) {
       throw new AppError(`loan_item_id ${ri.loan_item_id} not found in this loan`, 404);
     }
     const item = itemMap.get(ri.loan_item_id)!;
-    if (ri.returned_quantity < 0 || ri.returned_quantity > Number(item.quantity)) {
+    const originalQty = Number(item.quantity);
+    const total = ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity;
+    if (total !== originalQty) {
       throw new AppError(
-        `returned_quantity for "${String(item.asset_name)}" must be between 0 and ${item.quantity}`,
+        `Quantities for "${String(item.asset_name)}" must sum to ${originalQty} (got ${total})`,
         400
       );
+    }
+    if ([ri.good_quantity, ri.minor_damage_quantity, ri.write_off_quantity, ri.lost_quantity].some(n => n < 0)) {
+      throw new AppError(`All return quantities must be non-negative for "${String(item.asset_name)}"`, 400);
     }
   }
 
@@ -463,25 +471,27 @@ export async function confirmReturn(
 
     for (const ri of returnItems) {
       const item = itemMap.get(ri.loan_item_id)!;
-      const originalQty = Number(item.quantity);
-      const returnedQty = ri.returned_quantity;
-      const writeOffQty = originalQty - returnedQty;
+      const returnedQty = ri.good_quantity + ri.minor_damage_quantity;
+      const autoNote = buildReturnNote(ri.good_quantity, ri.minor_damage_quantity, ri.write_off_quantity, ri.lost_quantity);
+      const itemNote = ri.notes ? `${autoNote}; ${ri.notes}` : autoNote;
 
-      // Update loan_item
+      // Update loan_item with 4-bucket breakdown
       await client.query(
         `UPDATE loan_items
-         SET returned_quantity = $1, return_condition = $2::return_condition, return_notes = $3, updated_at = NOW()
-         WHERE id = $4`,
-        [returnedQty, ri.condition, ri.notes ?? null, ri.loan_item_id]
+         SET good_quantity = $1, minor_damage_quantity = $2, write_off_quantity = $3,
+             lost_quantity = $4, return_notes = $5, updated_at = NOW()
+         WHERE id = $6`,
+        [ri.good_quantity, ri.minor_damage_quantity, ri.write_off_quantity, ri.lost_quantity,
+          itemNote, ri.loan_item_id]
       );
 
       const { rows: assetRows } = await client.query<{ available_quantity: number; total_quantity: number }>(
         'SELECT available_quantity, total_quantity FROM assets WHERE id = $1',
         [item.asset_id]
       );
-      const { available_quantity: availBefore, total_quantity: totalBefore } = assetRows[0];
+      const { available_quantity: availBefore } = assetRows[0];
 
-      // Restore returned quantity to available stock
+      // Restore good + minor_damage back to available stock
       if (returnedQty > 0) {
         await client.query(
           `UPDATE assets SET available_quantity = available_quantity + $1,
@@ -495,18 +505,17 @@ export async function confirmReturn(
               quantity_delta, quantity_before, quantity_after, notes)
            VALUES ($1,$2,$3,$4,$5,'loan_return',$6,$7,$8,$9)`,
           [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
-            returnedQty, availBefore, availBefore + returnedQty,
-            ri.notes ?? `Returned — condition: ${ri.condition}`]
+            returnedQty, availBefore, availBefore + returnedQty, itemNote]
         );
       }
 
-      // Write off remaining quantity
-      if (writeOffQty > 0) {
+      // Write-off: deduct from total_quantity (items already not in available)
+      if (ri.write_off_quantity > 0) {
         await client.query(
           `UPDATE assets SET total_quantity = total_quantity - $1,
            status = CASE WHEN total_quantity - $1 <= 0 THEN 'retired'::asset_status ELSE status END
            WHERE id = $2`,
-          [writeOffQty, item.asset_id]
+          [ri.write_off_quantity, item.asset_id]
         );
         const availAfterReturn = availBefore + returnedQty;
         await client.query(
@@ -515,17 +524,42 @@ export async function confirmReturn(
               quantity_delta, quantity_before, quantity_after, notes)
            VALUES ($1,$2,$3,$4,$5,'write_off',$6,$7,$8,$9)`,
           [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
-            -writeOffQty, availAfterReturn, availAfterReturn,
-            `Write-off on return: ${writeOffQty} of ${originalQty} items decommissioned`]
+            -ri.write_off_quantity, availAfterReturn, availAfterReturn,
+            `Write-off on loan return: ${ri.write_off_quantity} item(s)`]
         );
-
-        // Auto-create write_off_order
         await client.query(
           `INSERT INTO write_off_orders (club_id, asset_id, quantity, reason, source, loan_item_id, created_by, notes)
            VALUES ($1,$2,$3,$4,'loan_return',$5,$6,$7)`,
-          [clubId, item.asset_id, writeOffQty,
-            `Write-off from loan return: ${writeOffQty} items (condition: ${ri.condition})`,
-            ri.loan_item_id, operatorId, ri.notes ?? null]
+          [clubId, item.asset_id, ri.write_off_quantity,
+            `Write-off from loan return`,
+            ri.loan_item_id, operatorId, itemNote]
+        );
+      }
+
+      // Lost: deduct from total_quantity, use loan_lost source for future recovery traceability
+      if (ri.lost_quantity > 0) {
+        await client.query(
+          `UPDATE assets SET total_quantity = total_quantity - $1,
+           status = CASE WHEN total_quantity - $1 <= 0 THEN 'retired'::asset_status ELSE status END
+           WHERE id = $2`,
+          [ri.lost_quantity, item.asset_id]
+        );
+        const availAfterReturn = availBefore + returnedQty;
+        await client.query(
+          `INSERT INTO stock_movements
+             (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
+              quantity_delta, quantity_before, quantity_after, notes)
+           VALUES ($1,$2,$3,$4,$5,'write_off',$6,$7,$8,$9)`,
+          [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
+            -ri.lost_quantity, availAfterReturn, availAfterReturn,
+            `Lost item recorded from loan return: ${ri.lost_quantity} item(s)`]
+        );
+        await client.query(
+          `INSERT INTO write_off_orders (club_id, asset_id, quantity, reason, source, loan_item_id, created_by, notes)
+           VALUES ($1,$2,$3,$4,'loan_lost',$5,$6,$7)`,
+          [clubId, item.asset_id, ri.lost_quantity,
+            `Lost item from loan return`,
+            ri.loan_item_id, operatorId, itemNote]
         );
       }
     }

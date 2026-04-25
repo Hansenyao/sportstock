@@ -1,7 +1,7 @@
 import client from './client';
 import type { PaginatedResult } from './assets';
 
-export type WriteOffSource = 'manual' | 'loan_return';
+export type WriteOffSource = 'manual' | 'loan_return' | 'loan_lost';
 
 export interface WriteOff {
   id: string;

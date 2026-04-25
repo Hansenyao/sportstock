@@ -6,6 +6,7 @@ import RegisterPage from '../pages/Register';
 import DashboardLayout from '../layouts/DashboardLayout';
 import DashboardPage from '../pages/Dashboard';
 import ClubProfilePage from '../pages/ClubProfile';
+import UsersPage from '../pages/Users';
 
 function RequireAuth() {
   const { isAuthenticated } = useAuth();
@@ -33,7 +34,7 @@ export default function AppRouter() {
           <Route path="/dashboard/club"  element={<ClubProfilePage />} />
           <Route path="/dashboard/assets" element={<div>Assets — coming soon</div>} />
           <Route path="/dashboard/loans"  element={<div>Loans — coming soon</div>} />
-          <Route path="/dashboard/users"  element={<div>Users — coming soon</div>} />
+          <Route path="/dashboard/users"  element={<UsersPage />} />
         </Route>
       </Route>
 

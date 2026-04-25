@@ -2,19 +2,117 @@ import client from './client';
 import type { PaginatedResult } from './assets';
 
 export type LoanStatus = 'pending' | 'approved' | 'rejected' | 'checked_out' | 'returned';
+export type ReturnCondition = 'good' | 'minor_damage' | 'severe_damage';
+
+export interface LoanItem {
+  id: string;
+  loan_id: string;
+  asset_id: string;
+  asset_name: string;
+  asset_image?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  size?: string | null;
+  asset_tag?: string | null;
+  asset_available_quantity: number;
+  quantity: number;
+  returned_quantity?: number | null;
+  return_condition?: ReturnCondition | null;
+  return_notes?: string | null;
+}
 
 export interface Loan {
   id: string;
-  asset_id: string;
-  asset_name: string;
-  borrower_id: string;
-  borrower_name: string;
+  club_id: string;
+  coach_id: string;
+  coach_name: string;
+  coach_email?: string;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  approved_by?: string | null;
+  approved_by_name?: string | null;
+  checkout_by?: string | null;
+  checkout_by_name?: string | null;
+  return_confirmed_by?: string | null;
+  return_confirmed_by_name?: string | null;
+  reason?: string | null;
   status: LoanStatus;
-  quantity: number;
-  purpose?: string | null;
-  expected_return_date?: string | null;
+  due_date: string;
+  rejection_reason?: string | null;
+  checked_out_at?: string | null;
+  returned_at?: string | null;
+  return_notes?: string | null;
   created_at: string;
+  items: LoanItem[];
 }
 
-export const listLoans = (params?: Record<string, unknown>) =>
+export interface LoanFilters {
+  status?: LoanStatus;
+  coach_id?: string;
+  from_date?: string;
+  to_date?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface CartItem {
+  asset_id: string;
+  asset_name: string;
+  asset_image?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  size?: string | null;
+  asset_tag?: string | null;
+  available_quantity: number;
+  quantity: number;
+}
+
+export interface CreateLoanPayload {
+  items: { asset_id: string; quantity: number }[];
+  due_date: string;
+  reason?: string;
+  coach_id?: string;
+}
+
+export interface UpdateLoanPayload {
+  items?: { asset_id: string; quantity: number }[];
+  due_date?: string;
+  reason?: string;
+  coach_id?: string;
+}
+
+export interface ReturnItemPayload {
+  loan_item_id: string;
+  returned_quantity: number;
+  condition: ReturnCondition;
+  notes?: string;
+}
+
+export interface ConfirmReturnPayload {
+  items: ReturnItemPayload[];
+  notes?: string;
+}
+
+export const listLoans = (params?: LoanFilters) =>
   client.get<PaginatedResult<Loan>>('/loans', { params });
+
+export const getLoan = (id: string) =>
+  client.get<Loan>(`/loans/${id}`);
+
+export const createLoan = (data: CreateLoanPayload) =>
+  client.post<Loan>('/loans', data);
+
+export const updateLoan = (id: string, data: UpdateLoanPayload) =>
+  client.patch<Loan>(`/loans/${id}`, data);
+
+export const approveLoan = (id: string) =>
+  client.post<Loan>(`/loans/${id}/approve`);
+
+export const rejectLoan = (id: string, reason?: string) =>
+  client.post<Loan>(`/loans/${id}/reject`, { reason });
+
+export const checkoutLoan = (id: string) =>
+  client.post<Loan>(`/loans/${id}/checkout`);
+
+export const confirmReturn = (id: string, data: ConfirmReturnPayload) =>
+  client.post<Loan>(`/loans/${id}/return`, data);

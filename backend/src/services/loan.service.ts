@@ -3,14 +3,64 @@ import * as notificationService from './notification.service';
 import AppError from '../utils/AppError';
 import type { PaginatedResult } from '../types';
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface LoanItemInput {
+  asset_id: string;
+  quantity: number;
+}
+
+interface ReturnItemInput {
+  loan_item_id: string;
+  returned_quantity: number;
+  condition: string;
+  notes?: string;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const LOAN_SELECT = `
+  SELECT l.*,
+         u.name  AS coach_name,  u.email AS coach_email,
+         cb.name AS created_by_name,
+         ap.name AS approved_by_name,
+         co.name AS checkout_by_name,
+         rc.name AS return_confirmed_by_name
+  FROM  loans l
+  JOIN  users u  ON u.id  = l.coach_id
+  LEFT JOIN users cb ON cb.id = l.created_by
+  LEFT JOIN users ap ON ap.id = l.approved_by
+  LEFT JOIN users co ON co.id = l.checkout_by
+  LEFT JOIN users rc ON rc.id = l.return_confirmed_by
+`;
+
+const ITEM_SELECT = `
+  SELECT li.*,
+         a.name      AS asset_name,
+         a.image_url AS asset_image,
+         a.brand, a.model, a.size, a.asset_tag,
+         a.available_quantity AS asset_available_quantity
+  FROM  loan_items li
+  JOIN  assets a ON a.id = li.asset_id
+`;
+
+async function fetchItems(loanId: string): Promise<Record<string, unknown>[]> {
+  const { rows } = await db.query<Record<string, unknown>>(
+    `${ITEM_SELECT} WHERE li.loan_id = $1 ORDER BY li.created_at`,
+    [loanId]
+  );
+  return rows;
+}
+
+// ── List ─────────────────────────────────────────────────────────────────────
+
 export async function listLoans(
   clubId: string,
   userId: string,
   role: string,
-  { status, coach_id, asset_id, from_date, to_date, page = 1, limit = 20 }: {
+  { status, coach_id, from_date, to_date, page = 1, limit = 20 }: {
     status?: string;
     coach_id?: string;
-    asset_id?: string;
     from_date?: string;
     to_date?: string;
     page?: number | string;
@@ -26,48 +76,79 @@ export async function listLoans(
   } else if (coach_id) {
     conditions.push(`l.coach_id = $${params.push(coach_id)}`);
   }
-
   if (status)    conditions.push(`l.status = $${params.push(status)}`);
-  if (asset_id)  conditions.push(`l.asset_id = $${params.push(asset_id)}`);
   if (from_date) conditions.push(`l.created_at >= $${params.push(from_date)}`);
   if (to_date)   conditions.push(`l.created_at < $${params.push(to_date)}`);
 
   const where = conditions.join(' AND ');
-  const [{ rows }, { rows: countRows }] = await Promise.all([
+
+  const [{ rows: loans }, { rows: countRows }] = await Promise.all([
     db.query<Record<string, unknown>>(
-      `SELECT l.*,
-              a.name AS asset_name, a.image_url AS asset_image,
-              u.name AS coach_name,
-              ap.name AS approved_by_name
-       FROM loans l
-       JOIN assets a ON a.id = l.asset_id
-       JOIN users  u ON u.id = l.coach_id
-       LEFT JOIN users ap ON ap.id = l.approved_by
-       WHERE ${where} ORDER BY l.created_at DESC
+      `${LOAN_SELECT} WHERE ${where} ORDER BY l.created_at DESC
        LIMIT $${params.push(Number(limit))} OFFSET $${params.push(offset)}`,
       params
     ),
     db.query<{ count: string }>(`SELECT COUNT(*) FROM loans l WHERE ${where}`, params.slice(0, -2)),
   ]);
-  return { data: rows, total: parseInt(countRows[0].count), page: Number(page), limit: Number(limit) };
+
+  // Attach items to each loan
+  if (loans.length) {
+    const loanIds = loans.map(l => l.id as string);
+    const { rows: allItems } = await db.query<Record<string, unknown>>(
+      `${ITEM_SELECT} WHERE li.loan_id = ANY($1::uuid[]) ORDER BY li.created_at`,
+      [loanIds]
+    );
+    const itemsByLoan = new Map<string, Record<string, unknown>[]>();
+    for (const item of allItems) {
+      const lid = item.loan_id as string;
+      if (!itemsByLoan.has(lid)) itemsByLoan.set(lid, []);
+      itemsByLoan.get(lid)!.push(item);
+    }
+    for (const loan of loans) {
+      loan.items = itemsByLoan.get(loan.id as string) ?? [];
+    }
+  }
+
+  return { data: loans, total: parseInt(countRows[0].count), page: Number(page), limit: Number(limit) };
 }
+
+// ── Get single ───────────────────────────────────────────────────────────────
+
+export async function getLoan(
+  loanId: string,
+  clubId: string,
+  userId: string,
+  role: string
+): Promise<Record<string, unknown>> {
+  const { rows } = await db.query<Record<string, unknown>>(
+    `${LOAN_SELECT} WHERE l.id = $1 AND l.club_id = $2`,
+    [loanId, clubId]
+  );
+  if (!rows.length) throw new AppError('Loan not found', 404);
+  const loan = rows[0];
+  if (role === 'coach' && loan.coach_id !== userId) throw new AppError('Access denied', 403);
+  loan.items = await fetchItems(loanId);
+  return loan;
+}
+
+// ── Create ───────────────────────────────────────────────────────────────────
 
 export async function createLoan(
   clubId: string,
   requesterId: string,
   requesterRole: string,
-  { asset_id, quantity = 1, reason, due_date, coach_id }: {
-    asset_id?: string;
-    quantity?: number | string;
-    reason?: string;
+  { items, due_date, reason, coach_id }: {
+    items?: LoanItemInput[];
     due_date?: string;
+    reason?: string;
     coach_id?: string;
   }
 ): Promise<Record<string, unknown>> {
-  if (!asset_id || !due_date) throw new AppError('asset_id and due_date are required', 400);
+  if (!items?.length) throw new AppError('At least one item is required', 400);
+  if (!due_date)      throw new AppError('due_date is required', 400);
   if (new Date(due_date) <= new Date()) throw new AppError('due_date must be a future date', 400);
 
-  // Determine who is the borrower
+  // Determine borrower
   let coachId: string;
   if (requesterRole === 'coach') {
     coachId = requesterId;
@@ -84,61 +165,167 @@ export async function createLoan(
   if (!coachRows.length) throw new AppError('Borrower not found in this club', 404);
   const coachName = coachRows[0].name;
 
-  const { rows: assetRows } = await db.query<Record<string, unknown>>(
-    'SELECT * FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
-    [asset_id, clubId]
-  );
-  if (!assetRows.length) throw new AppError('Asset not found', 404);
-  const asset = assetRows[0];
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  if (Number(asset.available_quantity) < Number(quantity)) throw new AppError('Insufficient available quantity', 409);
+    // Validate all items and check availability
+    const assetNames: string[] = [];
+    for (const item of items) {
+      const { rows: assetRows } = await client.query<Record<string, unknown>>(
+        'SELECT name, available_quantity FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
+        [item.asset_id, clubId]
+      );
+      if (!assetRows.length) throw new AppError(`Asset ${item.asset_id} not found`, 404);
+      const asset = assetRows[0];
+      if (Number(asset.available_quantity) < item.quantity) {
+        throw new AppError(
+          `Insufficient quantity for "${String(asset.name)}": requested ${item.quantity}, available ${asset.available_quantity}`,
+          409
+        );
+      }
+      assetNames.push(String(asset.name));
+    }
 
-  const { rows } = await db.query<Record<string, unknown>>(
-    `INSERT INTO loans (club_id, asset_id, coach_id, quantity, reason, status, due_date)
-     VALUES ($1,$2,$3,$4,$5,'pending',$6) RETURNING *`,
-    [clubId, asset_id, coachId, Number(quantity), reason ?? null, due_date]
-  );
-  const loan = rows[0];
+    // Insert loan
+    const { rows: loanRows } = await client.query<Record<string, unknown>>(
+      `INSERT INTO loans (club_id, coach_id, created_by, reason, status, due_date)
+       VALUES ($1,$2,$3,$4,'pending',$5) RETURNING *`,
+      [clubId, coachId, requesterId, reason ?? null, due_date]
+    );
+    const loan = loanRows[0];
 
-  notificationService.notifyClubRoles(
-    clubId, ['asset_manager', 'club_admin'], 'loan_request',
-    'New Loan Request',
-    `${coachName} is requesting ${quantity}x "${String(asset.name)}"`,
-    { loan_id: loan.id, asset_id, coach_id: coachId }
-  ).catch(() => {});
+    // Insert loan items
+    for (const item of items) {
+      await client.query(
+        'INSERT INTO loan_items (loan_id, asset_id, quantity) VALUES ($1,$2,$3)',
+        [loan.id, item.asset_id, item.quantity]
+      );
+    }
 
-  return loan;
+    await client.query('COMMIT');
+
+    notificationService.notifyClubRoles(
+      clubId, ['asset_manager', 'club_admin'], 'loan_request',
+      'New Loan Request',
+      `${coachName} is requesting ${items.length} item(s)`,
+      { loan_id: loan.id, coach_id: coachId }
+    ).catch(() => {});
+
+    loan.items = await fetchItems(loan.id as string);
+    return loan;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-export async function getLoan(
+// ── Update (pending only) ────────────────────────────────────────────────────
+
+export async function updateLoan(
   loanId: string,
   clubId: string,
   userId: string,
-  role: string
+  role: string,
+  { items, due_date, reason, coach_id }: {
+    items?: LoanItemInput[];
+    due_date?: string;
+    reason?: string;
+    coach_id?: string;
+  }
 ): Promise<Record<string, unknown>> {
-  const { rows } = await db.query<Record<string, unknown>>(
-    `SELECT l.*,
-            a.name AS asset_name, a.image_url AS asset_image,
-            u.name AS coach_name, u.email AS coach_email,
-            ap.name AS approved_by_name,
-            co.name AS checkout_by_name,
-            rc.name AS return_confirmed_by_name
-     FROM loans l
-     JOIN  assets a  ON a.id  = l.asset_id
-     JOIN  users  u  ON u.id  = l.coach_id
-     LEFT JOIN users ap ON ap.id = l.approved_by
-     LEFT JOIN users co ON co.id = l.checkout_by
-     LEFT JOIN users rc ON rc.id = l.return_confirmed_by
-     WHERE l.id = $1 AND l.club_id = $2`,
+  const { rows: existing } = await db.query<Record<string, unknown>>(
+    'SELECT * FROM loans WHERE id = $1 AND club_id = $2',
     [loanId, clubId]
   );
-  if (!rows.length) throw new AppError('Loan not found', 404);
-  const loan = rows[0];
+  if (!existing.length) throw new AppError('Loan not found', 404);
+  const loan = existing[0];
+
+  if (loan.status !== 'pending') throw new AppError('Only pending loans can be edited', 409);
   if (role === 'coach' && loan.coach_id !== userId) throw new AppError('Access denied', 403);
-  return loan;
+  if (role === 'coach' && coach_id && coach_id !== loan.coach_id) {
+    throw new AppError('Coaches cannot change the borrower', 403);
+  }
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Update loan header fields
+    const updates: string[] = [];
+    const params: unknown[] = [];
+
+    if (due_date !== undefined) {
+      if (new Date(due_date) <= new Date()) throw new AppError('due_date must be a future date', 400);
+      updates.push(`due_date = $${params.push(due_date)}`);
+    }
+    if (reason !== undefined) updates.push(`reason = $${params.push(reason)}`);
+    if (coach_id !== undefined) {
+      const { rows } = await client.query(
+        'SELECT id FROM users WHERE id = $1 AND club_id = $2 AND is_active = true',
+        [coach_id, clubId]
+      );
+      if (!rows.length) throw new AppError('Borrower not found in this club', 404);
+      updates.push(`coach_id = $${params.push(coach_id)}`);
+    }
+
+    if (updates.length) {
+      updates.push('updated_at = NOW()');
+      params.push(loanId);
+      await client.query(
+        `UPDATE loans SET ${updates.join(', ')} WHERE id = $${params.length}`,
+        params
+      );
+    }
+
+    // Replace items if provided
+    if (items !== undefined) {
+      if (!items.length) throw new AppError('At least one item is required', 400);
+
+      // Validate availability for each new item
+      for (const item of items) {
+        const { rows: assetRows } = await client.query<Record<string, unknown>>(
+          'SELECT name, available_quantity FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
+          [item.asset_id, clubId]
+        );
+        if (!assetRows.length) throw new AppError(`Asset ${item.asset_id} not found`, 404);
+        if (Number(assetRows[0].available_quantity) < item.quantity) {
+          throw new AppError(
+            `Insufficient quantity for "${String(assetRows[0].name)}": requested ${item.quantity}, available ${assetRows[0].available_quantity}`,
+            409
+          );
+        }
+      }
+
+      await client.query('DELETE FROM loan_items WHERE loan_id = $1', [loanId]);
+      for (const item of items) {
+        await client.query(
+          'INSERT INTO loan_items (loan_id, asset_id, quantity) VALUES ($1,$2,$3)',
+          [loanId, item.asset_id, item.quantity]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return getLoan(loanId, clubId, userId, role);
 }
 
-export async function approveLoan(loanId: string, approverId: string, clubId: string): Promise<Record<string, unknown>> {
+// ── Approve ──────────────────────────────────────────────────────────────────
+
+export async function approveLoan(
+  loanId: string,
+  approverId: string,
+  clubId: string
+): Promise<Record<string, unknown>> {
   try {
     await db.query('CALL approve_loan($1, $2)', [loanId, approverId]);
   } catch (err) {
@@ -146,15 +333,17 @@ export async function approveLoan(loanId: string, approverId: string, clubId: st
     if (anyErr.message?.includes('not in pending status')) throw new AppError(anyErr.message, 409);
     throw err;
   }
-  const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
-  const loan = rows[0];
+  const loan = await getLoan(loanId, clubId, approverId, 'club_admin');
   notificationService.notifyUser(
     clubId, String(loan.coach_id), 'loan_approved',
-    'Loan Request Approved', 'Your loan request has been approved. Please confirm receipt when you pick up the items.',
+    'Loan Request Approved',
+    'Your loan request has been approved. Please confirm receipt when you pick up the items.',
     { loan_id: loan.id }
   ).catch(() => {});
   return loan;
 }
+
+// ── Reject ───────────────────────────────────────────────────────────────────
 
 export async function rejectLoan(
   loanId: string,
@@ -169,8 +358,7 @@ export async function rejectLoan(
     if (anyErr.message?.includes('not in pending status')) throw new AppError(anyErr.message, 409);
     throw err;
   }
-  const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
-  const loan = rows[0];
+  const loan = await getLoan(loanId, clubId, approverId, 'club_admin');
   const body = reason ? `Your loan request was rejected: ${reason}` : 'Your loan request was rejected.';
   notificationService.notifyUser(
     clubId, String(loan.coach_id), 'loan_rejected', 'Loan Request Rejected', body, { loan_id: loan.id }
@@ -178,7 +366,13 @@ export async function rejectLoan(
   return loan;
 }
 
-export async function checkoutLoan(loanId: string, operatorId: string): Promise<Record<string, unknown>> {
+// ── Checkout ─────────────────────────────────────────────────────────────────
+
+export async function checkoutLoan(
+  loanId: string,
+  operatorId: string,
+  clubId: string
+): Promise<Record<string, unknown>> {
   try {
     await db.query('CALL checkout_loan($1, $2)', [loanId, operatorId]);
   } catch (err) {
@@ -188,45 +382,28 @@ export async function checkoutLoan(loanId: string, operatorId: string): Promise<
     }
     throw err;
   }
-  const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
-  return rows[0];
+  return getLoan(loanId, clubId, operatorId, 'club_admin');
 }
 
-export async function initiateReturn(
-  loanId: string,
-  coachId: string,
-  coachName: string,
-  clubId: string
-): Promise<{ message: string }> {
-  const { rows } = await db.query<Record<string, unknown>>(
-    'SELECT * FROM loans WHERE id = $1 AND club_id = $2 AND coach_id = $3 AND status = $4',
-    [loanId, clubId, coachId, 'checked_out']
-  );
-  if (!rows.length) throw new AppError('Active loan not found', 404);
-  const loan = rows[0];
-
-  notificationService.notifyClubRoles(
-    clubId, ['asset_manager', 'club_admin'], 'return_initiated',
-    'Return Initiated',
-    `${coachName} is returning items for loan #${String(loan.id).slice(0, 8)}`,
-    { loan_id: loan.id }
-  ).catch(() => {});
-  return { message: 'Return initiated; awaiting manager confirmation' };
-}
+// ── Confirm Return ───────────────────────────────────────────────────────────
 
 export async function confirmReturn(
   loanId: string,
   operatorId: string,
   clubId: string,
-  condition: string,
-  returnedQuantity: number,
-  notes?: string
+  returnItems: ReturnItemInput[],
+  loanNotes?: string
 ): Promise<Record<string, unknown>> {
   const validConditions = ['good', 'minor_damage', 'severe_damage'];
-  if (!condition || !validConditions.includes(condition)) {
-    throw new AppError('condition must be: good, minor_damage, or severe_damage', 400);
+
+  // Validate condition values
+  for (const ri of returnItems) {
+    if (!validConditions.includes(ri.condition)) {
+      throw new AppError('condition must be: good, minor_damage, or severe_damage', 400);
+    }
   }
 
+  // Fetch and validate loan
   const { rows: loanRows } = await db.query<Record<string, unknown>>(
     'SELECT * FROM loans WHERE id = $1 AND club_id = $2 AND status = $3',
     [loanId, clubId, 'checked_out']
@@ -234,99 +411,122 @@ export async function confirmReturn(
   if (!loanRows.length) throw new AppError('Loan is not in checked_out status', 409);
   const loan = loanRows[0];
 
-  const totalQty = Number(loan.quantity);
-  const retQty = Number(returnedQuantity);
-  if (retQty < 1 || retQty > totalQty) {
-    throw new AppError(`returned_quantity must be between 1 and ${totalQty}`, 400);
+  // Fetch existing loan items
+  const { rows: existingItems } = await db.query<Record<string, unknown>>(
+    'SELECT li.*, a.name AS asset_name FROM loan_items li JOIN assets a ON a.id = li.asset_id WHERE li.loan_id = $1',
+    [loanId]
+  );
+
+  // Validate all loan_item_ids are in this loan
+  const itemMap = new Map(existingItems.map(i => [i.id as string, i]));
+  for (const ri of returnItems) {
+    if (!itemMap.has(ri.loan_item_id)) {
+      throw new AppError(`loan_item_id ${ri.loan_item_id} not found in this loan`, 404);
+    }
+    const item = itemMap.get(ri.loan_item_id)!;
+    if (ri.returned_quantity < 0 || ri.returned_quantity > Number(item.quantity)) {
+      throw new AppError(
+        `returned_quantity for "${String(item.asset_name)}" must be between 0 and ${item.quantity}`,
+        400
+      );
+    }
   }
 
-  const isPartial = retQty < totalQty;
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  if (!isPartial) {
-    // Full return — use stored procedure
-    try {
-      await db.query('CALL return_loan($1, $2, $3::return_condition, $4)', [loanId, operatorId, condition, notes ?? null]);
-    } catch (err) {
-      const anyErr = err as { message?: string };
-      if (anyErr.message?.includes('not in checked_out status')) throw new AppError(anyErr.message, 409);
-      throw err;
-    }
-  } else {
-    // Partial return — manual transaction
-    const client = await db.pool.connect();
-    try {
-      await client.query('BEGIN');
+    for (const ri of returnItems) {
+      const item = itemMap.get(ri.loan_item_id)!;
+      const originalQty = Number(item.quantity);
+      const returnedQty = ri.returned_quantity;
+      const writeOffQty = originalQty - returnedQty;
 
-      const { rows: assetRows } = await client.query<{ available_quantity: number }>(
-        'SELECT available_quantity FROM assets WHERE id = $1',
-        [loan.asset_id]
-      );
-      const beforeQty = assetRows[0].available_quantity;
-
-      // Mark original loan as returned (for the returned portion)
+      // Update loan_item
       await client.query(
-        `UPDATE loans SET
-           status = 'returned',
-           return_confirmed_by = $1,
-           returned_at = NOW(),
-           return_condition = $2::return_condition,
-           return_notes = $3,
-           quantity = $4
-         WHERE id = $5`,
-        [operatorId, condition,
-          `Partial return: ${retQty} of ${totalQty} returned. ${notes ?? ''}`.trim(),
-          retQty, loanId]
+        `UPDATE loan_items
+         SET returned_quantity = $1, return_condition = $2::return_condition, return_notes = $3, updated_at = NOW()
+         WHERE id = $4`,
+        [returnedQty, ri.condition, ri.notes ?? null, ri.loan_item_id]
       );
 
-      // Restore returned quantity (skip if severe damage)
-      const restoreQty = condition !== 'severe_damage' ? retQty : 0;
-      if (restoreQty > 0) {
+      const { rows: assetRows } = await client.query<{ available_quantity: number; total_quantity: number }>(
+        'SELECT available_quantity, total_quantity FROM assets WHERE id = $1',
+        [item.asset_id]
+      );
+      const { available_quantity: availBefore, total_quantity: totalBefore } = assetRows[0];
+
+      // Restore returned quantity to available stock
+      if (returnedQty > 0) {
         await client.query(
-          'UPDATE assets SET available_quantity = available_quantity + $1 WHERE id = $2',
-          [restoreQty, loan.asset_id]
+          `UPDATE assets SET available_quantity = available_quantity + $1,
+           status = CASE WHEN available_quantity + $1 > 0 THEN 'available'::asset_status ELSE status END
+           WHERE id = $2`,
+          [returnedQty, item.asset_id]
+        );
+        await client.query(
+          `INSERT INTO stock_movements
+             (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
+              quantity_delta, quantity_before, quantity_after, notes)
+           VALUES ($1,$2,$3,$4,$5,'loan_return',$6,$7,$8,$9)`,
+          [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
+            returnedQty, availBefore, availBefore + returnedQty,
+            ri.notes ?? `Returned — condition: ${ri.condition}`]
         );
       }
 
-      // Stock movement for returned portion
-      await client.query(
-        `INSERT INTO stock_movements
-           (club_id, asset_id, loan_id, operator_id, type, quantity_delta, quantity_before, quantity_after, notes)
-         VALUES ($1,$2,$3,$4,'loan_return',$5,$6,$7,$8)`,
-        [clubId, loan.asset_id, loanId, operatorId,
-          restoreQty, beforeQty, beforeQty + restoreQty,
-          `Partial return: ${retQty} of ${totalQty}`]
-      );
+      // Write off remaining quantity
+      if (writeOffQty > 0) {
+        await client.query(
+          `UPDATE assets SET total_quantity = total_quantity - $1,
+           status = CASE WHEN total_quantity - $1 <= 0 THEN 'retired'::asset_status ELSE status END
+           WHERE id = $2`,
+          [writeOffQty, item.asset_id]
+        );
+        const availAfterReturn = availBefore + returnedQty;
+        await client.query(
+          `INSERT INTO stock_movements
+             (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
+              quantity_delta, quantity_before, quantity_after, notes)
+           VALUES ($1,$2,$3,$4,$5,'write_off',$6,$7,$8,$9)`,
+          [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
+            -writeOffQty, availAfterReturn, availAfterReturn,
+            `Write-off on return: ${writeOffQty} of ${originalQty} items decommissioned`]
+        );
 
-      // New loan for remaining quantity
-      const remaining = totalQty - retQty;
-      await client.query(
-        `INSERT INTO loans
-           (club_id, asset_id, coach_id, approved_by, checkout_by,
-            quantity, reason, status, due_date, checked_out_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'checked_out',$8,NOW())`,
-        [clubId, loan.asset_id, loan.coach_id, loan.approved_by,
-          loan.checkout_by, remaining, loan.reason, loan.due_date]
-      );
-
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
+        // Auto-create write_off_order
+        await client.query(
+          `INSERT INTO write_off_orders (club_id, asset_id, quantity, reason, source, loan_item_id, created_by, notes)
+           VALUES ($1,$2,$3,$4,'loan_return',$5,$6,$7)`,
+          [clubId, item.asset_id, writeOffQty,
+            `Write-off from loan return: ${writeOffQty} items (condition: ${ri.condition})`,
+            ri.loan_item_id, operatorId, ri.notes ?? null]
+        );
+      }
     }
-  }
 
-  const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
-  const returned = rows[0];
+    // Mark loan as returned
+    await client.query(
+      `UPDATE loans
+       SET status = 'returned', return_confirmed_by = $1, returned_at = NOW(),
+           return_notes = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [operatorId, loanNotes ?? null, loanId]
+    );
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
   notificationService.notifyUser(
     clubId, String(loan.coach_id), 'return_initiated',
-    'Return Confirmed',
-    isPartial
-      ? `Partial return confirmed: ${retQty} of ${totalQty} items returned.`
-      : 'Your return has been confirmed.',
-    { loan_id: loanId, condition }
+    'Return Confirmed', 'Your loan return has been confirmed.',
+    { loan_id: loanId }
   ).catch(() => {});
-  return returned;
+
+  return getLoan(loanId, clubId, operatorId, 'club_admin');
 }

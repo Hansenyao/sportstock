@@ -1,8 +1,8 @@
 # SportStock - Requirements Analysis
 # Asset Management Platform for Small Youth Sports Clubs
 
-> Document Version: v1.0
-> Created: 2026-04-04
+> Document Version: v2.0
+> Updated: 2026-04-25
 
 ---
 
@@ -50,9 +50,10 @@ Build a **multi-tenant SaaS platform + mobile app** where each club registers in
 | Invite members | ✓ | ✓ | - | - |
 | Add / edit assets | ✓ | ✓ | ✓ | - |
 | View asset list | ✓ | ✓ | ✓ | ✓ |
-| Submit loan request | - | - | - | ✓ |
+| Submit loan request | - | ✓ (on behalf of coach) | ✓ (on behalf of coach) | ✓ |
 | Approve loan request | - | ✓ | ✓ | - |
 | Process check-out / check-in | - | ✓ | ✓ | - |
+| Write-off management | ✓ | ✓ | ✓ | - |
 | View reports & analytics | ✓ | ✓ | ✓ | - |
 | Run stocktake | - | ✓ | ✓ | - |
 
@@ -80,6 +81,7 @@ Optional fields:
 - Unit purchase price (original cost)
 - Expected useful life (for depreciation)
 - Asset photo (camera upload supported)
+- Asset tag (optional admin-entered label, e.g. BALL-01, for physical identification)
 - Notes
 
 Supports **bulk import** via CSV/Excel.
@@ -111,35 +113,40 @@ Pre-built categories (clubs can add custom ones):
 
 ### 3.3 Loan Management
 
-#### 3.3.1 Coach Submits a Loan Request
+#### 3.3.1 Loan Request — Cart-Based Multi-Asset Flow
 
 - Browse available assets (search and filter by category)
-- Select asset and quantity
-- Enter reason for borrowing and expected return date
-- Submit request and await approval
+- Add one or more assets to a cart; adjust quantities per item in the cart
+- Remove items from the cart if needed before confirming
+- Fill in due date and reason for borrowing
+- Submit the cart as a single loan request; all items are grouped under one loan
+- Managers / Club Admins can also create a loan request on behalf of a coach (select the borrower when submitting)
 
 #### 3.3.2 Approval Workflow
 
 ```
-Coach submits request
+Coach (or manager on behalf of coach) submits request
         ↓
 Asset Manager / Club Admin reviews
         ↓
-Approved → Process check-out → Asset status → "On Loan"
+Approved → Process check-out → Asset status per item → "On Loan", available qty decreases
         ↓ (or)
 Rejected → Coach notified with reason
 ```
 
 #### 3.3.3 Return Workflow
 
-- Coach initiates return via app
-- Manager confirms receipt and records condition (Good / Minor Damage / Severe Damage)
-- Asset status reverts to "Available" or moves to "Under Maintenance"
+- Coach physically brings items back to the warehouse (no app step required from the coach)
+- Manager opens the loan and confirms return directly
+- Per each loan item: manager sets the returned quantity and condition (Good / Minor Damage / Severe Damage) and optional notes
+- If returned quantity < loaned quantity, the difference is written off automatically (a write-off order is created and asset total_quantity is decremented)
+- Returned quantity is restored to available stock
 - Return timestamp recorded — loan cycle closed
 
 #### 3.3.4 Loan Records
 
-- Full record: borrower, check-out time, return time, asset condition, operator
+- Full record: borrower, check-out time, return time, list of all items (name, quantity, returned quantity, condition), operator
+- Loan list shows first asset + "N more" summary; tap/click a row to expand and see all items (name, qty, image, size, model, asset tag)
 - Filterable by date, person, and asset category
 - Exportable to Excel
 
@@ -155,14 +162,36 @@ Rejected → Coach notified with reason
 - **Stocktake**: Manager can conduct a physical count by category and reconcile against system records
 - **Stock movements**: Log new purchases (in) and decommissioned items (out)
 
-### 3.5 Financial Overview
+### 3.5 Write-off Management
+
+Write-offs permanently reduce an asset's total quantity and track the reason and operator.
+
+#### 3.5.1 Manual Write-off
+
+- Club Admin or Asset Manager creates a write-off order by selecting an asset, entering the quantity to write off, and providing a reason
+- Available quantity and total quantity are decremented immediately upon confirmation
+- All manual write-offs record the operator's identity and a timestamp
+
+#### 3.5.2 Return-Triggered Write-off
+
+- Automatically created during loan return when the returned quantity for a loan item is less than the loaned quantity
+- The shortfall (loaned qty − returned qty) is written off; a write-off order is auto-generated and linked to the originating loan item
+- Asset total quantity is decremented by the write-off amount; the loan item's return condition is preserved
+
+#### 3.5.3 Write-off Records
+
+- Every write-off records: asset, quantity, reason, source (manual or loan_return), linked loan item (if applicable), operator (created_by), timestamp, and optional notes
+- Visible in the Write-offs dashboard section (Club Admin and Asset Manager only)
+- Coaches do not have access to write-off management
+
+### 3.6 Financial Overview
 
 - **Total asset value**: Aggregated from original purchase costs
 - **Depreciation**: Straight-line method; system auto-calculates accumulated depreciation and net book value annually
 - **Asset value report**: Per-item original cost, accumulated depreciation, current net value
 - **Stocktake report**: Variance between physical count and system records
 
-### 3.6 Notifications
+### 3.7 Notifications
 
 | Trigger | Recipients |
 |---------|-----------|
@@ -174,7 +203,7 @@ Rejected → Coach notified with reason
 
 Delivery: Web push notification via browser (primary); in-app notification when user is active; optional email notification.
 
-### 3.7 Reports & Analytics
+### 3.8 Reports & Analytics
 
 - Most-borrowed assets ranking
 - Per-coach loan summary
@@ -224,20 +253,24 @@ Delivery: Web push notification via browser (primary); in-app notification when 
 ### 5.1 Loan Flow
 
 ```
-Coach (App)                        Asset Manager (App / Web)
+Coach (App)                        Asset Manager / Club Admin
     │                                        │
     ├─ Browse asset list                     │
-    ├─ Select asset + fill in details        │
+    ├─ Add assets to cart                    │
+    ├─ Confirm cart + fill details           │
     ├─ Submit loan request ────────────────→ Receive notification
     │                                        ├─ Review request
     │ ←────────────── Approval notification ─┤
-    ├─ Pick up from warehouse                ├─ Confirm check-out → Stock decreases
+    ├─ Pick up items from warehouse          │
+    ├─ Confirm receipt (check-out)           ├─ OR Manager confirms check-out
     │                                        │
     │  (In use)                              │
     │                                        │
-    ├─ Initiate return ────────────────────→ Receive notification
-    │                                        ├─ Confirm receipt + inspect condition
-    │ ←────────────── Return confirmed ──────┤ → Stock restored
+    │  Coach brings items back               │
+    │                                      ←─┤ Manager confirms return per item
+    │                                        ├─ Record condition + returned qty
+    │                                        ├─ Write off damaged/missing items
+    │ ←────────────── Return confirmed ──────┤ → Stock restored / write-off applied
 ```
 
 ### 5.2 Asset Lifecycle

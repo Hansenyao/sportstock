@@ -100,6 +100,7 @@ export default function AssetsPage() {
       category_id: asset.category_id ?? undefined,
       brand: asset.brand ?? '',
       model: asset.model ?? '',
+      size: asset.size ?? '',
       purchase_date: asset.purchase_date ? dayjs(asset.purchase_date) : null,
       purchase_price: asset.purchase_price ?? undefined,
       useful_life_years: asset.useful_life_years ?? undefined,
@@ -192,9 +193,14 @@ export default function AssetsPage() {
           )}
           <div>
             <Text strong style={{ display: 'block' }}>{a.name}</Text>
-            {a.category_name && (
-              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>{a.category_name}</Text>
-            )}
+            <Space size={4}>
+              {a.category_name && (
+                <Text style={{ fontSize: 12, color: '#8c8c8c' }}>{a.category_name}</Text>
+              )}
+              {a.size && (
+                <Text style={{ fontSize: 12, color: '#1677ff' }}>{a.size}</Text>
+              )}
+            </Space>
           </div>
         </Flex>
       ),
@@ -335,7 +341,7 @@ export default function AssetsPage() {
                 name="name" label="Asset Name"
                 rules={[{ required: true, message: 'Name is required' }]}
               >
-                <Input placeholder="e.g. Football Size 5" />
+                <Input placeholder="e.g. Football" />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -388,14 +394,19 @@ export default function AssetsPage() {
           </Form.Item>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item name="brand" label="Brand">
                 <Input placeholder="e.g. Nike" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item name="model" label="Model">
                 <Input placeholder="e.g. Flight" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="size" label="Size">
+                <Input placeholder="e.g. Size 5" />
               </Form.Item>
             </Col>
           </Row>

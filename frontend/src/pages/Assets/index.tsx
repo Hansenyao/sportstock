@@ -2,9 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, InputNumber, Select,
   Typography, Flex, App, Popconfirm, Space, Row, Col, DatePicker,
-  Upload, Avatar,
+  Upload, Avatar, Tooltip,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, PictureOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, UploadOutlined, PictureOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
@@ -13,6 +13,7 @@ import {
   listCategories, createCategory, uploadAssetImage,
   type Asset, type AssetStatus, type Category, type AssetFilters,
 } from '../../api/assets';
+import { createWriteOff } from '../../api/write-offs';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -58,6 +59,11 @@ export default function AssetsPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [writeOffAsset, setWriteOffAsset] = useState<Asset | null>(null);
+  const [writeOffSaving, setWriteOffSaving] = useState(false);
+  const [writeOffForm] = Form.useForm();
+
   const fetchAssets = useCallback(async (p = page, f = filters) => {
     setLoading(true);
     try {
@@ -73,7 +79,7 @@ export default function AssetsPage() {
 
   useEffect(() => {
     fetchAssets();
-    listCategories().then(res => setCategories(res.data)).catch(() => {});
+    listCategories().then(res => setCategories(res.data)).catch(() => { message.error('Failed to load categories'); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyFilters(changed: Partial<AssetFilters>) {
@@ -148,6 +154,29 @@ export default function AssetsPage() {
       message.error(msg);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openWriteOff(asset: Asset) {
+    writeOffForm.resetFields();
+    writeOffForm.setFieldsValue({ quantity: 1 });
+    setWriteOffAsset(asset);
+    setWriteOffOpen(true);
+  }
+
+  async function handleWriteOff(values: { quantity: number; reason?: string; notes?: string }) {
+    if (!writeOffAsset) return;
+    setWriteOffSaving(true);
+    try {
+      await createWriteOff({ asset_id: writeOffAsset.id, ...values });
+      message.success(`Write-off recorded for "${writeOffAsset.name}"`);
+      setWriteOffOpen(false);
+      fetchAssets();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create write-off';
+      message.error(msg);
+    } finally {
+      setWriteOffSaving(false);
     }
   }
 
@@ -242,13 +271,20 @@ export default function AssetsPage() {
     ...(canEdit ? [{
       title: 'Actions',
       key: 'actions',
-      width: 90,
+      width: 110,
       render: (_: unknown, asset: Asset) => (
         <Space size={4}>
-          <Button
-            type="text" size="small" icon={<EditOutlined />}
-            onClick={() => openEdit(asset)}
-          />
+          <Tooltip title="Edit">
+            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(asset)} />
+          </Tooltip>
+          <Tooltip title="Write Off">
+            <Button
+              type="text" size="small" icon={<MinusCircleOutlined />}
+              style={{ color: '#fa8c16' }}
+              onClick={() => openWriteOff(asset)}
+              disabled={asset.available_quantity === 0}
+            />
+          </Tooltip>
           <Popconfirm
             title={`Delete "${asset.name}"?`}
             description="This cannot be undone."
@@ -256,7 +292,9 @@ export default function AssetsPage() {
             okText="Delete"
             okButtonProps={{ danger: true }}
           >
-            <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+            <Tooltip title="Delete">
+              <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -475,6 +513,44 @@ export default function AssetsPage() {
             <Button onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button type="primary" htmlType="submit" loading={saving}>
               {modalMode === 'create' ? 'Create Asset' : 'Save Changes'}
+            </Button>
+          </Flex>
+        </Form>
+      </Modal>
+
+      {/* Write-off Modal */}
+      <Modal
+        open={writeOffOpen}
+        title={`Write Off — ${writeOffAsset?.name}`}
+        onCancel={() => setWriteOffOpen(false)}
+        footer={null}
+        destroyOnClose
+        width={420}
+      >
+        <Form form={writeOffForm} layout="vertical" onFinish={handleWriteOff} style={{ marginTop: 16 }}>
+          <Form.Item name="quantity" label="Quantity to Write Off"
+            rules={[{ required: true, message: 'Quantity is required' }]}>
+            <InputNumber
+              min={1} max={writeOffAsset?.available_quantity ?? 1}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+          {writeOffAsset && (
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, marginTop: -8 }}>
+              Available: {writeOffAsset.available_quantity} / Total: {writeOffAsset.total_quantity}
+            </Text>
+          )}
+          <Form.Item name="reason" label="Reason (optional)">
+            <TextArea rows={2} placeholder="e.g. Damaged beyond repair" />
+          </Form.Item>
+          <Form.Item name="notes" label="Notes (optional)">
+            <TextArea rows={2} />
+          </Form.Item>
+          <Flex gap={8} justify="flex-end">
+            <Button onClick={() => setWriteOffOpen(false)}>Cancel</Button>
+            <Button type="primary" danger htmlType="submit" loading={writeOffSaving}
+              icon={<MinusCircleOutlined />}>
+              Confirm Write-off
             </Button>
           </Flex>
         </Form>

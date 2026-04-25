@@ -12,12 +12,14 @@ import LoansPage from '../pages/Loans';
 import WriteOffsPage from '../pages/WriteOffs';
 
 function RequireAuth() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isValidating } = useAuth();
+  if (isValidating) return null;
   return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
 }
 
 function RedirectIfAuth() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isValidating } = useAuth();
+  if (isValidating) return null;
   return isAuthenticated ? <Navigate to="/dashboard" replace /> : <Outlet />;
 }
 

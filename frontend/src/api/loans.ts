@@ -105,6 +105,9 @@ export const createLoan = (data: CreateLoanPayload) =>
 export const updateLoan = (id: string, data: UpdateLoanPayload) =>
   client.patch<Loan>(`/loans/${id}`, data);
 
+export const deleteLoan = (id: string) =>
+  client.delete(`/loans/${id}`);
+
 export const approveLoan = (id: string) =>
   client.post<Loan>(`/loans/${id}/approve`);
 

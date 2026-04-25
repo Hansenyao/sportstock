@@ -7,13 +7,13 @@ import {
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
   ArrowDownOutlined, ShoppingCartOutlined, DeleteOutlined, EditOutlined,
-  MinusOutlined,
+  MinusOutlined, DeleteFilled,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  listLoans, createLoan, updateLoan, approveLoan, rejectLoan,
+  listLoans, createLoan, updateLoan, deleteLoan, approveLoan, rejectLoan,
   checkoutLoan, confirmReturn,
   type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload,
 } from '../../api/loans';
@@ -295,6 +295,19 @@ export default function LoansPage() {
 
   // ── Edit ────────────────────────────────────────────────────────────────────
 
+  async function handleDelete(loan: Loan) {
+    setAL(loan.id + '_delete', true);
+    try {
+      await deleteLoan(loan.id);
+      message.success('Loan request deleted');
+      fetchLoans();
+    } catch (err: unknown) {
+      message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to delete loan');
+    } finally {
+      setAL(loan.id + '_delete', false);
+    }
+  }
+
   function openEdit(loan: Loan) {
     editForm.resetFields();
     editForm.setFieldsValue({
@@ -414,6 +427,7 @@ export default function LoansPage() {
       render: (_: unknown, loan: Loan) => {
         const first = loan.items[0];
         const extra = loan.items.length - 1;
+        const createdByOther = loan.created_by_name && loan.created_by_name !== loan.coach_name;
         return (
           <Flex align="center" gap={10}>
             <AssetThumb src={first?.asset_image} size={isMobile ? 32 : 40} />
@@ -422,22 +436,43 @@ export default function LoansPage() {
                 {first?.asset_name ?? '—'}
                 {extra > 0 && <Text style={{ fontSize: 12, color: '#8c8c8c' }}> +{extra} more</Text>}
               </Text>
-              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>{loan.coach_name}</Text>
+              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
+                Borrower: {loan.coach_name}
+              </Text>
+              {createdByOther && (
+                <Text style={{ fontSize: 11, color: '#bfbfbf', display: 'block' }}>
+                  Created by: {loan.created_by_name}
+                </Text>
+              )}
             </div>
           </Flex>
         );
       },
     },
     {
-      title: 'Due',
-      key: 'due_date',
+      title: 'Dates',
+      key: 'dates',
       width: 100,
       responsive: ['sm'] as ('sm')[],
-      render: (_: unknown, loan: Loan) => (
-        <Text style={{ color: loan.status === 'checked_out' && dayjs(loan.due_date).isBefore(dayjs()) ? '#ff4d4f' : undefined, fontSize: 13 }}>
-          {dayjs(loan.due_date).format('MMM D')}
-        </Text>
-      ),
+      render: (_: unknown, loan: Loan) => {
+        const isOverdue = loan.status === 'checked_out' && dayjs(loan.due_date).isBefore(dayjs());
+        return (
+          <div>
+            <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+              {dayjs(loan.created_at).format('MMM D')}
+            </Text>
+            {loan.status === 'returned' && loan.returned_at ? (
+              <Text style={{ fontSize: 12, color: '#52c41a' }}>
+                ↩ {dayjs(loan.returned_at).format('MMM D')}
+              </Text>
+            ) : (
+              <Text style={{ fontSize: 12, color: isOverdue ? '#ff4d4f' : undefined }}>
+                Due {dayjs(loan.due_date).format('MMM D')}
+              </Text>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'Status',
@@ -455,12 +490,34 @@ export default function LoansPage() {
       render: (_: unknown, loan: Loan) => {
         const buttons: React.ReactNode[] = [];
 
+        const isCreator = loan.created_by === user?.id;
         const canEdit = loan.status === 'pending' && (isManager || (isCoach && loan.coach_id === user?.id));
+
         if (canEdit) {
           buttons.push(
             <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => openEdit(loan)}>
               {!isMobile && 'Edit'}
             </Button>
+          );
+        }
+
+        if (loan.status === 'pending' && isCreator) {
+          buttons.push(
+            <Popconfirm
+              key="delete"
+              title="Delete Loan Request"
+              description="This cannot be undone."
+              onConfirm={() => handleDelete(loan)}
+              okText="Delete"
+              okButtonProps={{ danger: true }}
+            >
+              <Button
+                size="small" danger icon={<DeleteFilled />}
+                loading={actionLoading[loan.id + '_delete']}
+              >
+                {!isMobile && 'Delete'}
+              </Button>
+            </Popconfirm>
           );
         }
 

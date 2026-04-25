@@ -8,6 +8,7 @@ import DashboardPage from '../pages/Dashboard';
 import ClubProfilePage from '../pages/ClubProfile';
 import UsersPage from '../pages/Users';
 import AssetsPage from '../pages/Assets';
+import LoansPage from '../pages/Loans';
 
 function RequireAuth() {
   const { isAuthenticated } = useAuth();
@@ -34,7 +35,7 @@ export default function AppRouter() {
           <Route path="/dashboard"       element={<DashboardPage />} />
           <Route path="/dashboard/club"  element={<ClubProfilePage />} />
           <Route path="/dashboard/assets" element={<AssetsPage />} />
-          <Route path="/dashboard/loans"  element={<div>Loans — coming soon</div>} />
+          <Route path="/dashboard/loans"  element={<LoansPage />} />
           <Route path="/dashboard/users"  element={<UsersPage />} />
         </Route>
       </Route>

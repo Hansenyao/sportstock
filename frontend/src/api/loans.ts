@@ -2,7 +2,6 @@ import client from './client';
 import type { PaginatedResult } from './assets';
 
 export type LoanStatus = 'pending' | 'approved' | 'rejected' | 'checked_out' | 'returned';
-export type ReturnCondition = 'good' | 'minor_damage' | 'severe_damage';
 
 export interface LoanItem {
   id: string;
@@ -16,8 +15,11 @@ export interface LoanItem {
   asset_tag?: string | null;
   asset_available_quantity: number;
   quantity: number;
-  returned_quantity?: number | null;
-  return_condition?: ReturnCondition | null;
+  returned_quantity?: number | null;       // computed: good + minor_damage
+  good_quantity?: number | null;
+  minor_damage_quantity?: number | null;
+  write_off_quantity?: number | null;
+  lost_quantity?: number | null;
   return_notes?: string | null;
 }
 
@@ -83,8 +85,10 @@ export interface UpdateLoanPayload {
 
 export interface ReturnItemPayload {
   loan_item_id: string;
-  returned_quantity: number;
-  condition: ReturnCondition;
+  good_quantity: number;
+  minor_damage_quantity: number;
+  write_off_quantity: number;
+  lost_quantity: number;
   notes?: string;
 }
 

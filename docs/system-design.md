@@ -1,7 +1,7 @@
 # SportStock — System Design
 
-> Document Version: v2.0
-> Updated: 2026-04-24
+> Document Version: v3.0
+> Updated: 2026-04-25
 
 ---
 
@@ -104,6 +104,7 @@ erDiagram
         enum status "available | on_loan | maintenance | retired"
         string brand
         string model
+        string asset_tag "optional, e.g. BALL-01"
         date purchase_date
         decimal purchase_price
         int useful_life_years
@@ -114,16 +115,37 @@ erDiagram
     LOAN {
         uuid id PK
         uuid club_id FK
-        uuid asset_id FK
         uuid coach_id FK
         uuid approved_by FK
-        int quantity
+        uuid created_by FK
         string reason
         enum status "pending | approved | rejected | checked_out | returned"
         date due_date
         timestamp checked_out_at
         timestamp returned_at
+    }
+
+    LOAN_ITEM {
+        uuid id PK
+        uuid loan_id FK
+        uuid asset_id FK
+        int quantity
+        int returned_quantity "filled on return"
         enum return_condition "good | minor_damage | severe_damage"
+        string return_notes
+    }
+
+    WRITE_OFF_ORDER {
+        uuid id PK
+        uuid club_id FK
+        uuid asset_id FK
+        int quantity
+        string reason
+        enum source "manual | loan_return"
+        uuid loan_item_id FK "nullable"
+        uuid created_by FK
+        string notes
+        timestamp created_at
     }
 
     STOCK_MOVEMENT {
@@ -131,6 +153,7 @@ erDiagram
         uuid club_id FK
         uuid asset_id FK
         uuid operator_id FK
+        uuid loan_item_id FK "nullable"
         enum type "purchase | loan_out | loan_return | write_off | adjustment"
         int quantity_delta
         string notes
@@ -140,7 +163,10 @@ erDiagram
     CLUB ||--o{ USER : has
     CLUB ||--o{ ASSET : owns
     CLUB ||--o{ LOAN : manages
-    ASSET ||--o{ LOAN : referenced_in
+    LOAN ||--o{ LOAN_ITEM : contains
+    ASSET ||--o{ LOAN_ITEM : referenced_in
+    LOAN_ITEM ||--o| WRITE_OFF_ORDER : triggers
+    ASSET ||--o{ WRITE_OFF_ORDER : written_off_in
     ASSET ||--o{ STOCK_MOVEMENT : tracks
     USER ||--o{ LOAN : requests
 ```
@@ -229,9 +255,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A([Coach opens app]) --> B[Browse available assets]
-    B --> C[Select asset + quantity]
-    C --> D[Fill in reason & due date]
+    A([Coach opens Loans page]) --> B[Browse asset list\nAdd items to cart]
+    B --> C[Cart: adjust quantities\nRemove items if needed]
+    C --> D[Fill in due date & reason\nManager selects borrower]
     D --> E[Submit loan request]
     E --> F[Loan saved as PENDING\nNotification sent to manager]
 
@@ -240,29 +266,22 @@ flowchart TD
     H --> Z([End])
 
     G -- Approve --> I[Loan status → APPROVED\nCoach notified]
-    I --> J[Coach picks up items\nManager confirms check-out]
-    J --> K[Loan status → CHECKED_OUT\nAvailable qty decreases]
+    I --> J[Coach picks up items\nCoach OR Manager confirms receipt]
+    J --> K[Loan status → CHECKED_OUT\nAvailable qty decreases per item]
 
     K --> L{Due date approaching?}
     L -- 1 day before --> M[Push reminder to coach]
     M --> L
     L -- Overdue --> N[Alert coach + manager]
 
-    K --> O[Coach initiates return via app]
-    O --> P[Manager confirms receipt & records condition]
+    K --> O[Coach brings items back to warehouse]
+    O --> P[Manager confirms return\nSets returned_qty + condition per item]
 
-    P --> Q{Item condition?}
-    Q -- Good --> R[Loan status → RETURNED\nAvailable qty restored]
-    Q -- Minor damage --> R
-    Q -- Severe damage --> S[Asset status → UNDER MAINTENANCE\nQty stays unavailable]
-
-    R --> Z2([Loan cycle complete])
-    S --> T[Manager schedules repair]
-    T --> U{Repaired?}
-    U -- Yes --> V[Asset status → AVAILABLE\nQty restored]
-    U -- No --> W[Asset status → RETIRED\nWrite off stock]
-    V --> Z2
-    W --> Z2
+    P --> Q{Any items written off?}
+    Q -- Yes --> R[Write-off order auto-created\nAsset total_qty decremented]
+    Q -- No/also --> S[Loan status → RETURNED\nReturned qty restored to available]
+    R --> S
+    S --> Z2([Loan cycle complete])
 ```
 
 ---
@@ -274,14 +293,13 @@ stateDiagram-v2
     [*] --> Available : Purchase / receive stock
 
     Available --> OnLoan : Loan approved & checked out
-    OnLoan --> Available : Returned in good or minor damage condition
-    OnLoan --> UnderMaintenance : Returned severely damaged
+    OnLoan --> Available : Items returned (good/minor damage)
+    OnLoan --> WrittenOff : Items written off on return
 
-    Available --> UnderMaintenance : Manually flagged for repair
-    UnderMaintenance --> Available : Repair completed
+    Available --> WrittenOff : Manual write-off by manager
+    Available --> Retired : All stock decommissioned
 
-    Available --> Retired : Decommissioned by manager
-    UnderMaintenance --> Retired : Beyond repair
+    WrittenOff --> [*] : total_quantity decremented
 
     Retired --> [*]
 ```
@@ -330,7 +348,8 @@ flowchart TD
 | Clubs | `/api/v1/clubs` | JWT | `GET /me`, `PUT /me`, `PUT /me/logo` |
 | Users | `/api/v1/users` | JWT | CRUD; `POST /` (admin only — creates user directly) |
 | Assets | `/api/v1/assets` | JWT | CRUD, categories, depreciation |
-| Loans | `/api/v1/loans` | JWT | Request, approve/reject, check-out, return |
+| Loans | `/api/v1/loans` | JWT | Request (multi-asset cart), approve/reject, check-out, return (per-item condition + write-off) |
+| Write-offs | `/api/v1/write-offs` | JWT | List, get, create (admin+manager only) |
 | Inventory | `/api/v1/inventory` | JWT | Stock movements, stocktake |
 | Reports | `/api/v1/reports` | JWT | Financial summary, depreciation, usage stats |
 | Notifications | `/api/v1/notifications` | JWT | List, mark as read, FCM tokens |

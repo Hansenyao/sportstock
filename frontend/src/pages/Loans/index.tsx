@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, Select, Typography, Flex, App,
   Space, Tabs, DatePicker, Popconfirm, InputNumber, Drawer, Badge,
@@ -74,7 +74,6 @@ export default function LoansPage() {
   const isMobile = !screens.md;
 
   const [rejectForm] = Form.useForm();
-  const [checkoutForm] = Form.useForm();
   const [editForm] = Form.useForm();
 
   const isManager = user?.role === 'club_admin' || user?.role === 'asset_manager';

@@ -100,12 +100,12 @@ export async function createLoan(
   );
   const loan = rows[0];
 
-  await notificationService.notifyClubRoles(
+  notificationService.notifyClubRoles(
     clubId, ['asset_manager', 'club_admin'], 'loan_request',
     'New Loan Request',
     `${coachName} is requesting ${quantity}x "${String(asset.name)}"`,
     { loan_id: loan.id, asset_id, coach_id: coachId }
-  );
+  ).catch(() => {});
 
   return loan;
 }
@@ -148,11 +148,11 @@ export async function approveLoan(loanId: string, approverId: string, clubId: st
   }
   const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
   const loan = rows[0];
-  await notificationService.notifyUser(
+  notificationService.notifyUser(
     clubId, String(loan.coach_id), 'loan_approved',
     'Loan Request Approved', 'Your loan request has been approved. Please confirm receipt when you pick up the items.',
     { loan_id: loan.id }
-  );
+  ).catch(() => {});
   return loan;
 }
 
@@ -172,9 +172,9 @@ export async function rejectLoan(
   const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
   const loan = rows[0];
   const body = reason ? `Your loan request was rejected: ${reason}` : 'Your loan request was rejected.';
-  await notificationService.notifyUser(
+  notificationService.notifyUser(
     clubId, String(loan.coach_id), 'loan_rejected', 'Loan Request Rejected', body, { loan_id: loan.id }
-  );
+  ).catch(() => {});
   return loan;
 }
 
@@ -205,12 +205,12 @@ export async function initiateReturn(
   if (!rows.length) throw new AppError('Active loan not found', 404);
   const loan = rows[0];
 
-  await notificationService.notifyClubRoles(
+  notificationService.notifyClubRoles(
     clubId, ['asset_manager', 'club_admin'], 'return_initiated',
     'Return Initiated',
     `${coachName} is returning items for loan #${String(loan.id).slice(0, 8)}`,
     { loan_id: loan.id }
-  );
+  ).catch(() => {});
   return { message: 'Return initiated; awaiting manager confirmation' };
 }
 
@@ -320,13 +320,13 @@ export async function confirmReturn(
   const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
   const returned = rows[0];
 
-  await notificationService.notifyUser(
+  notificationService.notifyUser(
     clubId, String(loan.coach_id), 'return_initiated',
     'Return Confirmed',
     isPartial
       ? `Partial return confirmed: ${retQty} of ${totalQty} items returned.`
       : 'Your return has been confirmed.',
     { loan_id: loanId, condition }
-  );
+  ).catch(() => {});
   return returned;
 }

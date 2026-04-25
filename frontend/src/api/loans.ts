@@ -13,6 +13,8 @@ export interface Loan {
   coach_id: string;
   coach_name: string;
   coach_email?: string;
+  created_by?: string | null;
+  created_by_name?: string | null;
   approved_by?: string | null;
   approved_by_name?: string | null;
   checkout_by?: string | null;
@@ -48,6 +50,14 @@ export interface CreateLoanPayload {
   coach_id?: string;
 }
 
+export interface UpdateLoanPayload {
+  asset_id?: string;
+  quantity?: number;
+  due_date?: string;
+  reason?: string;
+  coach_id?: string;
+}
+
 export interface ConfirmReturnPayload {
   condition: ReturnCondition;
   returned_quantity: number;
@@ -74,6 +84,9 @@ export const checkoutLoan = (id: string) =>
 
 export const initiateReturn = (id: string) =>
   client.post<{ message: string }>(`/loans/${id}/initiate-return`);
+
+export const updateLoan = (id: string, data: UpdateLoanPayload) =>
+  client.patch<Loan>(`/loans/${id}`, data);
 
 export const confirmReturn = (id: string, data: ConfirmReturnPayload) =>
   client.post<Loan>(`/loans/${id}/return`, data);

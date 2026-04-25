@@ -6,13 +6,13 @@ import {
 } from 'antd';
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
-  SendOutlined, ArrowDownOutlined,
+  SendOutlined, ArrowDownOutlined, EditOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  listLoans, createLoan, approveLoan, rejectLoan, checkoutLoan,
+  listLoans, createLoan, updateLoan, approveLoan, rejectLoan, checkoutLoan,
   initiateReturn, confirmReturn,
   type Loan, type LoanStatus, type ReturnCondition,
 } from '../../api/loans';
@@ -59,6 +59,7 @@ export default function LoansPage() {
   const { user } = useAuth();
   const { message } = App.useApp();
   const [createForm] = Form.useForm();
+  const [editForm] = Form.useForm();
   const [rejectForm] = Form.useForm();
   const [returnForm] = Form.useForm();
 
@@ -76,6 +77,10 @@ export default function LoansPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
@@ -246,6 +251,41 @@ export default function LoansPage() {
     }
   }
 
+  function openEdit(loan: Loan) {
+    editForm.resetFields();
+    editForm.setFieldsValue({
+      asset_id:  loan.asset_id,
+      quantity:  loan.quantity,
+      due_date:  dayjs(loan.due_date),
+      reason:    loan.reason ?? undefined,
+      coach_id:  loan.coach_id,
+    });
+    setEditingLoan(loan);
+    setEditOpen(true);
+  }
+
+  async function handleEdit(values: Record<string, unknown>) {
+    if (!editingLoan) return;
+    setEditing(true);
+    try {
+      await updateLoan(editingLoan.id, {
+        asset_id:  values.asset_id as string,
+        quantity:  Number(values.quantity),
+        due_date:  (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
+        reason:    values.reason as string | undefined,
+        coach_id:  values.coach_id as string | undefined,
+      });
+      message.success('Loan updated');
+      setEditOpen(false);
+      fetchLoans();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to update loan';
+      message.error(msg);
+    } finally {
+      setEditing(false);
+    }
+  }
+
   const columns: ColumnsType<Loan> = [
     {
       title: 'Asset',
@@ -297,6 +337,19 @@ export default function LoansPage() {
       width: 200,
       render: (_: unknown, loan: Loan) => {
         const buttons: React.ReactNode[] = [];
+
+        // Edit: manager can edit any pending loan; coach can edit pending loans where they are the borrower
+        const canEdit = loan.status === 'pending' && (
+          isManager || (isCoach && loan.coach_id === user?.id)
+        );
+        if (canEdit) {
+          buttons.push(
+            <Button
+              key="edit" size="small" icon={<EditOutlined />}
+              onClick={() => openEdit(loan)}
+            >Edit</Button>,
+          );
+        }
 
         if (loan.status === 'pending' && isManager) {
           buttons.push(
@@ -464,6 +517,87 @@ export default function LoansPage() {
           <Flex gap={8} justify="flex-end">
             <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button type="primary" htmlType="submit" loading={creating}>Submit Request</Button>
+          </Flex>
+        </Form>
+      </Modal>
+
+      {/* Edit Loan Modal */}
+      <Modal
+        open={editOpen}
+        title="Edit Loan Request"
+        onCancel={() => setEditOpen(false)}
+        footer={null}
+        width={520}
+        destroyOnClose
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={handleEdit}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            name="asset_id" label="Asset"
+            rules={[{ required: true, message: 'Please select an asset' }]}
+          >
+            <Select
+              showSearch
+              placeholder="Select asset"
+              filterOption={(input, option) =>
+                String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={assets.map(a => ({
+                value: a.id,
+                label: `${a.name}${a.size ? ` (${a.size})` : ''} — ${a.available_quantity} available`,
+              }))}
+            />
+          </Form.Item>
+
+          {isManager && (
+            <Form.Item
+              name="coach_id" label="Borrower (Coach)"
+              rules={[{ required: true, message: 'Please select a coach' }]}
+            >
+              <Select
+                showSearch
+                placeholder="Select coach"
+                filterOption={(input, option) =>
+                  String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                options={coaches.map(c => ({ value: c.id, label: c.name }))}
+              />
+            </Form.Item>
+          )}
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="quantity" label="Quantity"
+                rules={[{ required: true }]}
+              >
+                <InputNumber min={1} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="due_date" label="Due Date"
+                rules={[{ required: true, message: 'Please select a due date' }]}
+              >
+                <DatePicker
+                  style={{ width: '100%' }}
+                  disabledDate={d => d.isBefore(dayjs(), 'day')}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="reason" label="Reason (optional)">
+            <TextArea rows={2} />
+          </Form.Item>
+
+          <Flex gap={8} justify="flex-end">
+            <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button type="primary" htmlType="submit" loading={editing}>Save Changes</Button>
           </Flex>
         </Form>
       </Modal>

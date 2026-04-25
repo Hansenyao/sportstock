@@ -1,26 +1,30 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Table, Button, Tag, Modal, Form, Input, InputNumber, Select,
-  Typography, Flex, App, Space, Avatar, Tabs, DatePicker,
-  Popconfirm, Radio, Row, Col,
+  Table, Button, Tag, Modal, Form, Input, Select, Typography, Flex, App,
+  Space, Tabs, DatePicker, Popconfirm, InputNumber, Drawer, Badge,
+  Avatar, Card, List, Divider, Radio, Empty, Grid,
 } from 'antd';
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
-  SendOutlined, ArrowDownOutlined, EditOutlined,
+  ArrowDownOutlined, ShoppingCartOutlined, DeleteOutlined, EditOutlined,
+  MinusOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  listLoans, createLoan, updateLoan, approveLoan, rejectLoan, checkoutLoan,
-  initiateReturn, confirmReturn,
-  type Loan, type LoanStatus, type ReturnCondition,
+  listLoans, createLoan, updateLoan, approveLoan, rejectLoan,
+  checkoutLoan, confirmReturn,
+  type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload,
 } from '../../api/loans';
 import { listAssets, type Asset } from '../../api/assets';
 import { listUsers, type ClubUser } from '../../api/users';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_TABS = [
   { key: 'all',         label: 'All' },
@@ -32,118 +36,196 @@ const STATUS_TABS = [
 ] as const;
 
 const STATUS_COLOR: Record<LoanStatus, string> = {
-  pending:     'orange',
-  approved:    'blue',
-  rejected:    'red',
-  checked_out: 'purple',
-  returned:    'green',
+  pending: 'orange', approved: 'blue', rejected: 'red',
+  checked_out: 'purple', returned: 'green',
 };
-
 const STATUS_LABEL: Record<LoanStatus, string> = {
-  pending:     'Pending',
-  approved:    'Approved',
-  rejected:    'Rejected',
-  checked_out: 'Checked Out',
-  returned:    'Returned',
+  pending: 'Pending', approved: 'Approved', rejected: 'Rejected',
+  checked_out: 'Checked Out', returned: 'Returned',
 };
-
 const CONDITION_OPTIONS = [
   { value: 'good',          label: 'Good' },
   { value: 'minor_damage',  label: 'Minor Damage' },
   { value: 'severe_damage', label: 'Severe Damage' },
 ];
 
+const CART_KEY = 'sportstock_loan_cart';
 const PAGE_SIZE = 20;
+
+// ── Cart helpers ──────────────────────────────────────────────────────────────
+
+function loadCart(): CartItem[] {
+  try { return JSON.parse(localStorage.getItem(CART_KEY) ?? '[]'); } catch { return []; }
+}
+function saveCart(items: CartItem[]) {
+  localStorage.setItem(CART_KEY, JSON.stringify(items));
+}
+
+// ── Asset thumbnail ───────────────────────────────────────────────────────────
+
+function AssetThumb({ src, size = 36 }: { src?: string | null; size?: number }) {
+  return src
+    ? <Avatar shape="square" size={size} src={src} />
+    : <Avatar shape="square" size={size} icon={<PictureOutlined />}
+        style={{ background: '#f0f0f0', color: '#bfbfbf' }} />;
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function LoansPage() {
   const { user } = useAuth();
   const { message } = App.useApp();
-  const [createForm] = Form.useForm();
-  const [editForm] = Form.useForm();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   const [rejectForm] = Form.useForm();
-  const [returnForm] = Form.useForm();
+  const [checkoutForm] = Form.useForm();
+  const [editForm] = Form.useForm();
 
   const isManager = user?.role === 'club_admin' || user?.role === 'asset_manager';
-  const isCoach = user?.role === 'coach';
+  const isCoach   = user?.role === 'coach';
 
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  // List state
+  const [loans, setLoans]       = useState<Loan[]>([]);
+  const [total, setTotal]       = useState(0);
+  const [page, setPage]         = useState(1);
+  const [loading, setLoading]   = useState(true);
   const [activeTab, setActiveTab] = useState<string>('all');
+  const [expandedRows, setExpandedRows] = useState<string[]>([]);
 
-  const [assets, setAssets] = useState<Asset[]>([]);
+  // Reference data
+  const [assets, setAssets]   = useState<Asset[]>([]);
   const [coaches, setCoaches] = useState<ClubUser[]>([]);
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
+  // Cart & create drawer state
+  const [cart, setCart]             = useState<CartItem[]>(loadCart);
+  const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
+  const [createForm] = Form.useForm();
+  const [creating, setCreating]     = useState(false);
 
-  const [editOpen, setEditOpen] = useState(false);
-  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
-  const [editing, setEditing] = useState(false);
-
-  const [rejectOpen, setRejectOpen] = useState(false);
+  // Action modals
+  const [rejectOpen, setRejectOpen]   = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState(false);
+  const [rejecting, setRejecting]     = useState(false);
 
-  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnOpen, setReturnOpen]     = useState(false);
   const [returningLoan, setReturningLoan] = useState<Loan | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [returnItems, setReturnItems]   = useState<ReturnItemPayload[]>([]);
+  const [returnNotes, setReturnNotes]   = useState('');
+  const [confirming, setConfirming]     = useState(false);
+
+  const [editOpen, setEditOpen]       = useState(false);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [editCart, setEditCart]       = useState<CartItem[]>([]);
+  const [editing, setEditing]         = useState(false);
 
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const setAL = (key: string, val: boolean) =>
+    setActionLoading(prev => ({ ...prev, [key]: val }));
+
+  // ── Data loading ────────────────────────────────────────────────────────────
 
   const fetchLoans = useCallback(async (p = page, tab = activeTab) => {
     setLoading(true);
     try {
-      const params = {
-        page: p,
-        limit: PAGE_SIZE,
-        ...(tab !== 'all' ? { status: tab as LoanStatus } : {}),
-      };
+      const params = { page: p, limit: PAGE_SIZE, ...(tab !== 'all' ? { status: tab as LoanStatus } : {}) };
       const res = await listLoans(params);
       setLoans(res.data.data);
       setTotal(res.data.total);
-    } catch {
-      message.error('Failed to load loans');
-    } finally {
-      setLoading(false);
-    }
+    } catch { message.error('Failed to load loans'); }
+    finally { setLoading(false); }
   }, [page, activeTab, message]);
 
-  useEffect(() => {
-    fetchLoans();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchLoans(); }, []); // eslint-disable-line
 
   useEffect(() => {
-    // Pre-load assets and coaches for create modal
     listAssets({ limit: 200 }).then(r => setAssets(r.data.data)).catch(() => {});
     if (isManager) {
       listUsers({ role: 'coach', limit: 200 }).then(r => setCoaches(r.data.data)).catch(() => {});
     }
   }, [isManager]);
 
-  function handleTabChange(key: string) {
-    setActiveTab(key);
-    setPage(1);
-    fetchLoans(1, key);
+  // ── Cart operations ─────────────────────────────────────────────────────────
+
+  function cartAdd(asset: Asset) {
+    setCart(prev => {
+      const existing = prev.find(i => i.asset_id === asset.id);
+      const next = existing
+        ? prev.map(i => i.asset_id === asset.id
+            ? { ...i, quantity: Math.min(i.quantity + 1, asset.available_quantity) }
+            : i)
+        : [...prev, {
+            asset_id: asset.id,
+            asset_name: asset.name,
+            asset_image: asset.image_url,
+            brand: asset.brand,
+            model: asset.model,
+            size: asset.size,
+            asset_tag: asset.asset_tag,
+            available_quantity: asset.available_quantity,
+            quantity: 1,
+          }];
+      saveCart(next);
+      return next;
+    });
   }
 
-  function setLoading1(id: string, val: boolean) {
-    setActionLoading(prev => ({ ...prev, [id]: val }));
+  function cartSetQty(assetId: string, qty: number) {
+    setCart(prev => {
+      const next = qty < 1
+        ? prev.filter(i => i.asset_id !== assetId)
+        : prev.map(i => i.asset_id === assetId ? { ...i, quantity: qty } : i);
+      saveCart(next);
+      return next;
+    });
   }
+
+  function cartRemove(assetId: string) {
+    setCart(prev => { const next = prev.filter(i => i.asset_id !== assetId); saveCart(next); return next; });
+  }
+
+  function clearCart() { setCart([]); saveCart([]); }
+
+  // ── Create loan ─────────────────────────────────────────────────────────────
+
+  function openCreate() {
+    setCreateStep(1);
+    createForm.resetFields();
+    setCartDrawerOpen(true);
+  }
+
+  async function handleCreate(values: Record<string, unknown>) {
+    if (!cart.length) { message.error('Cart is empty'); return; }
+    setCreating(true);
+    try {
+      await createLoan({
+        items: cart.map(i => ({ asset_id: i.asset_id, quantity: i.quantity })),
+        due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
+        reason:   values.reason as string | undefined,
+        coach_id: values.coach_id as string | undefined,
+      });
+      message.success('Loan request submitted');
+      clearCart();
+      setCartDrawerOpen(false);
+      fetchLoans();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create loan';
+      message.error(msg);
+    } finally { setCreating(false); }
+  }
+
+  // ── Approve / Reject ────────────────────────────────────────────────────────
 
   async function handleApprove(loan: Loan) {
-    setLoading1(loan.id + '_approve', true);
+    setAL(loan.id + '_approve', true);
     try {
       await approveLoan(loan.id);
       message.success('Loan approved');
       fetchLoans();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to approve';
-      message.error(msg);
-    } finally {
-      setLoading1(loan.id + '_approve', false);
-    }
+      message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to approve');
+    } finally { setAL(loan.id + '_approve', false); }
   }
 
   function openReject(loan: Loan) {
@@ -162,163 +244,198 @@ export default function LoansPage() {
       setRejectOpen(false);
       fetchLoans();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to reject';
-      message.error(msg);
-    } finally {
-      setRejecting(false);
-    }
+      message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to reject');
+    } finally { setRejecting(false); }
   }
 
+  // ── Checkout ────────────────────────────────────────────────────────────────
+
   async function handleCheckout(loan: Loan) {
-    setLoading1(loan.id + '_checkout', true);
+    setAL(loan.id + '_checkout', true);
     try {
       await checkoutLoan(loan.id);
       message.success('Receipt confirmed — loan is now checked out');
       fetchLoans();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to confirm receipt';
-      message.error(msg);
-    } finally {
-      setLoading1(loan.id + '_checkout', false);
-    }
+      message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to confirm receipt');
+    } finally { setAL(loan.id + '_checkout', false); }
   }
 
-  async function handleInitiateReturn(loan: Loan) {
-    setLoading1(loan.id + '_initiate', true);
-    try {
-      await initiateReturn(loan.id);
-      message.success('Return initiated — awaiting manager confirmation');
-      fetchLoans();
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to initiate return';
-      message.error(msg);
-    } finally {
-      setLoading1(loan.id + '_initiate', false);
-    }
-  }
+  // ── Return ──────────────────────────────────────────────────────────────────
 
   function openReturn(loan: Loan) {
-    returnForm.resetFields();
-    returnForm.setFieldsValue({ returned_quantity: loan.quantity, condition: 'good' });
     setReturningLoan(loan);
+    setReturnItems(loan.items.map(item => ({
+      loan_item_id: item.id,
+      returned_quantity: item.quantity,
+      condition: 'good' as const,
+    })));
+    setReturnNotes('');
     setReturnOpen(true);
+  }
+
+  function updateReturnItem(itemId: string, field: keyof ReturnItemPayload, value: unknown) {
+    setReturnItems(prev => prev.map(ri =>
+      ri.loan_item_id === itemId ? { ...ri, [field]: value } : ri
+    ));
   }
 
   async function handleConfirmReturn() {
     if (!returningLoan) return;
     setConfirming(true);
     try {
-      const values = returnForm.getFieldsValue();
-      await confirmReturn(returningLoan.id, {
-        condition: values.condition as ReturnCondition,
-        returned_quantity: Number(values.returned_quantity),
-        notes: values.notes,
-      });
+      await confirmReturn(returningLoan.id, { items: returnItems, notes: returnNotes || undefined });
       message.success('Return confirmed');
       setReturnOpen(false);
       fetchLoans();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to confirm return';
-      message.error(msg);
-    } finally {
-      setConfirming(false);
-    }
+      message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to confirm return');
+    } finally { setConfirming(false); }
   }
 
-  function openCreate() {
-    createForm.resetFields();
-    setCreateOpen(true);
-  }
-
-  async function handleCreate(values: Record<string, unknown>) {
-    setCreating(true);
-    try {
-      await createLoan({
-        asset_id: values.asset_id as string,
-        quantity: Number(values.quantity),
-        due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
-        reason: values.reason as string | undefined,
-        coach_id: values.coach_id as string | undefined,
-      });
-      message.success('Loan request submitted');
-      setCreateOpen(false);
-      fetchLoans();
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create loan';
-      message.error(msg);
-    } finally {
-      setCreating(false);
-    }
-  }
+  // ── Edit ────────────────────────────────────────────────────────────────────
 
   function openEdit(loan: Loan) {
     editForm.resetFields();
     editForm.setFieldsValue({
-      asset_id:  loan.asset_id,
-      quantity:  loan.quantity,
-      due_date:  dayjs(loan.due_date),
-      reason:    loan.reason ?? undefined,
-      coach_id:  loan.coach_id,
+      due_date: dayjs(loan.due_date),
+      reason:   loan.reason ?? undefined,
+      coach_id: loan.coach_id,
     });
+    setEditCart(loan.items.map(item => ({
+      asset_id: item.asset_id,
+      asset_name: item.asset_name,
+      asset_image: item.asset_image,
+      brand: item.brand,
+      model: item.model,
+      size: item.size,
+      asset_tag: item.asset_tag,
+      available_quantity: item.asset_available_quantity + item.quantity, // original + currently on loan
+      quantity: item.quantity,
+    })));
     setEditingLoan(loan);
     setEditOpen(true);
   }
 
+  function editCartSetQty(assetId: string, qty: number) {
+    setEditCart(prev => qty < 1 ? prev.filter(i => i.asset_id !== assetId) : prev.map(i => i.asset_id === assetId ? { ...i, quantity: qty } : i));
+  }
+
+  function editCartAdd(asset: Asset) {
+    setEditCart(prev => {
+      if (prev.find(i => i.asset_id === asset.id)) return prev;
+      return [...prev, {
+        asset_id: asset.id, asset_name: asset.name, asset_image: asset.image_url,
+        brand: asset.brand, model: asset.model, size: asset.size, asset_tag: asset.asset_tag,
+        available_quantity: asset.available_quantity, quantity: 1,
+      }];
+    });
+  }
+
   async function handleEdit(values: Record<string, unknown>) {
     if (!editingLoan) return;
+    if (!editCart.length) { message.error('At least one item is required'); return; }
     setEditing(true);
     try {
       await updateLoan(editingLoan.id, {
-        asset_id:  values.asset_id as string,
-        quantity:  Number(values.quantity),
-        due_date:  (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
-        reason:    values.reason as string | undefined,
-        coach_id:  values.coach_id as string | undefined,
+        items:    editCart.map(i => ({ asset_id: i.asset_id, quantity: i.quantity })),
+        due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
+        reason:   values.reason as string | undefined,
+        coach_id: values.coach_id as string | undefined,
       });
       message.success('Loan updated');
       setEditOpen(false);
       fetchLoans();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to update loan';
-      message.error(msg);
-    } finally {
-      setEditing(false);
-    }
+      message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to update loan');
+    } finally { setEditing(false); }
   }
+
+  // ── Tab change ───────────────────────────────────────────────────────────────
+
+  function handleTabChange(key: string) {
+    setActiveTab(key);
+    setPage(1);
+    setExpandedRows([]);
+    fetchLoans(1, key);
+  }
+
+  // ── Expandable row: item list ────────────────────────────────────────────────
+
+  function renderExpandedRow(loan: Loan) {
+    return (
+      <div style={{ padding: '4px 0 8px 40px' }}>
+        <List
+          size="small"
+          dataSource={loan.items}
+          renderItem={(item: LoanItem) => (
+            <List.Item style={{ padding: '6px 0', border: 'none' }}>
+              <Flex align="center" gap={10} style={{ width: '100%' }}>
+                <AssetThumb src={item.asset_image} size={40} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text strong style={{ display: 'block', fontSize: 13 }}>{item.asset_name}</Text>
+                  <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
+                    {[item.brand, item.model, item.size && `Size: ${item.size}`, item.asset_tag && `#${item.asset_tag}`]
+                      .filter(Boolean).join(' · ')}
+                  </Text>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <Text strong>×{item.quantity}</Text>
+                  {item.returned_quantity != null && (
+                    <Text style={{ fontSize: 11, color: '#52c41a', display: 'block' }}>
+                      returned: {item.returned_quantity}
+                      {item.quantity - item.returned_quantity > 0 &&
+                        `, written off: ${item.quantity - item.returned_quantity}`}
+                    </Text>
+                  )}
+                  {item.return_condition && (
+                    <Tag style={{ fontSize: 10, marginTop: 2 }}>{item.return_condition.replace('_', ' ')}</Tag>
+                  )}
+                </div>
+              </Flex>
+            </List.Item>
+          )}
+        />
+        {loan.return_notes && (
+          <Text style={{ fontSize: 12, color: '#8c8c8c', paddingLeft: 4 }}>
+            Note: {loan.return_notes}
+          </Text>
+        )}
+      </div>
+    );
+  }
+
+  // ── Table columns ────────────────────────────────────────────────────────────
 
   const columns: ColumnsType<Loan> = [
     {
-      title: 'Asset',
-      key: 'asset',
-      render: (_: unknown, loan: Loan) => (
-        <Flex align="center" gap={10}>
-          {loan.asset_image ? (
-            <Avatar shape="square" size={36} src={loan.asset_image} />
-          ) : (
-            <Avatar shape="square" size={36} icon={<PictureOutlined />}
-              style={{ background: '#f0f0f0', color: '#bfbfbf' }} />
-          )}
-          <div>
-            <Text strong style={{ display: 'block' }}>{loan.asset_name}</Text>
-            <Text style={{ fontSize: 12, color: '#8c8c8c' }}>×{loan.quantity}</Text>
-          </div>
-        </Flex>
-      ),
+      title: 'Loan',
+      key: 'loan',
+      render: (_: unknown, loan: Loan) => {
+        const first = loan.items[0];
+        const extra = loan.items.length - 1;
+        return (
+          <Flex align="center" gap={10}>
+            <AssetThumb src={first?.asset_image} size={isMobile ? 32 : 40} />
+            <div style={{ minWidth: 0 }}>
+              <Text strong style={{ display: 'block', fontSize: isMobile ? 13 : 14 }}>
+                {first?.asset_name ?? '—'}
+                {extra > 0 && <Text style={{ fontSize: 12, color: '#8c8c8c' }}> +{extra} more</Text>}
+              </Text>
+              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>{loan.coach_name}</Text>
+            </div>
+          </Flex>
+        );
+      },
     },
     {
-      title: 'Borrower',
-      key: 'borrower',
-      render: (_: unknown, loan: Loan) => (
-        <Text>{loan.coach_name}</Text>
-      ),
-    },
-    {
-      title: 'Due Date',
+      title: 'Due',
       key: 'due_date',
+      width: 100,
       responsive: ['sm'] as ('sm')[],
       render: (_: unknown, loan: Loan) => (
-        <Text style={{ color: loan.status === 'checked_out' && dayjs(loan.due_date).isBefore(dayjs()) ? '#ff4d4f' : undefined }}>
-          {dayjs(loan.due_date).format('MMM D, YYYY')}
+        <Text style={{ color: loan.status === 'checked_out' && dayjs(loan.due_date).isBefore(dayjs()) ? '#ff4d4f' : undefined, fontSize: 13 }}>
+          {dayjs(loan.due_date).format('MMM D')}
         </Text>
       ),
     },
@@ -326,78 +443,54 @@ export default function LoansPage() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 130,
+      width: isMobile ? 90 : 120,
       render: (status: LoanStatus) => (
-        <Tag color={STATUS_COLOR[status]}>{STATUS_LABEL[status]}</Tag>
+        <Tag color={STATUS_COLOR[status]} style={{ fontSize: 11 }}>{STATUS_LABEL[status]}</Tag>
       ),
     },
     {
-      title: 'Actions',
+      title: '',
       key: 'actions',
-      width: 200,
+      width: isMobile ? 80 : 200,
       render: (_: unknown, loan: Loan) => {
         const buttons: React.ReactNode[] = [];
 
-        // Edit: manager can edit any pending loan; coach can edit pending loans where they are the borrower
-        const canEdit = loan.status === 'pending' && (
-          isManager || (isCoach && loan.coach_id === user?.id)
-        );
+        const canEdit = loan.status === 'pending' && (isManager || (isCoach && loan.coach_id === user?.id));
         if (canEdit) {
           buttons.push(
-            <Button
-              key="edit" size="small" icon={<EditOutlined />}
-              onClick={() => openEdit(loan)}
-            >Edit</Button>,
+            <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => openEdit(loan)}>
+              {!isMobile && 'Edit'}
+            </Button>
           );
         }
 
         if (loan.status === 'pending' && isManager) {
           buttons.push(
-            <Button
-              key="approve" size="small" type="primary" icon={<CheckOutlined />}
-              loading={actionLoading[loan.id + '_approve']}
-              onClick={() => handleApprove(loan)}
-            >Approve</Button>,
-            <Button
-              key="reject" size="small" danger icon={<CloseOutlined />}
-              onClick={() => openReject(loan)}
-            >Reject</Button>,
+            <Button key="approve" size="small" type="primary" icon={<CheckOutlined />}
+              loading={actionLoading[loan.id + '_approve']} onClick={() => handleApprove(loan)}>
+              {!isMobile && 'Approve'}
+            </Button>,
+            <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={() => openReject(loan)}>
+              {!isMobile && 'Reject'}
+            </Button>,
           );
         }
 
-        if (loan.status === 'approved' && (isCoach ? loan.coach_id === user?.id : false)) {
+        if (loan.status === 'approved' && (isCoach ? loan.coach_id === user?.id : isManager)) {
           buttons.push(
-            <Button
-              key="checkout" size="small" type="primary" icon={<CheckOutlined />}
-              loading={actionLoading[loan.id + '_checkout']}
-              onClick={() => handleCheckout(loan)}
-            >Confirm Receipt</Button>,
-          );
-        }
-
-        if (loan.status === 'checked_out' && isCoach && loan.coach_id === user?.id) {
-          buttons.push(
-            <Popconfirm
-              key="initiate"
-              title="Initiate Return"
-              description="Confirm you are returning these items?"
-              onConfirm={() => handleInitiateReturn(loan)}
-              okText="Yes, return"
-            >
-              <Button
-                size="small" icon={<SendOutlined />}
-                loading={actionLoading[loan.id + '_initiate']}
-              >Return</Button>
-            </Popconfirm>,
+            <Button key="checkout" size="small" type="primary" icon={<CheckOutlined />}
+              loading={actionLoading[loan.id + '_checkout']} onClick={() => handleCheckout(loan)}>
+              {!isMobile && 'Confirm Receipt'}
+            </Button>,
           );
         }
 
         if (loan.status === 'checked_out' && isManager) {
           buttons.push(
-            <Button
-              key="confirm-return" size="small" type="primary" icon={<ArrowDownOutlined />}
-              onClick={() => openReturn(loan)}
-            >Confirm Return</Button>,
+            <Button key="return" size="small" type="primary" icon={<ArrowDownOutlined />}
+              onClick={() => openReturn(loan)}>
+              {!isMobile && 'Confirm Return'}
+            </Button>,
           );
         }
 
@@ -406,22 +499,68 @@ export default function LoansPage() {
     },
   ];
 
-  const tabItems = STATUS_TABS.map(t => ({ key: t.key, label: t.label }));
+  // ── Cart drawer content ──────────────────────────────────────────────────────
+
+  const assetOptions = assets.map(a => ({
+    value: a.id,
+    label: `${a.name}${a.size ? ` (${a.size})` : ''} — ${a.available_quantity} avail.`,
+    disabled: a.available_quantity === 0,
+    _asset: a,
+  }));
+
+  const renderCartItems = (cartItems: CartItem[], setQty: (id: string, q: number) => void, remove: (id: string) => void) => (
+    cartItems.length === 0
+      ? <Empty description="No items" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '20px 0' }} />
+      : <List
+          dataSource={cartItems}
+          renderItem={item => (
+            <List.Item style={{ padding: '8px 0' }}>
+              <Flex align="center" gap={8} style={{ width: '100%' }}>
+                <AssetThumb src={item.asset_image} size={36} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block' }}>{item.asset_name}</Text>
+                  <Text style={{ fontSize: 11, color: '#8c8c8c' }}>
+                    {[item.size && `Size: ${item.size}`, item.brand].filter(Boolean).join(' · ')}
+                  </Text>
+                </div>
+                <Flex align="center" gap={4}>
+                  <Button size="small" icon={<MinusOutlined />} onClick={() => setQty(item.asset_id, item.quantity - 1)} />
+                  <InputNumber
+                    size="small" min={1} max={item.available_quantity} value={item.quantity}
+                    onChange={v => setQty(item.asset_id, v ?? 1)}
+                    style={{ width: 48 }} controls={false}
+                  />
+                  <Button size="small" icon={<PlusOutlined />}
+                    disabled={item.quantity >= item.available_quantity}
+                    onClick={() => setQty(item.asset_id, item.quantity + 1)} />
+                  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(item.asset_id)} />
+                </Flex>
+              </Flex>
+            </List.Item>
+          )}
+        />
+  );
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <div>
+      {/* Header */}
       <Flex justify="space-between" align="center" style={{ marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Loans</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          New Loan Request
-        </Button>
+        <Badge count={cart.length} size="small">
+          <Button type="primary" icon={<ShoppingCartOutlined />} onClick={openCreate}>
+            {!isMobile && 'New Loan'}
+          </Button>
+        </Badge>
       </Flex>
 
       <Tabs
         activeKey={activeTab}
-        items={tabItems}
+        items={STATUS_TABS.map(t => ({ key: t.key, label: t.label }))}
         onChange={handleTabChange}
         style={{ marginBottom: 8 }}
+        size="small"
       />
 
       <Table
@@ -429,187 +568,133 @@ export default function LoansPage() {
         columns={columns}
         rowKey="id"
         loading={loading}
-        scroll={{ x: 600 }}
+        size="small"
+        expandable={{
+          expandedRowKeys: expandedRows,
+          onExpand: (expanded, record) => {
+            setExpandedRows(expanded ? [record.id] : []);
+          },
+          expandedRowRender: renderExpandedRow,
+        }}
         pagination={{
           current: page,
           pageSize: PAGE_SIZE,
           total,
           showTotal: t => `${t} loans`,
+          simple: isMobile,
           onChange: p => { setPage(p); fetchLoans(p); },
         }}
+        scroll={{ x: isMobile ? 340 : 600 }}
       />
 
-      {/* Create Loan Modal */}
-      <Modal
-        open={createOpen}
-        title="New Loan Request"
-        onCancel={() => setCreateOpen(false)}
-        footer={null}
-        width={520}
-        destroyOnClose
+      {/* ── Create Loan Drawer ─────────────────────────────────────────────── */}
+      <Drawer
+        open={cartDrawerOpen}
+        onClose={() => { setCartDrawerOpen(false); setCreateStep(1); }}
+        title={createStep === 1 ? 'Select Assets' : 'Review & Submit'}
+        placement="right"
+        width={isMobile ? '100%' : 480}
+        extra={
+          createStep === 1 && (
+            <Badge count={cart.length}>
+              <Button icon={<ShoppingCartOutlined />} onClick={() => setCreateStep(2)}>
+                Checkout
+              </Button>
+            </Badge>
+          )
+        }
       >
-        <Form
-          form={createForm}
-          layout="vertical"
-          onFinish={handleCreate}
-          style={{ marginTop: 16 }}
-          initialValues={{ quantity: 1 }}
-        >
-          <Form.Item
-            name="asset_id" label="Asset"
-            rules={[{ required: true, message: 'Please select an asset' }]}
-          >
-            <Select
-              showSearch
-              placeholder="Select asset"
-              filterOption={(input, option) =>
-                String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              options={assets.map(a => ({
-                value: a.id,
-                label: `${a.name}${a.size ? ` (${a.size})` : ''} — ${a.available_quantity} available`,
-              }))}
+        {createStep === 1 ? (
+          <div>
+            {/* Asset picker */}
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+              Tap an asset to add it to your cart. Items with 0 available cannot be added.
+            </Text>
+            <List
+              dataSource={assets}
+              renderItem={(asset: Asset) => {
+                const inCart = cart.find(i => i.asset_id === asset.id);
+                const disabled = asset.available_quantity === 0;
+                return (
+                  <List.Item
+                    style={{ padding: '8px 0', opacity: disabled ? 0.45 : 1 }}
+                    actions={[
+                      inCart
+                        ? <Tag color="blue">×{inCart.quantity}</Tag>
+                        : <Button size="small" type="primary" icon={<PlusOutlined />}
+                            disabled={disabled} onClick={() => cartAdd(asset)}>
+                            Add
+                          </Button>
+                    ]}
+                  >
+                    <Flex align="center" gap={10}>
+                      <AssetThumb src={asset.image_url} size={40} />
+                      <div>
+                        <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
+                        <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                          {[asset.brand, asset.size && `Size: ${asset.size}`].filter(Boolean).join(' · ')}
+                          {' '}· {asset.available_quantity} available
+                        </Text>
+                      </div>
+                    </Flex>
+                  </List.Item>
+                );
+              }}
             />
-          </Form.Item>
+            {cart.length > 0 && (
+              <>
+                <Divider style={{ margin: '12px 0' }} />
+                <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
+                  <Text strong>Cart ({cart.length} item{cart.length > 1 ? 's' : ''})</Text>
+                  <Button size="small" danger onClick={clearCart}>Clear</Button>
+                </Flex>
+                {renderCartItems(cart, cartSetQty, cartRemove)}
+                <Button type="primary" block style={{ marginTop: 12 }} onClick={() => setCreateStep(2)}>
+                  Continue →
+                </Button>
+              </>
+            )}
+          </div>
+        ) : (
+          <div>
+            <Card size="small" style={{ marginBottom: 16 }} title="Cart Summary">
+              {renderCartItems(cart, cartSetQty, cartRemove)}
+            </Card>
 
-          {isManager && (
-            <Form.Item
-              name="coach_id" label="Borrower (Coach)"
-              rules={[{ required: true, message: 'Please select a coach' }]}
-            >
-              <Select
-                showSearch
-                placeholder="Select coach"
-                filterOption={(input, option) =>
-                  String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }
-                options={coaches.map(c => ({ value: c.id, label: c.name }))}
-              />
-            </Form.Item>
-          )}
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="quantity" label="Quantity"
-                rules={[{ required: true }]}
-              >
-                <InputNumber min={1} style={{ width: '100%' }} />
+            <Form form={createForm} layout="vertical" onFinish={handleCreate}>
+              {isManager && (
+                <Form.Item name="coach_id" label="Borrower (Coach)"
+                  rules={[{ required: true, message: 'Please select a coach' }]}>
+                  <Select showSearch placeholder="Select coach"
+                    filterOption={(input, option) =>
+                      String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                    options={coaches.map(c => ({ value: c.id, label: c.name }))}
+                  />
+                </Form.Item>
+              )}
+              <Form.Item name="due_date" label="Due Date"
+                rules={[{ required: true, message: 'Please select a due date' }]}>
+                <DatePicker style={{ width: '100%' }}
+                  disabledDate={d => d.isBefore(dayjs(), 'day')} />
               </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="due_date" label="Due Date"
-                rules={[{ required: true, message: 'Please select a due date' }]}
-              >
-                <DatePicker
-                  style={{ width: '100%' }}
-                  disabledDate={d => d.isBefore(dayjs(), 'day')}
-                />
+              <Form.Item name="reason" label="Reason (optional)">
+                <TextArea rows={2} placeholder="e.g. Training session on Saturday" />
               </Form.Item>
-            </Col>
-          </Row>
+              <Flex gap={8}>
+                <Button style={{ flex: 1 }} onClick={() => setCreateStep(1)}>← Back</Button>
+                <Button type="primary" htmlType="submit" loading={creating} style={{ flex: 1 }}
+                  disabled={!cart.length}>
+                  Submit Request
+                </Button>
+              </Flex>
+            </Form>
+          </div>
+        )}
+      </Drawer>
 
-          <Form.Item name="reason" label="Reason (optional)">
-            <TextArea rows={2} placeholder="e.g. Training session on Saturday" />
-          </Form.Item>
-
-          <Flex gap={8} justify="flex-end">
-            <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={creating}>Submit Request</Button>
-          </Flex>
-        </Form>
-      </Modal>
-
-      {/* Edit Loan Modal */}
-      <Modal
-        open={editOpen}
-        title="Edit Loan Request"
-        onCancel={() => setEditOpen(false)}
-        footer={null}
-        width={520}
-        destroyOnClose
-      >
-        <Form
-          form={editForm}
-          layout="vertical"
-          onFinish={handleEdit}
-          style={{ marginTop: 16 }}
-        >
-          <Form.Item
-            name="asset_id" label="Asset"
-            rules={[{ required: true, message: 'Please select an asset' }]}
-          >
-            <Select
-              showSearch
-              placeholder="Select asset"
-              filterOption={(input, option) =>
-                String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              options={assets.map(a => ({
-                value: a.id,
-                label: `${a.name}${a.size ? ` (${a.size})` : ''} — ${a.available_quantity} available`,
-              }))}
-            />
-          </Form.Item>
-
-          {isManager && (
-            <Form.Item
-              name="coach_id" label="Borrower (Coach)"
-              rules={[{ required: true, message: 'Please select a coach' }]}
-            >
-              <Select
-                showSearch
-                placeholder="Select coach"
-                filterOption={(input, option) =>
-                  String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }
-                options={coaches.map(c => ({ value: c.id, label: c.name }))}
-              />
-            </Form.Item>
-          )}
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="quantity" label="Quantity"
-                rules={[{ required: true }]}
-              >
-                <InputNumber min={1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="due_date" label="Due Date"
-                rules={[{ required: true, message: 'Please select a due date' }]}
-              >
-                <DatePicker
-                  style={{ width: '100%' }}
-                  disabledDate={d => d.isBefore(dayjs(), 'day')}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="reason" label="Reason (optional)">
-            <TextArea rows={2} />
-          </Form.Item>
-
-          <Flex gap={8} justify="flex-end">
-            <Button onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={editing}>Save Changes</Button>
-          </Flex>
-        </Form>
-      </Modal>
-
-      {/* Reject Modal */}
-      <Modal
-        open={rejectOpen}
-        title="Reject Loan Request"
-        onCancel={() => setRejectOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
+      {/* ── Reject Modal ──────────────────────────────────────────────────────── */}
+      <Modal open={rejectOpen} title="Reject Loan Request" onCancel={() => setRejectOpen(false)}
+        footer={null} destroyOnClose>
         <Form form={rejectForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="reason" label="Reason (optional)">
             <TextArea rows={3} placeholder="Explain why this request is being rejected…" />
@@ -621,49 +706,123 @@ export default function LoansPage() {
         </Form>
       </Modal>
 
-      {/* Confirm Return Modal */}
-      <Modal
-        open={returnOpen}
-        title="Confirm Return"
-        onCancel={() => setReturnOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
+      {/* ── Confirm Return Modal ──────────────────────────────────────────────── */}
+      <Modal open={returnOpen} title="Confirm Return" onCancel={() => setReturnOpen(false)}
+        footer={null} width={isMobile ? '95vw' : 560} destroyOnClose>
         {returningLoan && (
-          <Form form={returnForm} layout="vertical" style={{ marginTop: 16 }}>
-            <Form.Item label="Loan">
-              <Text>{returningLoan.asset_name} ×{returningLoan.quantity} — borrowed by {returningLoan.coach_name}</Text>
+          <div style={{ marginTop: 12 }}>
+            {returningLoan.items.map((item, idx) => {
+              const ri = returnItems[idx];
+              if (!ri) return null;
+              const writeOff = item.quantity - ri.returned_quantity;
+              return (
+                <Card key={item.id} size="small" style={{ marginBottom: 12 }}>
+                  <Flex align="center" gap={10} style={{ marginBottom: 10 }}>
+                    <AssetThumb src={item.asset_image} size={36} />
+                    <div>
+                      <Text strong>{item.asset_name}</Text>
+                      <Text style={{ fontSize: 12, color: '#8c8c8c', display: 'block' }}>
+                        {[item.size && `Size: ${item.size}`, item.brand].filter(Boolean).join(' · ')}
+                        {' '}· Loaned: {item.quantity}
+                      </Text>
+                    </div>
+                  </Flex>
+                  <Flex gap={12} wrap="wrap">
+                    <Form.Item label="Returned qty" style={{ marginBottom: 0, flex: 1, minWidth: 100 }}>
+                      <InputNumber min={0} max={item.quantity} value={ri.returned_quantity}
+                        onChange={v => updateReturnItem(item.id, 'returned_quantity', v ?? 0)}
+                        style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item label="Condition" style={{ marginBottom: 0, flex: 2, minWidth: 160 }}>
+                      <Radio.Group value={ri.condition}
+                        onChange={e => updateReturnItem(item.id, 'condition', e.target.value)}>
+                        {CONDITION_OPTIONS.map(o => (
+                          <Radio key={o.value} value={o.value} style={{ fontSize: 12 }}>{o.label}</Radio>
+                        ))}
+                      </Radio.Group>
+                    </Form.Item>
+                  </Flex>
+                  {writeOff > 0 && (
+                    <Text type="danger" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                      ⚠ {writeOff} item{writeOff > 1 ? 's' : ''} will be written off
+                    </Text>
+                  )}
+                  <Input.TextArea rows={1} placeholder="Item notes (optional)" style={{ marginTop: 8 }}
+                    value={ri.notes ?? ''} onChange={e => updateReturnItem(item.id, 'notes', e.target.value)} />
+                </Card>
+              );
+            })}
+            <Form.Item label="Overall notes (optional)" style={{ marginBottom: 12 }}>
+              <TextArea rows={2} value={returnNotes} onChange={e => setReturnNotes(e.target.value)} />
             </Form.Item>
-
-            <Form.Item
-              name="returned_quantity" label="Returned Quantity"
-              rules={[{ required: true }]}
-            >
-              <InputNumber min={1} max={returningLoan.quantity} style={{ width: '100%' }} />
-            </Form.Item>
-
-            <Form.Item
-              name="condition" label="Condition"
-              rules={[{ required: true, message: 'Please select condition' }]}
-            >
-              <Radio.Group>
-                {CONDITION_OPTIONS.map(o => (
-                  <Radio key={o.value} value={o.value}>{o.label}</Radio>
-                ))}
-              </Radio.Group>
-            </Form.Item>
-
-            <Form.Item name="notes" label="Notes (optional)">
-              <TextArea rows={2} placeholder="Any damage details or observations…" />
-            </Form.Item>
-
             <Flex gap={8} justify="flex-end">
               <Button onClick={() => setReturnOpen(false)}>Cancel</Button>
-              <Button type="primary" loading={confirming} onClick={handleConfirmReturn}>Confirm Return</Button>
+              <Popconfirm
+                title="Confirm Return"
+                description="This action cannot be undone. Any write-offs will be applied immediately."
+                onConfirm={handleConfirmReturn}
+                okText="Confirm"
+              >
+                <Button type="primary" loading={confirming}>Confirm Return</Button>
+              </Popconfirm>
             </Flex>
-          </Form>
+          </div>
         )}
       </Modal>
+
+      {/* ── Edit Loan Drawer ──────────────────────────────────────────────────── */}
+      <Drawer open={editOpen} onClose={() => setEditOpen(false)} title="Edit Loan"
+        placement="right" width={isMobile ? '100%' : 480} destroyOnClose>
+        {editingLoan && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+              Add assets from the list below, or adjust quantities.
+            </Text>
+
+            {/* Add asset picker */}
+            <Select
+              showSearch
+              placeholder="Add another asset…"
+              style={{ width: '100%', marginBottom: 12 }}
+              filterOption={(input, option) =>
+                String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+              options={assetOptions.filter(o => !editCart.find(i => i.asset_id === o.value))}
+              onSelect={(_val, option: typeof assetOptions[0]) => editCartAdd(option._asset)}
+              value={null}
+            />
+
+            {renderCartItems(editCart, editCartSetQty, id => setEditCart(prev => prev.filter(i => i.asset_id !== id)))}
+
+            <Divider style={{ margin: '12px 0' }} />
+
+            <Form form={editForm} layout="vertical" onFinish={handleEdit}>
+              {isManager && (
+                <Form.Item name="coach_id" label="Borrower"
+                  rules={[{ required: true }]}>
+                  <Select showSearch
+                    filterOption={(input, option) =>
+                      String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                    options={coaches.map(c => ({ value: c.id, label: c.name }))}
+                  />
+                </Form.Item>
+              )}
+              <Form.Item name="due_date" label="Due Date" rules={[{ required: true }]}>
+                <DatePicker style={{ width: '100%' }}
+                  disabledDate={d => d.isBefore(dayjs(), 'day')} />
+              </Form.Item>
+              <Form.Item name="reason" label="Reason (optional)">
+                <TextArea rows={2} />
+              </Form.Item>
+              <Flex gap={8}>
+                <Button style={{ flex: 1 }} onClick={() => setEditOpen(false)}>Cancel</Button>
+                <Button type="primary" htmlType="submit" loading={editing} style={{ flex: 1 }}>
+                  Save Changes
+                </Button>
+              </Flex>
+            </Form>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }

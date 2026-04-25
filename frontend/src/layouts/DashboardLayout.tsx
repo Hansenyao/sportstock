@@ -3,7 +3,7 @@ import { Layout, Menu, Button, Avatar, Typography, Flex, Tag, Grid, Drawer } fro
 import {
   DashboardOutlined, DatabaseOutlined, SwapOutlined,
   TeamOutlined, BankOutlined, LogoutOutlined, MenuOutlined,
-  AppstoreOutlined,
+  AppstoreOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,11 +20,12 @@ const ROLE_COLOR: Record<string, string> = {
 };
 
 const NAV_ITEMS = [
-  { key: '/dashboard',       icon: <DashboardOutlined />, label: 'Overview' },
-  { key: '/dashboard/assets', icon: <DatabaseOutlined />,  label: 'Assets' },
-  { key: '/dashboard/loans',  icon: <SwapOutlined />,      label: 'Loans' },
-  { key: '/dashboard/users',  icon: <TeamOutlined />,      label: 'Users',        adminOnly: true },
-  { key: '/dashboard/club',   icon: <BankOutlined />,      label: 'Club Profile' },
+  { key: '/dashboard',             icon: <DashboardOutlined />, label: 'Overview' },
+  { key: '/dashboard/assets',      icon: <DatabaseOutlined />,  label: 'Assets' },
+  { key: '/dashboard/loans',       icon: <SwapOutlined />,      label: 'Loans' },
+  { key: '/dashboard/write-offs',  icon: <DeleteOutlined />,    label: 'Write-offs',  managerOnly: true },
+  { key: '/dashboard/users',       icon: <TeamOutlined />,      label: 'Users',       adminOnly: true },
+  { key: '/dashboard/club',        icon: <BankOutlined />,      label: 'Club Profile' },
 ];
 
 export default function DashboardLayout() {
@@ -35,10 +36,11 @@ export default function DashboardLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
-  const isAdmin = user?.role === 'club_admin';
+  const isAdmin   = user?.role === 'club_admin';
+  const isManager = user?.role === 'club_admin' || user?.role === 'asset_manager';
 
   const menuItems = NAV_ITEMS
-    .filter(item => !item.adminOnly || isAdmin)
+    .filter(item => (!item.adminOnly || isAdmin) && (!item.managerOnly || isManager))
     .map(({ key, icon, label }) => ({ key, icon, label }));
 
   const selectedKey =

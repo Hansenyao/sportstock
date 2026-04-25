@@ -2,17 +2,18 @@ import admin from 'firebase-admin';
 import * as db from '../db';
 import config from '../config';
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: config.firebase.projectId,
-      privateKey: config.firebase.privateKey,
-      clientEmail: config.firebase.clientEmail,
-    }),
-  });
+function getMessaging(): admin.messaging.Messaging {
+  if (!admin.apps.length) {
+    const { projectId, privateKey, clientEmail } = config.firebase;
+    if (!projectId || !privateKey || !clientEmail) {
+      throw new Error('Firebase credentials not configured');
+    }
+    admin.initializeApp({
+      credential: admin.credential.cert({ projectId, privateKey, clientEmail }),
+    });
+  }
+  return admin.messaging();
 }
-
-const messaging = admin.messaging();
 
 function toStringMap(obj: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(
@@ -37,14 +38,14 @@ export async function sendToUser(
   if (rows.length === 0) return;
 
   const tokens = rows.map((r) => r.token);
-  const response = await messaging.sendEachForMulticast({
+  const response = await getMessaging().sendEachForMulticast({
     notification: { title: notification.title, body: notification.body },
     data: toStringMap(data),
     tokens,
   });
 
   const invalid: string[] = [];
-  response.responses.forEach((resp, idx) => {
+  response.responses.forEach((resp: admin.messaging.SendResponse, idx: number) => {
     const code = resp.error?.code ?? '';
     if (
       !resp.success &&
@@ -73,14 +74,14 @@ export async function sendToClub(
   if (rows.length === 0) return;
 
   const tokens = rows.map((r) => r.token);
-  const response = await messaging.sendEachForMulticast({
+  const response = await getMessaging().sendEachForMulticast({
     notification: { title: notification.title, body: notification.body },
     data: toStringMap(data),
     tokens,
   });
 
   const invalid: string[] = [];
-  response.responses.forEach((resp, idx) => {
+  response.responses.forEach((resp: admin.messaging.SendResponse, idx: number) => {
     const code = resp.error?.code ?? '';
     if (
       !resp.success &&

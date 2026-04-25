@@ -1,5 +1,9 @@
-import { Pool, QueryResult, QueryResultRow, QueryConfig } from 'pg';
+import { Pool, QueryResult, QueryResultRow, QueryConfig, types } from 'pg';
 import config from '../config';
+
+// Return DATE as a plain "YYYY-MM-DD" string instead of a JS Date object.
+// This prevents timezone-offset shifts when the frontend parses date-only values.
+types.setTypeParser(1082, (val: string) => val);
 
 const pool = new Pool({
   connectionString: config.db.connectionString,

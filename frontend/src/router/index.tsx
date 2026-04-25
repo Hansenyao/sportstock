@@ -1,15 +1,43 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import HomePage from '../pages/Home';
 import LoginPage from '../pages/Login';
 import RegisterPage from '../pages/Register';
+import DashboardLayout from '../layouts/DashboardLayout';
+import DashboardPage from '../pages/Dashboard';
+import ClubProfilePage from '../pages/ClubProfile';
+
+function RequireAuth() {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
+}
+
+function RedirectIfAuth() {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : <Outlet />;
+}
 
 export default function AppRouter() {
   return (
     <Routes>
-      <Route path="/"          element={<HomePage />} />
-      <Route path="/login"     element={<LoginPage />} />
-      <Route path="/register"  element={<RegisterPage />} />
-      <Route path="*"          element={<Navigate to="/" replace />} />
+      <Route path="/" element={<HomePage />} />
+
+      <Route element={<RedirectIfAuth />}>
+        <Route path="/login"    element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+      </Route>
+
+      <Route element={<RequireAuth />}>
+        <Route element={<DashboardLayout />}>
+          <Route path="/dashboard"       element={<DashboardPage />} />
+          <Route path="/dashboard/club"  element={<ClubProfilePage />} />
+          <Route path="/dashboard/assets" element={<div>Assets — coming soon</div>} />
+          <Route path="/dashboard/loans"  element={<div>Loans — coming soon</div>} />
+          <Route path="/dashboard/users"  element={<div>Users — coming soon</div>} />
+        </Route>
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

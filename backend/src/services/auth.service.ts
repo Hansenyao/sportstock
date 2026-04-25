@@ -40,6 +40,7 @@ export async function register(data: {
   const { club, user } = data;
 
   if (!club.name?.trim()) throw new AppError('Club name is required', 400);
+  if (!club.sport_type?.trim()) throw new AppError('Sport type is required', 400);
   if (!club.contact_email) throw new AppError('Club contact email is required', 400);
   if (!user.name?.trim()) throw new AppError('User name is required', 400);
   if (!user.email) throw new AppError('Email is required', 400);

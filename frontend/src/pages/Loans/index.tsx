@@ -2,12 +2,12 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, Select, Typography, Flex, App,
   Space, Tabs, DatePicker, Popconfirm, InputNumber, Drawer, Badge,
-  Avatar, Card, List, Divider, Empty, Grid,
+  Avatar, Card, List, Divider, Empty, Grid, Tooltip,
 } from 'antd';
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
   ArrowDownOutlined, ShoppingCartOutlined, DeleteOutlined, EditOutlined,
-  MinusOutlined, DeleteFilled,
+  MinusOutlined, DeleteFilled, CheckCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -524,7 +524,7 @@ export default function LoansPage() {
     {
       title: '',
       key: 'actions',
-      width: isMobile ? 80 : 200,
+      width: 130,
       render: (_: unknown, loan: Loan) => {
         const buttons: React.ReactNode[] = [];
 
@@ -533,9 +533,9 @@ export default function LoansPage() {
 
         if (canEdit) {
           buttons.push(
-            <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => openEdit(loan)}>
-              {!isMobile && 'Edit'}
-            </Button>
+            <Tooltip key="edit" title="Edit">
+              <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(loan)} />
+            </Tooltip>
           );
         }
 
@@ -549,47 +549,43 @@ export default function LoansPage() {
               okText="Delete"
               okButtonProps={{ danger: true }}
             >
-              <Button
-                size="small" danger icon={<DeleteFilled />}
-                loading={actionLoading[loan.id + '_delete']}
-              >
-                {!isMobile && 'Delete'}
-              </Button>
+              <Tooltip title="Delete">
+                <Button size="small" danger icon={<DeleteFilled />} loading={actionLoading[loan.id + '_delete']} />
+              </Tooltip>
             </Popconfirm>
           );
         }
 
         if (loan.status === 'pending' && isManager) {
           buttons.push(
-            <Button key="approve" size="small" type="primary" icon={<CheckOutlined />}
-              loading={actionLoading[loan.id + '_approve']} onClick={() => handleApprove(loan)}>
-              {!isMobile && 'Approve'}
-            </Button>,
-            <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={() => openReject(loan)}>
-              {!isMobile && 'Reject'}
-            </Button>,
+            <Tooltip key="approve" title="Approve">
+              <Button size="small" type="primary" icon={<CheckOutlined />}
+                loading={actionLoading[loan.id + '_approve']} onClick={() => handleApprove(loan)} />
+            </Tooltip>,
+            <Tooltip key="reject" title="Reject">
+              <Button size="small" danger icon={<CloseOutlined />} onClick={() => openReject(loan)} />
+            </Tooltip>,
           );
         }
 
-        if (loan.status === 'approved' && (isCoach ? loan.coach_id === user?.id : isManager)) {
+        if (loan.status === 'approved' && loan.coach_id === user?.id) {
           buttons.push(
-            <Button key="checkout" size="small" type="primary" icon={<CheckOutlined />}
-              loading={actionLoading[loan.id + '_checkout']} onClick={() => handleCheckout(loan)}>
-              {!isMobile && 'Confirm Receipt'}
-            </Button>,
+            <Tooltip key="checkout" title="Confirm Receipt">
+              <Button size="small" type="primary" icon={<CheckCircleOutlined />}
+                loading={actionLoading[loan.id + '_checkout']} onClick={() => handleCheckout(loan)} />
+            </Tooltip>,
           );
         }
 
         if (loan.status === 'checked_out' && isManager) {
           buttons.push(
-            <Button key="return" size="small" type="primary" icon={<ArrowDownOutlined />}
-              onClick={() => openReturn(loan)}>
-              {!isMobile && 'Confirm Return'}
-            </Button>,
+            <Tooltip key="return" title="Confirm Return">
+              <Button size="small" type="primary" icon={<ArrowDownOutlined />} onClick={() => openReturn(loan)} />
+            </Tooltip>,
           );
         }
 
-        return <Space size={4} wrap>{buttons}</Space>;
+        return <Space size={4}>{buttons}</Space>;
       },
     },
   ];

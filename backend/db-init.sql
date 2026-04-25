@@ -69,12 +69,6 @@ CREATE TYPE loan_status AS ENUM (
     'returned'
 );
 
-CREATE TYPE return_condition AS ENUM (
-    'good',
-    'minor_damage',
-    'severe_damage'
-);
-
 CREATE TYPE stock_movement_type AS ENUM (
     'purchase',
     'loan_out',

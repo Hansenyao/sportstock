@@ -401,6 +401,13 @@ export async function checkoutLoan(
   operatorId: string,
   clubId: string
 ): Promise<Record<string, unknown>> {
+  const { rows } = await db.query<Record<string, unknown>>(
+    'SELECT coach_id FROM loans WHERE id = $1 AND club_id = $2',
+    [loanId, clubId]
+  );
+  if (!rows.length) throw new AppError('Loan not found', 404);
+  if (rows[0].coach_id !== operatorId) throw new AppError('Only the borrower can confirm receipt', 403);
+
   try {
     await db.query('CALL checkout_loan($1, $2)', [loanId, operatorId]);
   } catch (err) {

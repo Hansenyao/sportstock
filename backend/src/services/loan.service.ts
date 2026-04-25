@@ -54,17 +54,35 @@ export async function listLoans(
 
 export async function createLoan(
   clubId: string,
-  coachId: string,
-  coachName: string,
-  { asset_id, quantity = 1, reason, due_date }: {
+  requesterId: string,
+  requesterRole: string,
+  { asset_id, quantity = 1, reason, due_date, coach_id }: {
     asset_id?: string;
     quantity?: number | string;
     reason?: string;
     due_date?: string;
+    coach_id?: string;
   }
 ): Promise<Record<string, unknown>> {
   if (!asset_id || !due_date) throw new AppError('asset_id and due_date are required', 400);
   if (new Date(due_date) <= new Date()) throw new AppError('due_date must be a future date', 400);
+
+  // Determine who is the borrower
+  let coachId: string;
+  if (requesterRole === 'coach') {
+    coachId = requesterId;
+  } else {
+    if (!coach_id) throw new AppError('coach_id is required', 400);
+    coachId = coach_id;
+  }
+
+  // Verify borrower belongs to this club
+  const { rows: coachRows } = await db.query<{ name: string }>(
+    'SELECT name FROM users WHERE id = $1 AND club_id = $2 AND is_active = true',
+    [coachId, clubId]
+  );
+  if (!coachRows.length) throw new AppError('Borrower not found in this club', 404);
+  const coachName = coachRows[0].name;
 
   const { rows: assetRows } = await db.query<Record<string, unknown>>(
     'SELECT * FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
@@ -73,7 +91,6 @@ export async function createLoan(
   if (!assetRows.length) throw new AppError('Asset not found', 404);
   const asset = assetRows[0];
 
-  if (asset.status !== 'available') throw new AppError('Asset is not currently available', 409);
   if (Number(asset.available_quantity) < Number(quantity)) throw new AppError('Insufficient available quantity', 409);
 
   const { rows } = await db.query<Record<string, unknown>>(
@@ -133,7 +150,7 @@ export async function approveLoan(loanId: string, approverId: string, clubId: st
   const loan = rows[0];
   await notificationService.notifyUser(
     clubId, String(loan.coach_id), 'loan_approved',
-    'Loan Request Approved', 'Your loan request has been approved.',
+    'Loan Request Approved', 'Your loan request has been approved. Please confirm receipt when you pick up the items.',
     { loan_id: loan.id }
   );
   return loan;
@@ -202,25 +219,114 @@ export async function confirmReturn(
   operatorId: string,
   clubId: string,
   condition: string,
+  returnedQuantity: number,
   notes?: string
 ): Promise<Record<string, unknown>> {
   const validConditions = ['good', 'minor_damage', 'severe_damage'];
   if (!condition || !validConditions.includes(condition)) {
     throw new AppError('condition must be: good, minor_damage, or severe_damage', 400);
   }
-  try {
-    await db.query('CALL return_loan($1, $2, $3::return_condition, $4)', [loanId, operatorId, condition, notes ?? null]);
-  } catch (err) {
-    const anyErr = err as { message?: string };
-    if (anyErr.message?.includes('not in checked_out status')) throw new AppError(anyErr.message, 409);
-    throw err;
+
+  const { rows: loanRows } = await db.query<Record<string, unknown>>(
+    'SELECT * FROM loans WHERE id = $1 AND club_id = $2 AND status = $3',
+    [loanId, clubId, 'checked_out']
+  );
+  if (!loanRows.length) throw new AppError('Loan is not in checked_out status', 409);
+  const loan = loanRows[0];
+
+  const totalQty = Number(loan.quantity);
+  const retQty = Number(returnedQuantity);
+  if (retQty < 1 || retQty > totalQty) {
+    throw new AppError(`returned_quantity must be between 1 and ${totalQty}`, 400);
   }
+
+  const isPartial = retQty < totalQty;
+
+  if (!isPartial) {
+    // Full return — use stored procedure
+    try {
+      await db.query('CALL return_loan($1, $2, $3::return_condition, $4)', [loanId, operatorId, condition, notes ?? null]);
+    } catch (err) {
+      const anyErr = err as { message?: string };
+      if (anyErr.message?.includes('not in checked_out status')) throw new AppError(anyErr.message, 409);
+      throw err;
+    }
+  } else {
+    // Partial return — manual transaction
+    const client = await db.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const { rows: assetRows } = await client.query<{ available_quantity: number }>(
+        'SELECT available_quantity FROM assets WHERE id = $1',
+        [loan.asset_id]
+      );
+      const beforeQty = assetRows[0].available_quantity;
+
+      // Mark original loan as returned (for the returned portion)
+      await client.query(
+        `UPDATE loans SET
+           status = 'returned',
+           return_confirmed_by = $1,
+           returned_at = NOW(),
+           return_condition = $2::return_condition,
+           return_notes = $3,
+           quantity = $4
+         WHERE id = $5`,
+        [operatorId, condition,
+          `Partial return: ${retQty} of ${totalQty} returned. ${notes ?? ''}`.trim(),
+          retQty, loanId]
+      );
+
+      // Restore returned quantity (skip if severe damage)
+      const restoreQty = condition !== 'severe_damage' ? retQty : 0;
+      if (restoreQty > 0) {
+        await client.query(
+          'UPDATE assets SET available_quantity = available_quantity + $1 WHERE id = $2',
+          [restoreQty, loan.asset_id]
+        );
+      }
+
+      // Stock movement for returned portion
+      await client.query(
+        `INSERT INTO stock_movements
+           (club_id, asset_id, loan_id, operator_id, type, quantity_delta, quantity_before, quantity_after, notes)
+         VALUES ($1,$2,$3,$4,'loan_return',$5,$6,$7,$8)`,
+        [clubId, loan.asset_id, loanId, operatorId,
+          restoreQty, beforeQty, beforeQty + restoreQty,
+          `Partial return: ${retQty} of ${totalQty}`]
+      );
+
+      // New loan for remaining quantity
+      const remaining = totalQty - retQty;
+      await client.query(
+        `INSERT INTO loans
+           (club_id, asset_id, coach_id, approved_by, checkout_by,
+            quantity, reason, status, due_date, checked_out_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'checked_out',$8,NOW())`,
+        [clubId, loan.asset_id, loan.coach_id, loan.approved_by,
+          loan.checkout_by, remaining, loan.reason, loan.due_date]
+      );
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   const { rows } = await db.query<Record<string, unknown>>('SELECT * FROM loans WHERE id = $1', [loanId]);
-  const loan = rows[0];
+  const returned = rows[0];
+
   await notificationService.notifyUser(
     clubId, String(loan.coach_id), 'return_initiated',
-    'Return Confirmed', 'Your return has been confirmed.',
-    { loan_id: loan.id, condition }
+    'Return Confirmed',
+    isPartial
+      ? `Partial return confirmed: ${retQty} of ${totalQty} items returned.`
+      : 'Your return has been confirmed.',
+    { loan_id: loanId, condition }
   );
-  return loan;
+  return returned;
 }

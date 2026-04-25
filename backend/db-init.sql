@@ -174,6 +174,7 @@ CREATE TABLE assets (
     status              asset_status NOT NULL DEFAULT 'available',
     brand               VARCHAR(100),
     model               VARCHAR(100),
+    size                VARCHAR(100),
     purchase_date       DATE,
     purchase_price      NUMERIC(12, 2),
     useful_life_years   INT,

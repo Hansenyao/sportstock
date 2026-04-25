@@ -6,7 +6,6 @@ import config from '../config';
 import AppError from '../utils/AppError';
 import type { AuthUser } from '../types';
 
-const resend = new Resend(config.resend.apiKey);
 const SALT_ROUNDS = 10;
 const CODE_EXPIRY_MINUTES = 15;
 
@@ -103,7 +102,7 @@ export async function sendVerificationCode(
 
   // TODO: uncomment before production
   // const isReg = type === 'registration';
-  // await resend.emails.send({
+  // await new Resend(config.resend.apiKey).emails.send({
   //   from: config.resend.fromEmail,
   //   to: email,
   //   subject: isReg ? 'Verify your SportStock email' : 'SportStock password reset code',

@@ -12,7 +12,9 @@ DROP TABLE IF EXISTS stocktake_items      CASCADE;
 DROP TABLE IF EXISTS stocktake_sessions   CASCADE;
 DROP TABLE IF EXISTS fcm_tokens           CASCADE;
 DROP TABLE IF EXISTS notifications        CASCADE;
+DROP TABLE IF EXISTS write_off_orders     CASCADE;
 DROP TABLE IF EXISTS stock_movements      CASCADE;
+DROP TABLE IF EXISTS loan_items           CASCADE;
 DROP TABLE IF EXISTS loans                CASCADE;
 DROP TABLE IF EXISTS assets               CASCADE;
 DROP TABLE IF EXISTS users                CASCADE;
@@ -24,7 +26,6 @@ DROP TABLE IF EXISTS email_verifications  CASCADE;
 DROP PROCEDURE IF EXISTS purchase_stock(UUID, UUID, INT, TEXT);
 DROP PROCEDURE IF EXISTS retire_asset(UUID, UUID, INT, TEXT);
 DROP PROCEDURE IF EXISTS complete_maintenance(UUID, UUID, INT, TEXT);
-DROP PROCEDURE IF EXISTS return_loan(UUID, UUID, return_condition, TEXT);
 DROP PROCEDURE IF EXISTS checkout_loan(UUID, UUID);
 DROP PROCEDURE IF EXISTS reject_loan(UUID, UUID, TEXT);
 DROP PROCEDURE IF EXISTS approve_loan(UUID, UUID);
@@ -34,6 +35,7 @@ DROP FUNCTION  IF EXISTS fn_set_updated_at()           CASCADE;
 
 -- Enum types
 DROP TYPE IF EXISTS notification_type    CASCADE;
+DROP TYPE IF EXISTS write_off_source     CASCADE;
 DROP TYPE IF EXISTS stock_movement_type  CASCADE;
 DROP TYPE IF EXISTS return_condition     CASCADE;
 DROP TYPE IF EXISTS loan_status          CASCADE;
@@ -79,6 +81,11 @@ CREATE TYPE stock_movement_type AS ENUM (
     'loan_return',
     'write_off',
     'adjustment'
+);
+
+CREATE TYPE write_off_source AS ENUM (
+    'manual',
+    'loan_return'
 );
 
 CREATE TYPE notification_type AS ENUM (
@@ -179,6 +186,7 @@ CREATE TABLE assets (
     purchase_price      NUMERIC(12, 2),
     useful_life_years   INT,
     image_url           TEXT,
+    asset_tag           VARCHAR(50),
     qr_code             VARCHAR(255),
     -- per-asset override; NULL means fall back to clubs.low_stock_threshold
     low_stock_threshold INT,
@@ -191,30 +199,54 @@ CREATE TABLE assets (
     CONSTRAINT available_lte_total        CHECK (available_quantity <= total_quantity)
 );
 
--- LOANS: borrow/return transaction lifecycle
+-- LOANS: borrow/return transaction lifecycle (multi-item; see loan_items)
 CREATE TABLE loans (
-    id                   UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
-    club_id              UUID          NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-    asset_id             UUID          NOT NULL REFERENCES assets(id),
-    coach_id             UUID          NOT NULL REFERENCES users(id),
-    created_by           UUID          REFERENCES users(id),
-    approved_by          UUID          REFERENCES users(id),
-    checkout_by          UUID          REFERENCES users(id),
-    return_confirmed_by  UUID          REFERENCES users(id),
-    quantity             INT           NOT NULL DEFAULT 1,
+    id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id              UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    coach_id             UUID        NOT NULL REFERENCES users(id),
+    created_by           UUID        REFERENCES users(id),
+    approved_by          UUID        REFERENCES users(id),
+    checkout_by          UUID        REFERENCES users(id),
+    return_confirmed_by  UUID        REFERENCES users(id),
     reason               TEXT,
-    status               loan_status   NOT NULL DEFAULT 'pending',
-    due_date             DATE          NOT NULL,
+    status               loan_status NOT NULL DEFAULT 'pending',
+    due_date             DATE        NOT NULL,
     rejection_reason     TEXT,
     checked_out_at       TIMESTAMPTZ,
     returned_at          TIMESTAMPTZ,
-    return_condition     return_condition,
     return_notes         TEXT,
     due_reminder_sent_at TIMESTAMPTZ,
     overdue_notified_at  TIMESTAMPTZ,
-    created_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    CONSTRAINT quantity_positive CHECK (quantity > 0)
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- LOAN_ITEMS: one row per asset within a loan
+CREATE TABLE loan_items (
+    id                 UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
+    loan_id            UUID             NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    asset_id           UUID             NOT NULL REFERENCES assets(id),
+    quantity           INT              NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    returned_quantity  INT,
+    return_condition   return_condition,
+    return_notes       TEXT,
+    created_at         TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ      NOT NULL DEFAULT NOW()
+);
+
+-- WRITE_OFF_ORDERS: records of decommissioned assets (manual or triggered from loan return)
+CREATE TABLE write_off_orders (
+    id           UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id      UUID             NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    asset_id     UUID             NOT NULL REFERENCES assets(id),
+    quantity     INT              NOT NULL CHECK (quantity > 0),
+    reason       TEXT,
+    source       write_off_source NOT NULL DEFAULT 'manual',
+    loan_item_id UUID             REFERENCES loan_items(id) ON DELETE SET NULL,
+    created_by   UUID             NOT NULL REFERENCES users(id),
+    notes        TEXT,
+    created_at   TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
 
 -- STOCK_MOVEMENTS: append-only audit trail for every inventory change
@@ -223,6 +255,7 @@ CREATE TABLE stock_movements (
     club_id         UUID                NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
     asset_id        UUID                NOT NULL REFERENCES assets(id),
     loan_id         UUID                REFERENCES loans(id) ON DELETE SET NULL,
+    loan_item_id    UUID                REFERENCES loan_items(id) ON DELETE SET NULL,
     operator_id     UUID                REFERENCES users(id) ON DELETE SET NULL,
     type            stock_movement_type NOT NULL,
     quantity_delta  INT                 NOT NULL,
@@ -298,11 +331,18 @@ CREATE INDEX idx_assets_club_category ON assets(club_id, category_id);
 
 -- Loans
 CREATE INDEX idx_loans_club_id     ON loans(club_id);
-CREATE INDEX idx_loans_asset_id    ON loans(asset_id);
 CREATE INDEX idx_loans_coach_id    ON loans(coach_id);
 CREATE INDEX idx_loans_club_status ON loans(club_id, status);
 -- Partial index for overdue-check background job
 CREATE INDEX idx_loans_active_due  ON loans(due_date) WHERE status = 'checked_out';
+
+-- Loan items
+CREATE INDEX idx_loan_items_loan_id  ON loan_items(loan_id);
+CREATE INDEX idx_loan_items_asset_id ON loan_items(asset_id);
+
+-- Write-off orders
+CREATE INDEX idx_write_off_orders_club_id  ON write_off_orders(club_id);
+CREATE INDEX idx_write_off_orders_asset_id ON write_off_orders(asset_id);
 
 -- Stock movements
 CREATE INDEX idx_stock_movements_club_id  ON stock_movements(club_id);
@@ -438,6 +478,14 @@ CREATE TRIGGER trg_loans_updated_at
     BEFORE UPDATE ON loans
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 
+CREATE TRIGGER trg_loan_items_updated_at
+    BEFORE UPDATE ON loan_items
+    FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
+
+CREATE TRIGGER trg_write_off_orders_updated_at
+    BEFORE UPDATE ON write_off_orders
+    FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
+
 CREATE TRIGGER trg_fcm_tokens_updated_at
     BEFORE UPDATE ON fcm_tokens
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
@@ -487,19 +535,17 @@ BEGIN
 END;
 $$;
 
--- Confirm coach picked up the items; decrements available_quantity and logs movement
+-- Confirm coach picked up items; decrements available_quantity per loan_item and logs movements
 CREATE OR REPLACE PROCEDURE checkout_loan(
     p_loan_id     UUID,
     p_operator_id UUID
 ) LANGUAGE plpgsql AS $$
 DECLARE
-    v_club_id       UUID;
-    v_asset_id      UUID;
-    v_quantity      INT;
-    v_available_qty INT;
+    v_club_id   UUID;
+    v_item      RECORD;
+    v_avail_qty INT;
 BEGIN
-    SELECT club_id, asset_id, quantity
-    INTO   v_club_id, v_asset_id, v_quantity
+    SELECT club_id INTO v_club_id
     FROM   loans
     WHERE  id = p_loan_id AND status = 'approved';
 
@@ -507,15 +553,21 @@ BEGIN
         RAISE EXCEPTION 'Loan % is not in approved status', p_loan_id;
     END IF;
 
-    SELECT available_quantity INTO v_available_qty
-    FROM   assets
-    WHERE  id = v_asset_id;
+    -- Verify all items have sufficient stock before touching anything
+    FOR v_item IN
+        SELECT li.asset_id, li.quantity
+        FROM   loan_items li
+        WHERE  li.loan_id = p_loan_id
+    LOOP
+        SELECT available_quantity INTO v_avail_qty
+        FROM   assets WHERE id = v_item.asset_id;
 
-    IF v_available_qty < v_quantity THEN
-        RAISE EXCEPTION
-            'Insufficient stock for asset %: requested %, available %',
-            v_asset_id, v_quantity, v_available_qty;
-    END IF;
+        IF v_avail_qty < v_item.quantity THEN
+            RAISE EXCEPTION
+                'Insufficient stock for asset %: requested %, available %',
+                v_item.asset_id, v_item.quantity, v_avail_qty;
+        END IF;
+    END LOOP;
 
     UPDATE loans
     SET status         = 'checked_out',
@@ -523,85 +575,30 @@ BEGIN
         checked_out_at = NOW()
     WHERE id = p_loan_id;
 
-    UPDATE assets
-    SET available_quantity = available_quantity - v_quantity,
-        status = CASE
-                     WHEN available_quantity - v_quantity = 0 THEN 'on_loan'::asset_status
-                     ELSE status
-                 END
-    WHERE id = v_asset_id;
+    FOR v_item IN
+        SELECT li.id AS item_id, li.asset_id, li.quantity
+        FROM   loan_items li
+        WHERE  li.loan_id = p_loan_id
+    LOOP
+        SELECT available_quantity INTO v_avail_qty
+        FROM   assets WHERE id = v_item.asset_id;
 
-    INSERT INTO stock_movements
-        (club_id, asset_id, loan_id, operator_id, type,
-         quantity_delta, quantity_before, quantity_after, notes)
-    VALUES
-        (v_club_id, v_asset_id, p_loan_id, p_operator_id, 'loan_out',
-         -v_quantity, v_available_qty, v_available_qty - v_quantity,
-         'Loan checked out');
-END;
-$$;
-
--- Confirm return; restores qty on good/minor damage or sends to maintenance on severe damage
-CREATE OR REPLACE PROCEDURE return_loan(
-    p_loan_id     UUID,
-    p_operator_id UUID,
-    p_condition   return_condition,
-    p_notes       TEXT DEFAULT NULL
-) LANGUAGE plpgsql AS $$
-DECLARE
-    v_club_id          UUID;
-    v_asset_id         UUID;
-    v_quantity         INT;
-    v_available_before INT;
-BEGIN
-    SELECT club_id, asset_id, quantity
-    INTO   v_club_id, v_asset_id, v_quantity
-    FROM   loans
-    WHERE  id = p_loan_id AND status = 'checked_out';
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Loan % is not in checked_out status', p_loan_id;
-    END IF;
-
-    SELECT available_quantity INTO v_available_before
-    FROM   assets WHERE id = v_asset_id;
-
-    UPDATE loans
-    SET status              = 'returned',
-        return_confirmed_by = p_operator_id,
-        returned_at         = NOW(),
-        return_condition    = p_condition,
-        return_notes        = p_notes
-    WHERE id = p_loan_id;
-
-    IF p_condition IN ('good'::return_condition, 'minor_damage'::return_condition) THEN
         UPDATE assets
-        SET available_quantity = available_quantity + v_quantity,
-            status             = 'available'::asset_status
-        WHERE id = v_asset_id;
+        SET available_quantity = available_quantity - v_item.quantity,
+            status = CASE
+                         WHEN available_quantity - v_item.quantity = 0 THEN 'on_loan'::asset_status
+                         ELSE status
+                     END
+        WHERE id = v_item.asset_id;
 
         INSERT INTO stock_movements
-            (club_id, asset_id, loan_id, operator_id, type,
+            (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
              quantity_delta, quantity_before, quantity_after, notes)
         VALUES
-            (v_club_id, v_asset_id, p_loan_id, p_operator_id, 'loan_return',
-             v_quantity, v_available_before, v_available_before + v_quantity,
-             COALESCE(p_notes, 'Returned — condition: ' || p_condition::text));
-
-    ELSE
-        -- Severe damage: quantity stays out; asset goes to maintenance
-        UPDATE assets
-        SET status = 'maintenance'::asset_status
-        WHERE id = v_asset_id;
-
-        INSERT INTO stock_movements
-            (club_id, asset_id, loan_id, operator_id, type,
-             quantity_delta, quantity_before, quantity_after, notes)
-        VALUES
-            (v_club_id, v_asset_id, p_loan_id, p_operator_id, 'write_off',
-             0, v_available_before, v_available_before,
-             'Returned with severe damage — sent to maintenance');
-    END IF;
+            (v_club_id, v_item.asset_id, p_loan_id, v_item.item_id, p_operator_id, 'loan_out',
+             -v_item.quantity, v_avail_qty, v_avail_qty - v_item.quantity,
+             'Loan checked out');
+    END LOOP;
 END;
 $$;
 

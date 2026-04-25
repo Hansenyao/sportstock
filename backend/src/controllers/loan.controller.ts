@@ -22,6 +22,15 @@ export const getLoan: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+export const updateLoan: RequestHandler = async (req, res, next) => {
+  try {
+    const loan = await loanService.updateLoan(
+      req.params.id, req.user.club_id as string, req.user.id, req.user.role, req.body
+    );
+    res.json(loan);
+  } catch (err) { next(err); }
+};
+
 export const approveLoan: RequestHandler = async (req, res, next) => {
   try {
     const loan = await loanService.approveLoan(req.params.id, req.user.id, req.user.club_id as string);
@@ -38,37 +47,22 @@ export const rejectLoan: RequestHandler = async (req, res, next) => {
 
 export const checkoutLoan: RequestHandler = async (req, res, next) => {
   try {
-    const loan = await loanService.checkoutLoan(req.params.id, req.user.id);
-    res.json(loan);
-  } catch (err) { next(err); }
-};
-
-export const initiateReturn: RequestHandler = async (req, res, next) => {
-  try {
-    const result = await loanService.initiateReturn(req.params.id, req.user.id, req.user.name, req.user.club_id as string);
-    res.json(result);
-  } catch (err) { next(err); }
-};
-
-export const updateLoan: RequestHandler = async (req, res, next) => {
-  try {
-    const loan = await loanService.updateLoan(
-      req.params.id, req.user.club_id as string, req.user.id, req.user.role, req.body
-    );
+    const loan = await loanService.checkoutLoan(req.params.id, req.user.id, req.user.club_id as string);
     res.json(loan);
   } catch (err) { next(err); }
 };
 
 export const confirmReturn: RequestHandler = async (req, res, next) => {
   try {
-    const { condition, notes, returned_quantity } = req.body as {
-      condition: string;
-      notes?: string;
-      returned_quantity: number;
-    };
+    const { items, notes } = req.body as { items: unknown[]; notes?: string };
+    if (!Array.isArray(items) || !items.length) {
+      res.status(400).json({ statusCode: 400, error: 'Bad Request', message: 'items array is required' });
+      return;
+    }
     const loan = await loanService.confirmReturn(
       req.params.id, req.user.id, req.user.club_id as string,
-      condition, Number(returned_quantity), notes
+      items as Parameters<typeof loanService.confirmReturn>[3],
+      notes
     );
     res.json(loan);
   } catch (err) { next(err); }

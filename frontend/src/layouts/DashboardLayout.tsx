@@ -3,7 +3,7 @@ import { Layout, Menu, Button, Avatar, Typography, Flex, Tag, Grid, Drawer } fro
 import {
   DashboardOutlined, DatabaseOutlined, SwapOutlined,
   TeamOutlined, BankOutlined, LogoutOutlined, MenuOutlined,
-  AppstoreOutlined, DeleteOutlined,
+  AppstoreOutlined, DeleteOutlined, UsergroupAddOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,12 +20,13 @@ const ROLE_COLOR: Record<string, string> = {
 };
 
 const NAV_ITEMS = [
-  { key: '/dashboard',             icon: <DashboardOutlined />, label: 'Overview' },
-  { key: '/dashboard/assets',      icon: <DatabaseOutlined />,  label: 'Assets' },
-  { key: '/dashboard/loans',       icon: <SwapOutlined />,      label: 'Loans' },
-  { key: '/dashboard/write-offs',  icon: <DeleteOutlined />,    label: 'Write-offs',  managerOnly: true },
-  { key: '/dashboard/users',       icon: <TeamOutlined />,      label: 'Users',       adminOnly: true },
-  { key: '/dashboard/club',        icon: <BankOutlined />,      label: 'Club Profile' },
+  { key: '/dashboard',             icon: <DashboardOutlined />,    label: 'Overview' },
+  { key: '/dashboard/assets',      icon: <DatabaseOutlined />,     label: 'Assets' },
+  { key: '/dashboard/loans',       icon: <SwapOutlined />,         label: 'Loans' },
+  { key: '/dashboard/write-offs',  icon: <DeleteOutlined />,       label: 'Write-offs',  managerOnly: true },
+  { key: '/dashboard/users',       icon: <TeamOutlined />,         label: 'Users',       adminOnly: true },
+  { key: '/dashboard/teams',       icon: <UsergroupAddOutlined />, label: 'Teams',       adminOnly: true },
+  { key: '/dashboard/club',        icon: <BankOutlined />,         label: 'Club Profile' },
 ];
 
 export default function DashboardLayout() {

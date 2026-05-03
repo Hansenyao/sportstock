@@ -1,6 +1,7 @@
 import client from './client';
 import type { PaginatedResult } from './assets';
 import type { UserRole } from '../types';
+import type { UserTeamMembership } from './teams';
 
 export interface ClubUser {
   id: string;
@@ -10,10 +11,14 @@ export interface ClubUser {
   role: UserRole;
   is_active: boolean;
   created_at: string;
+  teams?: UserTeamMembership[];
 }
 
 export const listUsers = (params?: Record<string, unknown>) =>
   client.get<PaginatedResult<ClubUser>>('/users', { params });
+
+export const getUser = (id: string) =>
+  client.get<ClubUser>(`/users/${id}`);
 
 export const createUser = (data: { name: string; email: string; role: UserRole; phone?: string }) =>
   client.post<ClubUser>('/users', data);

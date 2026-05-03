@@ -61,9 +61,10 @@ export async function listLoans(
   clubId: string,
   userId: string,
   role: string,
-  { status, coach_id, from_date, to_date, page = 1, limit = 20 }: {
+  { status, coach_id, team_id, from_date, to_date, page = 1, limit = 20 }: {
     status?: string;
     coach_id?: string;
+    team_id?: string;
     from_date?: string;
     to_date?: string;
     page?: number | string;
@@ -78,6 +79,10 @@ export async function listLoans(
     conditions.push(`l.coach_id = $${params.push(userId)}`);
   } else if (coach_id) {
     conditions.push(`l.coach_id = $${params.push(coach_id)}`);
+  } else if (team_id) {
+    conditions.push(
+      `l.coach_id IN (SELECT user_id FROM team_members WHERE team_id = $${params.push(team_id)})`
+    );
   }
   if (status)    conditions.push(`l.status = $${params.push(status)}`);
   if (from_date) conditions.push(`l.created_at >= $${params.push(from_date)}`);

@@ -64,3 +64,24 @@ The solution: a responsive web application where clubs register, managers log as
 #### 用户登录
 
 - 均采用email作为账号登录
+
+## Updated on 2026-05-02
+
+### 调整club的组织结构、增加team
+
+- 1. Club创建好后，Admin可以为该club创建多个team(属性: Name, gender (Boys, Girls, Mixed), Age (U4, U5 through U21, Adult). 
+Head Coach, Assistant Coach, Team Manager)，Head Coach, Assistant Coach, 和Team Manager只是team的职务标记，在整个系统中仍是coach角色以及对应的系统权限。
+- 2. 添加/编辑team的时候，可以选择已有的Coach关联（connect）到该team的某个职务
+- 3. 一个Coach可以assign到多个team、担任不同的职务。一个team只能有一个Head Coach，但可以有多个Assistant Coach 或 Team Manager
+- 4. 添加coach的逻辑保持不变，也就是一个coach添加到系统时，默认不担任任何team的职务（需用通过team management来关联），但是在查看user信息的时候，能显示每个coach在哪些team担任了哪些职务
+- 5. Admin的Dashboard左侧上提供关于Teams的管理选项和页面
+- 6. Admin和Asset Manager在Dashboard上查看loan的时候，可以通过team来filting
+
+
+### 调整club的资产管理，Asset Name必须是Admin或者是Asset Manager预先创建好的名字
+
+- 1. Club创建好后，Admin或者Asset Manager需要创建Asset名字清单，比如：足球、球服、训练路障、球框等等。每个俱乐部的Asset名单是不一样的
+- 2. Asset Manager在添加Asset Item的时候，只能从已有的名字清单中选取Asset Name、不支持输入
+- 3. 同名称、同品牌、同型号、同尺寸的Asset,数量需要汇总，但是有可能购买的时间不同、折旧率不同，也就是说当前的价值有不同。比如：在2022年买了10个Nike 5号足球、2026年又买了5个同样的。那么在浏览Asset List的时候只显示一条记录：Ball, Nike, 5, 15。但是在盘点club当前资产的时候，这两批球的价值是不一样的。评估下这点是否能实现！
+- 4. 借出时不用区分是哪批，同等等待;
+- 5. 不需要考虑当前数据库中的记录，目前还是测试阶段，所有数据均可以删除

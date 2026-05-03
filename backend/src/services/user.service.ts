@@ -47,7 +47,17 @@ export async function getUser(userId: string, clubId: string): Promise<Record<st
     [userId, clubId]
   );
   if (!rows.length) throw new AppError('User not found', 404);
-  return rows[0];
+
+  const { rows: teamRows } = await db.query<Record<string, unknown>>(
+    `SELECT tm.team_id, tm.team_role, t.name AS team_name, t.gender, t.age_group
+     FROM   team_members tm
+     JOIN   teams t ON t.id = tm.team_id
+     WHERE  tm.user_id = $1
+     ORDER BY t.name ASC`,
+    [userId]
+  );
+
+  return { ...rows[0], teams: teamRows };
 }
 
 export async function updateUser(

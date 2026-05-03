@@ -19,6 +19,7 @@ import {
 } from '../../api/loans';
 import { listAssets, type Asset } from '../../api/assets';
 import { listUsers, type ClubUser } from '../../api/users';
+import { listTeams, type Team } from '../../api/teams';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -90,6 +91,8 @@ export default function LoansPage() {
   // Reference data
   const [assets, setAssets]   = useState<Asset[]>([]);
   const [coaches, setCoaches] = useState<ClubUser[]>([]);
+  const [teams, setTeams]     = useState<Team[]>([]);
+  const [teamId, setTeamId]   = useState<string | undefined>(undefined);
 
   // Cart & create drawer state
   const [cart, setCart]             = useState<CartItem[]>(loadCart);
@@ -120,16 +123,18 @@ export default function LoansPage() {
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
-  const fetchLoans = useCallback(async (p = page, tab = activeTab) => {
+  const fetchLoans = useCallback(async (p = page, tab = activeTab, tid = teamId) => {
     setLoading(true);
     try {
-      const params = { page: p, limit: PAGE_SIZE, ...(tab !== 'all' ? { status: tab as LoanStatus } : {}) };
+      const params: Record<string, unknown> = { page: p, limit: PAGE_SIZE };
+      if (tab !== 'all') params.status = tab as LoanStatus;
+      if (tid) params.team_id = tid;
       const res = await listLoans(params);
       setLoans(res.data.data);
       setTotal(res.data.total);
     } catch { message.error('Failed to load loans'); }
     finally { setLoading(false); }
-  }, [page, activeTab, message]);
+  }, [page, activeTab, teamId, message]);
 
   useEffect(() => { fetchLoans(); }, []); // eslint-disable-line
 
@@ -137,6 +142,7 @@ export default function LoansPage() {
     listAssets({ limit: 200 }).then(r => setAssets(r.data.data)).catch(() => {});
     if (isManager) {
       listUsers({ role: 'coach', limit: 200 }).then(r => setCoaches(r.data.data)).catch(() => {});
+      listTeams().then(r => setTeams(r.data)).catch(() => {});
     }
   }, [isManager]);
 
@@ -667,6 +673,26 @@ export default function LoansPage() {
           </Button>
         </Badge>
       </Flex>
+
+      {isManager && teams.length > 0 && (
+        <Flex align="center" gap={8} style={{ marginBottom: 12 }}>
+          <span style={{ fontSize: 13, color: '#666', flexShrink: 0 }}>Team:</span>
+          <Select
+            allowClear
+            placeholder="All teams"
+            style={{ width: 200 }}
+            value={teamId}
+            options={teams.map(t => ({ value: t.id, label: `${t.name} (${t.age_group} ${t.gender})` }))}
+            onChange={(val) => {
+              setTeamId(val);
+              setPage(1);
+              setExpandedRows([]);
+              fetchLoans(1, activeTab, val);
+            }}
+            size="small"
+          />
+        </Flex>
+      )}
 
       <Tabs
         activeKey={activeTab}

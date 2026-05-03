@@ -10,34 +10,23 @@ export const listMovements: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const purchaseStock: RequestHandler = async (req, res, next) => {
+export const adjustBatch: RequestHandler = async (req, res, next) => {
   try {
-    const asset = await inventoryService.purchaseStock(
-      req.user.club_id as string, req.user.id, req.body.asset_id, req.body.quantity, req.body.notes
+    const batch = await inventoryService.adjustBatch(
+      req.user.club_id as string, req.user.id, req.params.batchId, req.body.quantity_delta, req.body.notes
     );
-    res.json(asset);
+    res.json(batch);
   } catch (err) {
     next(err);
   }
 };
 
-export const adjustStock: RequestHandler = async (req, res, next) => {
+export const retireBatch: RequestHandler = async (req, res, next) => {
   try {
-    const asset = await inventoryService.adjustStock(
-      req.user.club_id as string, req.user.id, req.body.asset_id, req.body.quantity_delta, req.body.notes
+    const batch = await inventoryService.retireBatch(
+      req.user.club_id as string, req.user.id, req.params.batchId, req.body.quantity, req.body.notes
     );
-    res.json(asset);
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const retireAsset: RequestHandler = async (req, res, next) => {
-  try {
-    const asset = await inventoryService.retireAsset(
-      req.user.club_id as string, req.user.id, req.body.asset_id, req.body.quantity, req.body.notes
-    );
-    res.json(asset);
+    res.json(batch);
   } catch (err) {
     next(err);
   }
@@ -45,10 +34,10 @@ export const retireAsset: RequestHandler = async (req, res, next) => {
 
 export const completeMaintenance: RequestHandler = async (req, res, next) => {
   try {
-    const asset = await inventoryService.completeMaintenance(
-      req.user.club_id as string, req.user.id, req.body.asset_id, req.body.quantity_restored, req.body.notes
+    const batch = await inventoryService.completeMaintenance(
+      req.user.club_id as string, req.user.id, req.params.batchId, req.body.quantity_restored, req.body.notes
     );
-    res.json(asset);
+    res.json(batch);
   } catch (err) {
     next(err);
   }

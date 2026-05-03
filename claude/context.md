@@ -244,8 +244,22 @@ All backend and frontend changes shipped:
 
 ### REQ-2: Asset Catalog + Batches — IN PROGRESS
 
-Phase 1 complete (2026-05-03): `db-init.sql` schema v4 written. DB reset required before Phase 2.
-Phase 2 (backend) and Phase 3 (frontend) pending.
+Phase 1 complete (2026-05-03): `db-init.sql` schema v4 written. DB reset required before Phase 3.
+Phase 2 complete (2026-05-03): All backend services/controllers/routes updated.
+Phase 3 (frontend) pending.
+
+#### Phase 2 backend changes summary
+- **New**: `asset-name.service.ts`, `asset-name.controller.ts`, `routes/asset-names.ts` — CRUD for catalog
+- **Rewritten**: `asset.service.ts` — 3-table queries, TYPE_SELECT with JSON_AGG batches, `addBatch`, `updateBatch`, `getDepreciation(batchId)`
+- **Updated**: `asset.controller.ts` — added `addBatch`, `updateBatch`, `getDepreciation`; removed `bulkImport`
+- **Updated**: `routes/assets.ts` — added `POST /:id/batches`, `PUT /:id/batches/:batchId`, `GET /:id/batches/:batchId/depreciation`; removed `/bulk-import`
+- **Updated**: `routes/index.ts` — registered `/asset-names`
+- **Rewritten**: `loan.service.ts` — `ITEM_SELECT` joins through `asset_types+asset_names`; `createLoan`/`updateLoan` check `SUM(asset_batches.available_quantity)`; `confirmReturn` uses `stock_movements` to find checkout batches and restores proportionally
+- **Rewritten**: `write-off.service.ts` — uses `asset_type_id`; `createWriteOff` deducts FIFO across batches
+- **Rewritten**: `inventory.service.ts` — removed `purchaseStock`; `adjustBatch`/`retireBatch`/`completeMaintenance` now batch-scoped; `listMovements` joins through `asset_batches`; stocktake uses `asset_type_id`
+- **Updated**: `inventory.controller.ts` — handlers for batch operations
+- **Updated**: `routes/inventory.ts` — `POST /batches/:batchId/adjust|retire|maintenance`; removed `/purchase`
+- **Rewritten**: `report.service.ts` — `getSummary` from `asset_batches+asset_types`; `getDepreciationReport` per batch; `getLoanUsage` joins through `loan_items+asset_types+asset_names`
 
 ---
 

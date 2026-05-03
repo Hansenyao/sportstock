@@ -6,7 +6,7 @@ import type { PaginatedResult } from '../types';
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface LoanItemInput {
-  asset_id: string;
+  asset_type_id: string;
   quantity: number;
 }
 
@@ -41,12 +41,12 @@ const LOAN_SELECT = `
 const ITEM_SELECT = `
   SELECT li.*,
          COALESCE(li.good_quantity, 0) + COALESCE(li.minor_damage_quantity, 0) AS returned_quantity,
-         a.name      AS asset_name,
-         a.image_url AS asset_image,
-         a.brand, a.model, a.size, a.asset_tag,
-         a.available_quantity AS asset_available_quantity
+         an.name      AS asset_name,
+         at.image_url AS asset_image,
+         at.brand, at.model, at.size
   FROM  loan_items li
-  JOIN  assets a ON a.id = li.asset_id
+  JOIN  asset_types at ON at.id = li.asset_type_id
+  JOIN  asset_names an ON an.id = at.asset_name_id
 `;
 
 async function fetchItems(loanId: string): Promise<Record<string, unknown>[]> {
@@ -94,8 +94,9 @@ export async function listLoans(
       EXISTS (SELECT 1 FROM users u2 WHERE u2.id = l.coach_id AND u2.name ILIKE $${idx})
       OR EXISTS (
         SELECT 1 FROM loan_items li2
-        JOIN assets a2 ON a2.id = li2.asset_id
-        WHERE li2.loan_id = l.id AND a2.name ILIKE $${idx}
+        JOIN asset_types at2 ON at2.id = li2.asset_type_id
+        JOIN asset_names an2 ON an2.id = at2.asset_name_id
+        WHERE li2.loan_id = l.id AND an2.name ILIKE $${idx}
       )
     )`);
   }
@@ -111,7 +112,6 @@ export async function listLoans(
     db.query<{ count: string }>(`SELECT COUNT(*) FROM loans l WHERE ${where}`, params.slice(0, -2)),
   ]);
 
-  // Attach items to each loan
   if (loans.length) {
     const loanIds = loans.map(l => l.id as string);
     const { rows: allItems } = await db.query<Record<string, unknown>>(
@@ -169,7 +169,6 @@ export async function createLoan(
   if (!due_date)      throw new AppError('due_date is required', 400);
   if (new Date(due_date) <= new Date()) throw new AppError('due_date must be a future date', 400);
 
-  // Determine borrower
   let coachId: string;
   if (requesterRole === 'coach') {
     coachId = requesterId;
@@ -178,7 +177,6 @@ export async function createLoan(
     coachId = coach_id;
   }
 
-  // Verify borrower belongs to this club
   const { rows: coachRows } = await db.query<{ name: string }>(
     'SELECT name FROM users WHERE id = $1 AND club_id = $2 AND is_active = true',
     [coachId, clubId]
@@ -186,7 +184,6 @@ export async function createLoan(
   if (!coachRows.length) throw new AppError('Borrower not found in this club', 404);
   const coachName = coachRows[0].name;
 
-  // Validate team if provided: must belong to club and coach must be a member
   if (team_id) {
     const { rows: teamRows } = await db.query<{ id: string }>(
       `SELECT t.id FROM teams t
@@ -201,25 +198,28 @@ export async function createLoan(
   try {
     await client.query('BEGIN');
 
-    // Validate all items and check availability
     const assetNames: string[] = [];
     for (const item of items) {
-      const { rows: assetRows } = await client.query<Record<string, unknown>>(
-        'SELECT name, available_quantity FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
-        [item.asset_id, clubId]
+      const { rows: typeRows } = await client.query<{ available_quantity: string; name: string }>(
+        `SELECT COALESCE(SUM(ab.available_quantity), 0) AS available_quantity,
+                an.name
+         FROM asset_types at
+         JOIN asset_names an ON an.id = at.asset_name_id
+         LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id AND ab.status != 'retired'
+         WHERE at.id = $1 AND at.club_id = $2 AND at.is_active = true
+         GROUP BY an.name`,
+        [item.asset_type_id, clubId]
       );
-      if (!assetRows.length) throw new AppError(`Asset ${item.asset_id} not found`, 404);
-      const asset = assetRows[0];
-      if (Number(asset.available_quantity) < item.quantity) {
+      if (!typeRows.length) throw new AppError(`Asset type ${item.asset_type_id} not found`, 404);
+      if (Number(typeRows[0].available_quantity) < item.quantity) {
         throw new AppError(
-          `Insufficient quantity for "${String(asset.name)}": requested ${item.quantity}, available ${asset.available_quantity}`,
+          `Insufficient quantity for "${typeRows[0].name}": requested ${item.quantity}, available ${typeRows[0].available_quantity}`,
           409
         );
       }
-      assetNames.push(String(asset.name));
+      assetNames.push(typeRows[0].name);
     }
 
-    // Insert loan
     const { rows: loanRows } = await client.query<Record<string, unknown>>(
       `INSERT INTO loans (club_id, coach_id, team_id, created_by, reason, status, due_date)
        VALUES ($1,$2,$3,$4,$5,'pending',$6) RETURNING *`,
@@ -227,11 +227,10 @@ export async function createLoan(
     );
     const loan = loanRows[0];
 
-    // Insert loan items
     for (const item of items) {
       await client.query(
-        'INSERT INTO loan_items (loan_id, asset_id, quantity) VALUES ($1,$2,$3)',
-        [loan.id, item.asset_id, item.quantity]
+        'INSERT INTO loan_items (loan_id, asset_type_id, quantity) VALUES ($1,$2,$3)',
+        [loan.id, item.asset_type_id, item.quantity]
       );
     }
 
@@ -270,8 +269,6 @@ export async function deleteLoan(
   const loan = rows[0];
 
   if (loan.status !== 'pending') throw new AppError('Only pending loans can be deleted', 409);
-
-  // Only the creator can delete (coaches or managers who submitted the loan)
   if (loan.created_by !== userId && role !== 'super_admin') {
     throw new AppError('Only the creator can delete this loan', 403);
   }
@@ -310,7 +307,6 @@ export async function updateLoan(
   try {
     await client.query('BEGIN');
 
-    // Update loan header fields
     const updates: string[] = [];
     const params: unknown[] = [];
 
@@ -337,20 +333,24 @@ export async function updateLoan(
       );
     }
 
-    // Replace items if provided
     if (items !== undefined) {
       if (!items.length) throw new AppError('At least one item is required', 400);
 
-      // Validate availability for each new item
       for (const item of items) {
-        const { rows: assetRows } = await client.query<Record<string, unknown>>(
-          'SELECT name, available_quantity FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
-          [item.asset_id, clubId]
+        const { rows: typeRows } = await client.query<{ available_quantity: string; name: string }>(
+          `SELECT COALESCE(SUM(ab.available_quantity), 0) AS available_quantity,
+                  an.name
+           FROM asset_types at
+           JOIN asset_names an ON an.id = at.asset_name_id
+           LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id AND ab.status != 'retired'
+           WHERE at.id = $1 AND at.club_id = $2 AND at.is_active = true
+           GROUP BY an.name`,
+          [item.asset_type_id, clubId]
         );
-        if (!assetRows.length) throw new AppError(`Asset ${item.asset_id} not found`, 404);
-        if (Number(assetRows[0].available_quantity) < item.quantity) {
+        if (!typeRows.length) throw new AppError(`Asset type ${item.asset_type_id} not found`, 404);
+        if (Number(typeRows[0].available_quantity) < item.quantity) {
           throw new AppError(
-            `Insufficient quantity for "${String(assetRows[0].name)}": requested ${item.quantity}, available ${assetRows[0].available_quantity}`,
+            `Insufficient quantity for "${typeRows[0].name}": requested ${item.quantity}, available ${typeRows[0].available_quantity}`,
             409
           );
         }
@@ -359,8 +359,8 @@ export async function updateLoan(
       await client.query('DELETE FROM loan_items WHERE loan_id = $1', [loanId]);
       for (const item of items) {
         await client.query(
-          'INSERT INTO loan_items (loan_id, asset_id, quantity) VALUES ($1,$2,$3)',
-          [loanId, item.asset_id, item.quantity]
+          'INSERT INTO loan_items (loan_id, asset_type_id, quantity) VALUES ($1,$2,$3)',
+          [loanId, item.asset_type_id, item.quantity]
         );
       }
     }
@@ -467,7 +467,6 @@ export async function confirmReturn(
   returnItems: ReturnItemInput[],
   loanNotes?: string
 ): Promise<Record<string, unknown>> {
-  // Fetch and validate loan
   const { rows: loanRows } = await db.query<Record<string, unknown>>(
     'SELECT * FROM loans WHERE id = $1 AND club_id = $2 AND status = $3',
     [loanId, clubId, 'checked_out']
@@ -475,13 +474,15 @@ export async function confirmReturn(
   if (!loanRows.length) throw new AppError('Loan is not in checked_out status', 409);
   const loan = loanRows[0];
 
-  // Fetch existing loan items
   const { rows: existingItems } = await db.query<Record<string, unknown>>(
-    'SELECT li.*, a.name AS asset_name FROM loan_items li JOIN assets a ON a.id = li.asset_id WHERE li.loan_id = $1',
+    `SELECT li.*, an.name AS asset_name
+     FROM loan_items li
+     JOIN asset_types at ON at.id = li.asset_type_id
+     JOIN asset_names an ON an.id = at.asset_name_id
+     WHERE li.loan_id = $1`,
     [loanId]
   );
 
-  // Validate all loan_item_ids and quantity sums
   const itemMap = new Map(existingItems.map(i => [i.id as string, i]));
   for (const ri of returnItems) {
     if (!itemMap.has(ri.loan_item_id)) {
@@ -508,10 +509,11 @@ export async function confirmReturn(
     for (const ri of returnItems) {
       const item = itemMap.get(ri.loan_item_id)!;
       const returnedQty = ri.good_quantity + ri.minor_damage_quantity;
+      const nonReturnedQty = ri.write_off_quantity + ri.lost_quantity;
       const autoNote = buildReturnNote(ri.good_quantity, ri.minor_damage_quantity, ri.write_off_quantity, ri.lost_quantity);
       const itemNote = ri.notes ? `${autoNote}; ${ri.notes}` : autoNote;
+      const assetTypeId = item.asset_type_id as string;
 
-      // Update loan_item with 4-bucket breakdown
       await client.query(
         `UPDATE loan_items
          SET good_quantity = $1, minor_damage_quantity = $2, write_off_quantity = $3,
@@ -521,86 +523,98 @@ export async function confirmReturn(
           itemNote, ri.loan_item_id]
       );
 
-      const { rows: assetRows } = await client.query<{ available_quantity: number; total_quantity: number }>(
-        'SELECT available_quantity, total_quantity FROM assets WHERE id = $1',
-        [item.asset_id]
+      // Find which batches were deducted at checkout for this loan item
+      const { rows: checkoutMovements } = await client.query<{ asset_batch_id: string; qty: number }>(
+        `SELECT asset_batch_id, ABS(quantity_delta) AS qty
+         FROM stock_movements
+         WHERE loan_item_id = $1 AND type = 'loan_out'
+         ORDER BY created_at ASC`,
+        [ri.loan_item_id]
       );
-      const { available_quantity: availBefore } = assetRows[0];
 
-      // Restore good + minor_damage back to available stock
-      if (returnedQty > 0) {
-        await client.query(
-          `UPDATE assets SET available_quantity = available_quantity + $1,
-           status = CASE WHEN available_quantity + $1 > 0 THEN 'available'::asset_status ELSE status END
-           WHERE id = $2`,
-          [returnedQty, item.asset_id]
-        );
-        await client.query(
-          `INSERT INTO stock_movements
-             (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
-              quantity_delta, quantity_before, quantity_after, notes)
-           VALUES ($1,$2,$3,$4,$5,'loan_return',$6,$7,$8,$9)`,
-          [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
-            returnedQty, availBefore, availBefore + returnedQty, itemNote]
-        );
+      // Distribute returned and non-returned quantities back across checkout batches
+      let remainingReturned = returnedQty;
+      let remainingNonReturned = nonReturnedQty;
+
+      for (const movement of checkoutMovements) {
+        if (remainingReturned <= 0 && remainingNonReturned <= 0) break;
+        const batchId = movement.asset_batch_id;
+        const batchQty = Number(movement.qty);
+
+        const batchReturned = Math.min(remainingReturned, batchQty);
+        remainingReturned -= batchReturned;
+        const batchNonReturned = Math.min(batchQty - batchReturned, remainingNonReturned);
+        remainingNonReturned -= batchNonReturned;
+
+        // Restore returned units to available_quantity
+        if (batchReturned > 0) {
+          const { rows: batchRows } = await client.query<{ available_quantity: number }>(
+            'SELECT available_quantity FROM asset_batches WHERE id = $1',
+            [batchId]
+          );
+          const availBefore = Number(batchRows[0].available_quantity);
+
+          await client.query(
+            `UPDATE asset_batches
+             SET available_quantity = available_quantity + $1,
+                 status = CASE WHEN status = 'on_loan' AND available_quantity + $1 > 0
+                               THEN 'available'::asset_status
+                               ELSE status END,
+                 updated_at = NOW()
+             WHERE id = $2`,
+            [batchReturned, batchId]
+          );
+          await client.query(
+            `INSERT INTO stock_movements
+               (club_id, asset_batch_id, loan_id, loan_item_id, operator_id, type,
+                quantity_delta, quantity_before, quantity_after, notes)
+             VALUES ($1,$2,$3,$4,$5,'loan_return',$6,$7,$8,$9)`,
+            [clubId, batchId, loanId, ri.loan_item_id, operatorId,
+              batchReturned, availBefore, availBefore + batchReturned, itemNote]
+          );
+        }
+
+        // Deduct non-returned from total_quantity (already removed from available at checkout)
+        if (batchNonReturned > 0) {
+          await client.query(
+            `UPDATE asset_batches
+             SET total_quantity = total_quantity - $1,
+                 status = CASE WHEN total_quantity - $1 <= 0 THEN 'retired'::asset_status ELSE status END,
+                 updated_at = NOW()
+             WHERE id = $2`,
+            [batchNonReturned, batchId]
+          );
+          await client.query(
+            `INSERT INTO stock_movements
+               (club_id, asset_batch_id, loan_id, loan_item_id, operator_id, type,
+                quantity_delta, quantity_before, quantity_after, notes)
+             VALUES ($1,$2,$3,$4,$5,'write_off',$6,$7,$7,$8)`,
+            [clubId, batchId, loanId, ri.loan_item_id, operatorId,
+              -batchNonReturned, 0,
+              `Write-off/lost on loan return`]
+          );
+        }
       }
 
-      // Write-off: deduct from total_quantity (items already not in available)
+      // Create write_off_orders
       if (ri.write_off_quantity > 0) {
         await client.query(
-          `UPDATE assets SET total_quantity = total_quantity - $1,
-           status = CASE WHEN total_quantity - $1 <= 0 THEN 'retired'::asset_status ELSE status END
-           WHERE id = $2`,
-          [ri.write_off_quantity, item.asset_id]
-        );
-        const availAfterReturn = availBefore + returnedQty;
-        await client.query(
-          `INSERT INTO stock_movements
-             (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
-              quantity_delta, quantity_before, quantity_after, notes)
-           VALUES ($1,$2,$3,$4,$5,'write_off',$6,$7,$8,$9)`,
-          [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
-            -ri.write_off_quantity, availAfterReturn, availAfterReturn,
-            `Write-off on loan return: ${ri.write_off_quantity} item(s)`]
-        );
-        await client.query(
-          `INSERT INTO write_off_orders (club_id, asset_id, quantity, reason, source, loan_item_id, created_by, notes)
-           VALUES ($1,$2,$3,$4,'loan_return',$5,$6,$7)`,
-          [clubId, item.asset_id, ri.write_off_quantity,
-            `Write-off from loan return`,
-            ri.loan_item_id, operatorId, itemNote]
+          `INSERT INTO write_off_orders
+             (club_id, asset_type_id, quantity, reason, source, loan_item_id, created_by, notes)
+           VALUES ($1,$2,$3,'Write-off from loan return','loan_return',$4,$5,$6)`,
+          [clubId, assetTypeId, ri.write_off_quantity, ri.loan_item_id, operatorId, itemNote]
         );
       }
-
-      // Lost: deduct from total_quantity, use loan_lost source for future recovery traceability
       if (ri.lost_quantity > 0) {
         await client.query(
-          `UPDATE assets SET total_quantity = total_quantity - $1,
-           status = CASE WHEN total_quantity - $1 <= 0 THEN 'retired'::asset_status ELSE status END
-           WHERE id = $2`,
-          [ri.lost_quantity, item.asset_id]
-        );
-        const availAfterReturn = availBefore + returnedQty;
-        await client.query(
-          `INSERT INTO stock_movements
-             (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
-              quantity_delta, quantity_before, quantity_after, notes)
-           VALUES ($1,$2,$3,$4,$5,'write_off',$6,$7,$8,$9)`,
-          [clubId, item.asset_id, loanId, ri.loan_item_id, operatorId,
-            -ri.lost_quantity, availAfterReturn, availAfterReturn,
-            `Lost item recorded from loan return: ${ri.lost_quantity} item(s)`]
-        );
-        await client.query(
-          `INSERT INTO write_off_orders (club_id, asset_id, quantity, reason, source, loan_item_id, created_by, notes)
-           VALUES ($1,$2,$3,$4,'loan_lost',$5,$6,$7)`,
-          [clubId, item.asset_id, ri.lost_quantity,
-            `Lost item from loan return`,
-            ri.loan_item_id, operatorId, itemNote]
+          `INSERT INTO write_off_orders
+             (club_id, asset_type_id, quantity, reason, source, loan_item_id, created_by, notes)
+           VALUES ($1,$2,$3,'Lost item from loan return','loan_lost',$4,$5,$6)`,
+          [clubId, assetTypeId, ri.lost_quantity, ri.loan_item_id, operatorId, itemNote]
         );
       }
     }
 
-    // Mark loan as returned
     await client.query(
       `UPDATE loans
        SET status = 'returned', return_confirmed_by = $1, returned_at = NOW(),

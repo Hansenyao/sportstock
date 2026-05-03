@@ -5,18 +5,21 @@ import requireRole from '../middleware/requireRole';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const mgr = requireRole('club_admin', 'asset_manager');
 
 router.get('/categories',   ctrl.listCategories);
-router.post('/categories',  requireRole('club_admin', 'asset_manager'), ctrl.createCategory);
-router.post('/bulk-import', requireRole('club_admin', 'asset_manager'), upload.single('file'), ctrl.bulkImport);
+router.post('/categories',  mgr, ctrl.createCategory);
 
 router.get('/',   ctrl.listAssets);
-router.post('/',  requireRole('club_admin', 'asset_manager'), ctrl.createAsset);
+router.post('/',  mgr, ctrl.createAsset);
 
-router.get('/:id',               ctrl.getAsset);
-router.put('/:id',               requireRole('club_admin', 'asset_manager'), ctrl.updateAsset);
-router.delete('/:id',            requireRole('club_admin', 'asset_manager'), ctrl.deleteAsset);
-router.put('/:id/image',         requireRole('club_admin', 'asset_manager'), upload.single('image'), ctrl.uploadImage);
-router.get('/:id/depreciation',  requireRole('club_admin', 'asset_manager'), ctrl.getDepreciation);
+router.get('/:id',       ctrl.getAsset);
+router.put('/:id',       mgr, ctrl.updateAsset);
+router.delete('/:id',    mgr, ctrl.deleteAsset);
+router.put('/:id/image', mgr, upload.single('image'), ctrl.uploadImage);
+
+router.post('/:id/batches',                      mgr, ctrl.addBatch);
+router.put('/:id/batches/:batchId',              mgr, ctrl.updateBatch);
+router.get('/:id/batches/:batchId/depreciation', mgr, ctrl.getDepreciation);
 
 export default router;

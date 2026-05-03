@@ -4,17 +4,16 @@ export async function getSummary(clubId: string): Promise<Record<string, unknown
   const [{ rows: assetRows }, { rows: loanRows }] = await Promise.all([
     db.query<Record<string, unknown>>(
       `SELECT
-         COUNT(*)                                                              AS total_assets,
-         COALESCE(SUM(total_quantity)     FILTER (WHERE is_active = true), 0) AS total_items,
-         COALESCE(SUM(available_quantity) FILTER (WHERE is_active = true), 0) AS available_items,
-         COUNT(*) FILTER (WHERE status = 'on_loan')                           AS on_loan_count,
-         COUNT(*) FILTER (WHERE status = 'maintenance')                       AS maintenance_count,
-         COUNT(*) FILTER (WHERE status = 'retired')                           AS retired_count,
+         COUNT(DISTINCT at.id)                                         AS total_assets,
+         COALESCE(SUM(ab.total_quantity)     FILTER (WHERE at.is_active = true), 0) AS total_items,
+         COALESCE(SUM(ab.available_quantity) FILTER (WHERE at.is_active = true), 0) AS available_items,
          COALESCE(
-           SUM(purchase_price * total_quantity)
-           FILTER (WHERE is_active = true AND purchase_price IS NOT NULL), 0
-         )                                                                    AS total_purchase_value
-       FROM assets WHERE club_id = $1`,
+           SUM(ab.purchase_price * ab.total_quantity)
+           FILTER (WHERE at.is_active = true AND ab.purchase_price IS NOT NULL), 0
+         )                                                             AS total_purchase_value
+       FROM asset_types at
+       LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
+       WHERE at.club_id = $1`,
       [clubId]
     ),
     db.query<Record<string, unknown>>(
@@ -31,22 +30,29 @@ export async function getSummary(clubId: string): Promise<Record<string, unknown
 export async function getDepreciationReport(clubId: string): Promise<{
   items: Record<string, unknown>[];
   summary: {
-    total_assets_with_depreciation: number;
+    total_batches_with_depreciation: number;
     total_purchase_value: string;
     total_net_book_value: string;
     total_accumulated_depreciation: string;
   };
 }> {
   const { rows } = await db.query<Record<string, unknown>>(
-    `SELECT a.id, a.name, a.status,
-            c.name AS category_name,
+    `SELECT ab.id          AS batch_id,
+            an.name        AS asset_name,
+            at.brand, at.model, at.size,
+            ab.status      AS batch_status,
+            ab.purchase_date,
+            ab.total_quantity,
+            c.name         AS category_name,
             d.purchase_price, d.annual_depreciation,
             d.years_elapsed, d.accumulated_depreciation, d.net_book_value
-     FROM assets a
-     JOIN LATERAL get_asset_depreciation(a.id) d ON true
-     LEFT JOIN asset_categories c ON c.id = a.category_id
-     WHERE a.club_id = $1 AND a.is_active = true
-     ORDER BY a.name`,
+     FROM asset_batches ab
+     JOIN asset_types at ON at.id = ab.asset_type_id
+     JOIN asset_names an ON an.id = at.asset_name_id
+     JOIN LATERAL get_asset_depreciation(ab.id) d ON true
+     LEFT JOIN asset_categories c ON c.id = at.category_id
+     WHERE at.club_id = $1 AND at.is_active = true
+     ORDER BY an.name, ab.purchase_date ASC NULLS LAST`,
     [clubId]
   );
 
@@ -56,10 +62,10 @@ export async function getDepreciationReport(clubId: string): Promise<{
   return {
     items: rows,
     summary: {
-      total_assets_with_depreciation: rows.length,
-      total_purchase_value:           totalPurchase.toFixed(2),
-      total_net_book_value:           totalNet.toFixed(2),
-      total_accumulated_depreciation: (totalPurchase - totalNet).toFixed(2),
+      total_batches_with_depreciation: rows.length,
+      total_purchase_value:            totalPurchase.toFixed(2),
+      total_net_book_value:            totalNet.toFixed(2),
+      total_accumulated_depreciation:  (totalPurchase - totalNet).toFixed(2),
     },
   };
 }
@@ -80,22 +86,28 @@ export async function getLoanUsage(
 
   const [topAssets, coachSummary, monthlyTrend] = await Promise.all([
     db.query<Record<string, unknown>>(
-      `SELECT a.id, a.name,
-              COUNT(l.id)     AS loan_count,
-              SUM(l.quantity) AS total_quantity_borrowed
-       FROM loans l JOIN assets a ON a.id = l.asset_id
+      `SELECT at.id, an.name,
+              COUNT(DISTINCT l.id) AS loan_count,
+              SUM(li.quantity)     AS total_quantity_borrowed
+       FROM loan_items li
+       JOIN loans      l  ON l.id  = li.loan_id
+       JOIN asset_types at ON at.id = li.asset_type_id
+       JOIN asset_names an ON an.id = at.asset_name_id
        WHERE l.club_id = $1 AND l.status != 'pending' ${dateWhere}
-       GROUP BY a.id, a.name ORDER BY loan_count DESC LIMIT 10`,
+       GROUP BY at.id, an.name
+       ORDER BY loan_count DESC
+       LIMIT 10`,
       params
     ),
     db.query<Record<string, unknown>>(
       `SELECT u.id, u.name,
-              COUNT(l.id)                                                   AS loan_count,
-              COUNT(*) FILTER (WHERE l.status = 'checked_out')              AS active_loans,
-              COUNT(*) FILTER (WHERE l.return_condition = 'severe_damage')  AS damage_incidents
-       FROM loans l JOIN users u ON u.id = l.coach_id
+              COUNT(DISTINCT l.id)                                       AS loan_count,
+              COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'checked_out') AS active_loans
+       FROM loans l
+       JOIN users u ON u.id = l.coach_id
        WHERE l.club_id = $1 ${dateWhere}
-       GROUP BY u.id, u.name ORDER BY loan_count DESC`,
+       GROUP BY u.id, u.name
+       ORDER BY loan_count DESC`,
       params
     ),
     db.query<Record<string, unknown>>(

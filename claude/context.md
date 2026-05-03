@@ -41,24 +41,35 @@ Clerk was removed entirely on 2026-04-24. No Clerk SDK anywhere.
 
 ---
 
-## Implementation Status (as of 2026-04-25)
+## Implementation Status (as of 2026-05-03)
 
 ### Completed — Backend
 - Full Express/TypeScript REST API with JWT auth, bcrypt, Resend OTP
-- `db-init.sql` schema v3: multi-item loans, write-off orders, 4-bucket return
+- `db-init.sql` schema v4: 3-table asset model (asset_names / asset_types / asset_batches)
 - `scripts/seed-admin.ts` — default super admin (`admin@sportstock.com`)
 - **Dev-only**: OTP hardcoded to `"123456"` (Resend call commented out — revert before prod)
 
-#### Key schema (current, v3)
-- `loan_items`: `quantity`, `good_quantity`, `minor_damage_quantity`, `write_off_quantity`, `lost_quantity`, `return_notes`
+#### Key schema (current, v4)
+- **Asset catalog (3-table model)**:
+  - `asset_names` — approved name catalog per club; UNIQUE(club_id, name)
+  - `asset_types` — unique (asset_name_id + brand + model + size) per club; holds category, image, low_stock_threshold; soft-delete via `is_active`
+  - `asset_batches` — one row per purchase; holds total/available qty, status, purchase_date, price, useful_life_years
+  - UNIQUE index on asset_types uses COALESCE to treat NULL brand/model/size as '' (prevents NULL-bypass duplicates)
+- `loan_items.asset_type_id` → FK to asset_types (replaces asset_id)
+- `write_off_orders.asset_type_id` → FK to asset_types
+- `stock_movements.asset_batch_id` → FK to asset_batches (nullable, ON DELETE SET NULL for audit trail)
+- `stocktake_items.asset_type_id` → FK to asset_types
 - `write_off_source` enum: `manual | loan_return | loan_lost`
-- Stored procedures: `approve_loan`, `reject_loan`, `checkout_loan`, `complete_maintenance`, `retire_asset`, `purchase_stock`
+- Stored procedures: `approve_loan`, `reject_loan`, `checkout_loan` (FIFO batch deduction), `complete_maintenance` (per batch), `retire_batch` (per batch)
+- Removed procedures: `purchase_stock` (batch creation is service-layer), `retire_asset` (replaced by `retire_batch`)
+- `get_asset_depreciation(batch_id UUID)` — per-batch straight-line depreciation
+- `fn_check_low_stock` trigger fires on `asset_batches.available_quantity` decrease; aggregates across all batches for the type
 - 5 system asset categories seeded at bottom of `db-init.sql`
 
-#### Services implemented
+#### Services implemented (pre-REQ-2, need rewrite)
 - `loan.service.ts` — full lifecycle: create (cart), update, delete, approve, reject, checkout, confirmReturn (4-bucket), auto write-off orders
 - `write-off.service.ts` — manual write-offs
-- `asset.service.ts` — CRUD, categories, image upload (Supabase)
+- `asset.service.ts` — CRUD, categories, image upload (Supabase) — **references old assets table, must be rewritten**
 - `auth.service.ts`, `user.service.ts`, `notification.service.ts`
 
 ### Completed — Frontend
@@ -231,9 +242,10 @@ All backend and frontend changes shipped:
 - Frontend: Teams page, sidebar nav, Users coach-detail modal, Loans team filter + tag, loan create team selector
 - **Design decision**: `team_id` on loans is optional — coaches without teams can still borrow
 
-### REQ-2: Asset Catalog + Batches — NOT STARTED
+### REQ-2: Asset Catalog + Batches — IN PROGRESS
 
-Next to implement. Requires full DB reset (re-run db-init.sql).
+Phase 1 complete (2026-05-03): `db-init.sql` schema v4 written. DB reset required before Phase 2.
+Phase 2 (backend) and Phase 3 (frontend) pending.
 
 ---
 

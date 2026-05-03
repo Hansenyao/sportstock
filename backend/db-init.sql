@@ -1,6 +1,7 @@
 -- ============================================================
 -- SportStock — Database Initialization Script
 -- PostgreSQL 14+
+-- Schema v4: asset_names / asset_types / asset_batches
 -- ============================================================
 
 -- ============================================================
@@ -16,7 +17,9 @@ DROP TABLE IF EXISTS write_off_orders     CASCADE;
 DROP TABLE IF EXISTS stock_movements      CASCADE;
 DROP TABLE IF EXISTS loan_items           CASCADE;
 DROP TABLE IF EXISTS loans                CASCADE;
-DROP TABLE IF EXISTS assets               CASCADE;
+DROP TABLE IF EXISTS asset_batches        CASCADE;
+DROP TABLE IF EXISTS asset_types          CASCADE;
+DROP TABLE IF EXISTS asset_names          CASCADE;
 DROP TABLE IF EXISTS team_members         CASCADE;
 DROP TABLE IF EXISTS teams                CASCADE;
 DROP TABLE IF EXISTS users                CASCADE;
@@ -25,9 +28,8 @@ DROP TABLE IF EXISTS clubs                CASCADE;
 DROP TABLE IF EXISTS email_verifications  CASCADE;
 
 -- Functions and procedures
-DROP PROCEDURE IF EXISTS purchase_stock(UUID, UUID, INT, TEXT);
-DROP PROCEDURE IF EXISTS retire_asset(UUID, UUID, INT, TEXT);
 DROP PROCEDURE IF EXISTS complete_maintenance(UUID, UUID, INT, TEXT);
+DROP PROCEDURE IF EXISTS retire_batch(UUID, UUID, INT, TEXT);
 DROP PROCEDURE IF EXISTS checkout_loan(UUID, UUID);
 DROP PROCEDURE IF EXISTS reject_loan(UUID, UUID, TEXT);
 DROP PROCEDURE IF EXISTS approve_loan(UUID, UUID);
@@ -56,6 +58,7 @@ CREATE TYPE user_role AS ENUM (
     'coach'
 );
 
+-- Status lives on asset_batches (one batch can be on_loan while another is available)
 CREATE TYPE asset_status AS ENUM (
     'available',
     'on_loan',
@@ -149,7 +152,6 @@ CREATE UNIQUE INDEX uq_asset_categories_system_name
     WHERE club_id IS NULL;
 
 -- USERS: platform users; super_admin rows have club_id = NULL
--- Authentication: email + bcrypt-hashed password; no external auth provider
 CREATE TABLE users (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     club_id         UUID        REFERENCES clubs(id) ON DELETE CASCADE,
@@ -178,7 +180,7 @@ CREATE TABLE teams (
     updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- TEAM_MEMBERS: many-to-many coaches <-> teams; team_role is a position label only (no permission change)
+-- TEAM_MEMBERS: many-to-many coaches <-> teams; team_role is a position label only
 CREATE TABLE team_members (
     id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id    UUID        NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -191,36 +193,60 @@ CREATE TABLE team_members (
 -- Enforce: each team may have at most one head coach
 CREATE UNIQUE INDEX uq_team_head_coach ON team_members (team_id) WHERE team_role = 'head_coach';
 
--- ASSETS: equipment owned by a club
-CREATE TABLE assets (
-    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    club_id             UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-    category_id         UUID        REFERENCES asset_categories(id) ON DELETE SET NULL,
-    name                VARCHAR(255) NOT NULL,
-    total_quantity      INT         NOT NULL DEFAULT 1,
-    available_quantity  INT         NOT NULL DEFAULT 1,
-    status              asset_status NOT NULL DEFAULT 'available',
+-- ── Asset catalog (3-table model) ────────────────────────────────────────────
+
+-- ASSET_NAMES: approved name catalog per club; admin/asset_manager creates entries here
+--   before assets of that name can be added to inventory.
+CREATE TABLE asset_names (
+    id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id    UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    name       VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (club_id, name)
+);
+
+-- ASSET_TYPES: one row per unique (name + brand + model + size) combination per club.
+--   Carries shared metadata: category, image, low-stock threshold.
+CREATE TABLE asset_types (
+    id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id             UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    asset_name_id       UUID         NOT NULL REFERENCES asset_names(id) ON DELETE RESTRICT,
+    category_id         UUID         REFERENCES asset_categories(id) ON DELETE SET NULL,
     brand               VARCHAR(100),
     model               VARCHAR(100),
     size                VARCHAR(100),
-    purchase_date       DATE,
-    purchase_price      NUMERIC(12, 2),
-    useful_life_years   INT,
     image_url           TEXT,
-    asset_tag           VARCHAR(50),
-    qr_code             VARCHAR(255),
-    -- per-asset override; NULL means fall back to clubs.low_stock_threshold
+    -- per-type override; NULL means fall back to clubs.low_stock_threshold
     low_stock_threshold INT,
-    notes               TEXT,
-    is_active           BOOLEAN     NOT NULL DEFAULT true,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT total_qty_non_negative     CHECK (total_quantity >= 0),
-    CONSTRAINT available_qty_non_negative CHECK (available_quantity >= 0),
-    CONSTRAINT available_lte_total        CHECK (available_quantity <= total_quantity)
+    is_active           BOOLEAN      NOT NULL DEFAULT true,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- LOANS: borrow/return transaction lifecycle (multi-item; see loan_items)
+-- Treat NULL brand/model/size as empty string for dedup purposes (NULLs are distinct in UNIQUE)
+CREATE UNIQUE INDEX uq_asset_types_combination
+    ON asset_types (club_id, asset_name_id, COALESCE(brand,''), COALESCE(model,''), COALESCE(size,''));
+
+-- ASSET_BATCHES: one row per purchase event for an asset_type.
+--   Quantity accounting and depreciation live here.
+CREATE TABLE asset_batches (
+    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_type_id      UUID         NOT NULL REFERENCES asset_types(id) ON DELETE RESTRICT,
+    purchase_date      DATE,
+    purchase_price     NUMERIC(12,2),
+    useful_life_years  INT,
+    total_quantity     INT          NOT NULL DEFAULT 0 CHECK (total_quantity >= 0),
+    available_quantity INT          NOT NULL DEFAULT 0 CHECK (available_quantity >= 0),
+    status             asset_status NOT NULL DEFAULT 'available',
+    notes              TEXT,
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT batch_available_lte_total CHECK (available_quantity <= total_quantity)
+);
+
+-- ── Loan lifecycle ────────────────────────────────────────────────────────────
+
+-- LOANS: borrow/return transaction (multi-item; see loan_items)
 CREATE TABLE loans (
     id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     club_id              UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
@@ -243,11 +269,11 @@ CREATE TABLE loans (
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- LOAN_ITEMS: one row per asset within a loan
+-- LOAN_ITEMS: one row per asset_type within a loan
 CREATE TABLE loan_items (
     id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     loan_id               UUID        NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-    asset_id              UUID        NOT NULL REFERENCES assets(id),
+    asset_type_id         UUID        NOT NULL REFERENCES asset_types(id),
     quantity              INT         NOT NULL DEFAULT 1 CHECK (quantity > 0),
     -- 4-bucket return breakdown (set on return; must sum to quantity)
     good_quantity         INT,
@@ -259,26 +285,28 @@ CREATE TABLE loan_items (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- WRITE_OFF_ORDERS: records of decommissioned assets (manual or triggered from loan return)
+-- ── Write-offs ────────────────────────────────────────────────────────────────
+
+-- WRITE_OFF_ORDERS: decommissioned assets (manual or from loan return)
 CREATE TABLE write_off_orders (
-    id           UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
-    club_id      UUID             NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-    asset_id     UUID             NOT NULL REFERENCES assets(id),
-    quantity     INT              NOT NULL CHECK (quantity > 0),
-    reason       TEXT,
-    source       write_off_source NOT NULL DEFAULT 'manual',
-    loan_item_id UUID             REFERENCES loan_items(id) ON DELETE SET NULL,
-    created_by   UUID             NOT NULL REFERENCES users(id),
-    notes        TEXT,
-    created_at   TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ      NOT NULL DEFAULT NOW()
+    id            UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id       UUID             NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    asset_type_id UUID             NOT NULL REFERENCES asset_types(id),
+    quantity      INT              NOT NULL CHECK (quantity > 0),
+    reason        TEXT,
+    source        write_off_source NOT NULL DEFAULT 'manual',
+    loan_item_id  UUID             REFERENCES loan_items(id) ON DELETE SET NULL,
+    created_by    UUID             NOT NULL REFERENCES users(id),
+    notes         TEXT,
+    created_at    TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
 
--- STOCK_MOVEMENTS: append-only audit trail for every inventory change
+-- STOCK_MOVEMENTS: append-only audit trail; references the specific batch affected
 CREATE TABLE stock_movements (
     id              UUID                PRIMARY KEY DEFAULT gen_random_uuid(),
     club_id         UUID                NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-    asset_id        UUID                NOT NULL REFERENCES assets(id),
+    asset_batch_id  UUID                REFERENCES asset_batches(id) ON DELETE SET NULL,
     loan_id         UUID                REFERENCES loans(id) ON DELETE SET NULL,
     loan_item_id    UUID                REFERENCES loan_items(id) ON DELETE SET NULL,
     operator_id     UUID                REFERENCES users(id) ON DELETE SET NULL,
@@ -327,17 +355,17 @@ CREATE TABLE stocktake_sessions (
     CONSTRAINT stocktake_status_check CHECK (status IN ('in_progress', 'completed', 'cancelled'))
 );
 
--- STOCKTAKE_ITEMS: per-asset physical count within a stocktake session
+-- STOCKTAKE_ITEMS: per-asset-type physical count within a stocktake session
 CREATE TABLE stocktake_items (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id        UUID NOT NULL REFERENCES stocktake_sessions(id) ON DELETE CASCADE,
-    asset_id          UUID NOT NULL REFERENCES assets(id),
+    asset_type_id     UUID NOT NULL REFERENCES asset_types(id),
     system_quantity   INT  NOT NULL,
     physical_quantity INT  NOT NULL,
     variance          INT  GENERATED ALWAYS AS (physical_quantity - system_quantity) STORED,
     notes             TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (session_id, asset_id)
+    UNIQUE (session_id, asset_type_id)
 );
 
 
@@ -356,10 +384,21 @@ CREATE INDEX idx_teams_club_id ON teams(club_id);
 CREATE INDEX idx_team_members_team_id ON team_members(team_id);
 CREATE INDEX idx_team_members_user_id ON team_members(user_id);
 
--- Assets
-CREATE INDEX idx_assets_club_id       ON assets(club_id);
-CREATE INDEX idx_assets_club_status   ON assets(club_id, status);
-CREATE INDEX idx_assets_club_category ON assets(club_id, category_id);
+-- Asset names
+CREATE INDEX idx_asset_names_club_id ON asset_names(club_id);
+
+-- Asset types
+CREATE INDEX idx_asset_types_club_id       ON asset_types(club_id);
+CREATE INDEX idx_asset_types_asset_name_id ON asset_types(asset_name_id);
+CREATE INDEX idx_asset_types_club_category ON asset_types(club_id, category_id);
+CREATE INDEX idx_asset_types_club_active   ON asset_types(club_id) WHERE is_active = true;
+
+-- Asset batches
+CREATE INDEX idx_asset_batches_type_id     ON asset_batches(asset_type_id);
+-- For checkout FIFO deduction: all active batches with stock, ordered by purchase date
+CREATE INDEX idx_asset_batches_checkout
+    ON asset_batches(asset_type_id, purchase_date ASC NULLS LAST, created_at ASC)
+    WHERE available_quantity > 0 AND status != 'retired';
 
 -- Loans
 CREATE INDEX idx_loans_club_id     ON loans(club_id);
@@ -370,16 +409,16 @@ CREATE INDEX idx_loans_club_status ON loans(club_id, status);
 CREATE INDEX idx_loans_active_due  ON loans(due_date) WHERE status = 'checked_out';
 
 -- Loan items
-CREATE INDEX idx_loan_items_loan_id  ON loan_items(loan_id);
-CREATE INDEX idx_loan_items_asset_id ON loan_items(asset_id);
+CREATE INDEX idx_loan_items_loan_id       ON loan_items(loan_id);
+CREATE INDEX idx_loan_items_asset_type_id ON loan_items(asset_type_id);
 
 -- Write-off orders
-CREATE INDEX idx_write_off_orders_club_id  ON write_off_orders(club_id);
-CREATE INDEX idx_write_off_orders_asset_id ON write_off_orders(asset_id);
+CREATE INDEX idx_write_off_orders_club_id       ON write_off_orders(club_id);
+CREATE INDEX idx_write_off_orders_asset_type_id ON write_off_orders(asset_type_id);
 
 -- Stock movements
-CREATE INDEX idx_stock_movements_club_id  ON stock_movements(club_id);
-CREATE INDEX idx_stock_movements_asset_ts ON stock_movements(asset_id, created_at DESC);
+CREATE INDEX idx_stock_movements_club_id   ON stock_movements(club_id);
+CREATE INDEX idx_stock_movements_batch_ts  ON stock_movements(asset_batch_id, created_at DESC);
 
 -- Notifications
 CREATE INDEX idx_notifications_user_ts ON notifications(user_id, created_at DESC);
@@ -399,90 +438,108 @@ BEGIN
 END;
 $$;
 
--- Returns straight-line depreciation figures for an asset
-CREATE OR REPLACE FUNCTION get_asset_depreciation(p_asset_id UUID)
+-- Returns straight-line depreciation figures for a single asset batch
+CREATE OR REPLACE FUNCTION get_asset_depreciation(p_batch_id UUID)
 RETURNS TABLE (
-    asset_id              UUID,
-    purchase_price        NUMERIC,
-    annual_depreciation   NUMERIC,
-    years_elapsed         NUMERIC,
+    batch_id                 UUID,
+    asset_type_id            UUID,
+    purchase_price           NUMERIC,
+    annual_depreciation      NUMERIC,
+    years_elapsed            NUMERIC,
     accumulated_depreciation NUMERIC,
-    net_book_value        NUMERIC
+    net_book_value           NUMERIC
 ) LANGUAGE plpgsql STABLE AS $$
 BEGIN
     RETURN QUERY
     SELECT
-        a.id AS asset_id,
-        a.purchase_price,
-        ROUND(a.purchase_price / a.useful_life_years, 2) AS annual_depreciation,
+        ab.id                                                           AS batch_id,
+        ab.asset_type_id,
+        ab.purchase_price,
+        ROUND(ab.purchase_price / ab.useful_life_years, 2)             AS annual_depreciation,
         ROUND(
-            EXTRACT(EPOCH FROM (CURRENT_DATE::TIMESTAMPTZ - a.purchase_date::TIMESTAMPTZ))
+            EXTRACT(EPOCH FROM (CURRENT_DATE::TIMESTAMPTZ - ab.purchase_date::TIMESTAMPTZ))
             / (365.25 * 86400.0),
             4
-        ) AS years_elapsed,
+        )                                                               AS years_elapsed,
         LEAST(
-            a.purchase_price,
+            ab.purchase_price,
             ROUND(
-                (a.purchase_price / a.useful_life_years) *
-                EXTRACT(EPOCH FROM (CURRENT_DATE::TIMESTAMPTZ - a.purchase_date::TIMESTAMPTZ))
+                (ab.purchase_price / ab.useful_life_years) *
+                EXTRACT(EPOCH FROM (CURRENT_DATE::TIMESTAMPTZ - ab.purchase_date::TIMESTAMPTZ))
                 / (365.25 * 86400.0),
                 2
             )
-        ) AS accumulated_depreciation,
+        )                                                               AS accumulated_depreciation,
         GREATEST(
             0::NUMERIC,
-            a.purchase_price - LEAST(
-                a.purchase_price,
+            ab.purchase_price - LEAST(
+                ab.purchase_price,
                 ROUND(
-                    (a.purchase_price / a.useful_life_years) *
-                    EXTRACT(EPOCH FROM (CURRENT_DATE::TIMESTAMPTZ - a.purchase_date::TIMESTAMPTZ))
+                    (ab.purchase_price / ab.useful_life_years) *
+                    EXTRACT(EPOCH FROM (CURRENT_DATE::TIMESTAMPTZ - ab.purchase_date::TIMESTAMPTZ))
                     / (365.25 * 86400.0),
                     2
                 )
             )
-        ) AS net_book_value
-    FROM assets a
-    WHERE a.id = p_asset_id
-      AND a.purchase_price    IS NOT NULL
-      AND a.purchase_date     IS NOT NULL
-      AND a.useful_life_years IS NOT NULL
-      AND a.useful_life_years > 0;
+        )                                                               AS net_book_value
+    FROM asset_batches ab
+    WHERE ab.id = p_batch_id
+      AND ab.purchase_price    IS NOT NULL
+      AND ab.purchase_date     IS NOT NULL
+      AND ab.useful_life_years IS NOT NULL
+      AND ab.useful_life_years > 0;
 END;
 $$;
 
--- Trigger function: fire low-stock notifications when available_quantity drops
--- to or below the threshold (per-asset override or club default)
+-- Trigger function: fire low-stock notifications when a batch's available_quantity drops.
+--   Aggregates across all batches for the asset_type before comparing to threshold.
 CREATE OR REPLACE FUNCTION fn_check_low_stock()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE
-    v_threshold INT;
+    v_total_available INT;
+    v_threshold       INT;
+    v_asset_name      TEXT;
+    v_club_id         UUID;
 BEGIN
     -- Only care when qty decreases
     IF NEW.available_quantity >= OLD.available_quantity THEN
         RETURN NEW;
     END IF;
 
-    v_threshold := COALESCE(
-        NEW.low_stock_threshold,
-        (SELECT low_stock_threshold FROM clubs WHERE id = NEW.club_id)
-    );
+    -- Aggregate available qty across all non-retired batches for this asset_type
+    SELECT COALESCE(SUM(ab.available_quantity), 0)
+    INTO   v_total_available
+    FROM   asset_batches ab
+    WHERE  ab.asset_type_id = NEW.asset_type_id
+      AND  ab.status        != 'retired';
 
-    IF NEW.available_quantity <= v_threshold THEN
+    -- Resolve threshold and display name
+    SELECT
+        COALESCE(at.low_stock_threshold, c.low_stock_threshold),
+        an.name,
+        at.club_id
+    INTO v_threshold, v_asset_name, v_club_id
+    FROM asset_types  at
+    JOIN asset_names  an ON an.id  = at.asset_name_id
+    JOIN clubs        c  ON c.id   = at.club_id
+    WHERE at.id = NEW.asset_type_id;
+
+    IF v_total_available <= v_threshold THEN
         INSERT INTO notifications (club_id, user_id, type, title, body, data)
         SELECT
-            NEW.club_id,
+            v_club_id,
             u.id,
             'low_stock'::notification_type,
             'Low Stock Alert',
-            '"' || NEW.name || '" is running low (' || NEW.available_quantity || ' available)',
+            '"' || v_asset_name || '" is running low (' || v_total_available || ' available)',
             jsonb_build_object(
-                'asset_id',          NEW.id,
-                'available_quantity', NEW.available_quantity,
+                'asset_type_id',      NEW.asset_type_id,
+                'available_quantity', v_total_available,
                 'threshold',          v_threshold
             )
         FROM users u
-        WHERE u.club_id  = NEW.club_id
-          AND u.role      IN ('asset_manager', 'club_admin')
+        WHERE u.club_id  = v_club_id
+          AND u.role     IN ('asset_manager', 'club_admin')
           AND u.is_active = true;
     END IF;
 
@@ -503,8 +560,16 @@ CREATE TRIGGER trg_users_updated_at
     BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 
-CREATE TRIGGER trg_assets_updated_at
-    BEFORE UPDATE ON assets
+CREATE TRIGGER trg_teams_updated_at
+    BEFORE UPDATE ON teams
+    FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
+
+CREATE TRIGGER trg_asset_types_updated_at
+    BEFORE UPDATE ON asset_types
+    FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
+
+CREATE TRIGGER trg_asset_batches_updated_at
+    BEFORE UPDATE ON asset_batches
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 
 CREATE TRIGGER trg_loans_updated_at
@@ -523,12 +588,9 @@ CREATE TRIGGER trg_fcm_tokens_updated_at
     BEFORE UPDATE ON fcm_tokens
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 
-CREATE TRIGGER trg_teams_updated_at
-    BEFORE UPDATE ON teams
-    FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
-
-CREATE TRIGGER trg_asset_low_stock
-    AFTER UPDATE OF available_quantity ON assets
+-- Fires after each batch quantity decrease; checks aggregate low-stock for the type
+CREATE TRIGGER trg_asset_batch_low_stock
+    AFTER UPDATE OF available_quantity ON asset_batches
     FOR EACH ROW EXECUTE FUNCTION fn_check_low_stock();
 
 
@@ -572,15 +634,20 @@ BEGIN
 END;
 $$;
 
--- Confirm coach picked up items; decrements available_quantity per loan_item and logs movements
+-- Confirm coach picked up items.
+--   Deducts available_quantity across batches in FIFO order (purchase_date ASC).
+--   Logs one stock_movement row per batch deducted.
 CREATE OR REPLACE PROCEDURE checkout_loan(
     p_loan_id     UUID,
     p_operator_id UUID
 ) LANGUAGE plpgsql AS $$
 DECLARE
-    v_club_id   UUID;
-    v_item      RECORD;
-    v_avail_qty INT;
+    v_club_id     UUID;
+    v_item        RECORD;
+    v_total_avail INT;
+    v_batch       RECORD;
+    v_remaining   INT;
+    v_deduct      INT;
 BEGIN
     SELECT club_id INTO v_club_id
     FROM   loans
@@ -590,19 +657,21 @@ BEGIN
         RAISE EXCEPTION 'Loan % is not in approved status', p_loan_id;
     END IF;
 
-    -- Verify all items have sufficient stock before touching anything
+    -- Verify all items have sufficient aggregate stock before touching anything
     FOR v_item IN
-        SELECT li.asset_id, li.quantity
+        SELECT li.asset_type_id, li.quantity
         FROM   loan_items li
         WHERE  li.loan_id = p_loan_id
     LOOP
-        SELECT available_quantity INTO v_avail_qty
-        FROM   assets WHERE id = v_item.asset_id;
+        SELECT COALESCE(SUM(available_quantity), 0) INTO v_total_avail
+        FROM   asset_batches
+        WHERE  asset_type_id = v_item.asset_type_id
+          AND  status        != 'retired';
 
-        IF v_avail_qty < v_item.quantity THEN
+        IF v_total_avail < v_item.quantity THEN
             RAISE EXCEPTION
-                'Insufficient stock for asset %: requested %, available %',
-                v_item.asset_id, v_item.quantity, v_avail_qty;
+                'Insufficient stock for asset type %: requested %, available %',
+                v_item.asset_type_id, v_item.quantity, v_total_avail;
         END IF;
     END LOOP;
 
@@ -612,36 +681,53 @@ BEGIN
         checked_out_at = NOW()
     WHERE id = p_loan_id;
 
+    -- Deduct from batches FIFO (oldest purchase first)
     FOR v_item IN
-        SELECT li.id AS item_id, li.asset_id, li.quantity
+        SELECT li.id AS item_id, li.asset_type_id, li.quantity
         FROM   loan_items li
         WHERE  li.loan_id = p_loan_id
     LOOP
-        SELECT available_quantity INTO v_avail_qty
-        FROM   assets WHERE id = v_item.asset_id;
+        v_remaining := v_item.quantity;
 
-        UPDATE assets
-        SET available_quantity = available_quantity - v_item.quantity,
-            status = CASE
-                         WHEN available_quantity - v_item.quantity = 0 THEN 'on_loan'::asset_status
-                         ELSE status
-                     END
-        WHERE id = v_item.asset_id;
+        FOR v_batch IN
+            SELECT id, available_quantity
+            FROM   asset_batches
+            WHERE  asset_type_id     = v_item.asset_type_id
+              AND  available_quantity > 0
+              AND  status            != 'retired'
+            ORDER BY purchase_date ASC NULLS LAST, created_at ASC
+        LOOP
+            EXIT WHEN v_remaining <= 0;
 
-        INSERT INTO stock_movements
-            (club_id, asset_id, loan_id, loan_item_id, operator_id, type,
-             quantity_delta, quantity_before, quantity_after, notes)
-        VALUES
-            (v_club_id, v_item.asset_id, p_loan_id, v_item.item_id, p_operator_id, 'loan_out',
-             -v_item.quantity, v_avail_qty, v_avail_qty - v_item.quantity,
-             'Loan checked out');
+            v_deduct := LEAST(v_remaining, v_batch.available_quantity);
+
+            UPDATE asset_batches
+            SET available_quantity = available_quantity - v_deduct,
+                status = CASE
+                    WHEN available_quantity - v_deduct = 0 THEN 'on_loan'::asset_status
+                    ELSE status
+                END
+            WHERE id = v_batch.id;
+
+            INSERT INTO stock_movements
+                (club_id, asset_batch_id, loan_id, loan_item_id, operator_id,
+                 type, quantity_delta, quantity_before, quantity_after, notes)
+            VALUES
+                (v_club_id, v_batch.id, p_loan_id, v_item.item_id, p_operator_id,
+                 'loan_out', -v_deduct,
+                 v_batch.available_quantity,
+                 v_batch.available_quantity - v_deduct,
+                 'Loan checked out');
+
+            v_remaining := v_remaining - v_deduct;
+        END LOOP;
     END LOOP;
 END;
 $$;
 
--- Mark maintenance done and restore available quantity
+-- Mark maintenance done and restore available quantity for a specific batch
 CREATE OR REPLACE PROCEDURE complete_maintenance(
-    p_asset_id          UUID,
+    p_batch_id          UUID,
     p_operator_id       UUID,
     p_quantity_restored INT,
     p_notes             TEXT DEFAULT NULL
@@ -650,36 +736,37 @@ DECLARE
     v_club_id          UUID;
     v_available_before INT;
 BEGIN
-    SELECT club_id, available_quantity
+    SELECT at.club_id, ab.available_quantity
     INTO   v_club_id, v_available_before
-    FROM   assets
-    WHERE  id = p_asset_id AND status = 'maintenance';
+    FROM   asset_batches ab
+    JOIN   asset_types   at ON at.id = ab.asset_type_id
+    WHERE  ab.id = p_batch_id AND ab.status = 'maintenance';
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Asset % is not in maintenance status', p_asset_id;
+        RAISE EXCEPTION 'Batch % is not in maintenance status', p_batch_id;
     END IF;
 
-    UPDATE assets
+    UPDATE asset_batches
     SET available_quantity = available_quantity + p_quantity_restored,
         status = CASE
                      WHEN available_quantity + p_quantity_restored > 0 THEN 'available'::asset_status
                      ELSE status
                  END
-    WHERE id = p_asset_id;
+    WHERE id = p_batch_id;
 
     INSERT INTO stock_movements
-        (club_id, asset_id, loan_id, operator_id, type,
+        (club_id, asset_batch_id, operator_id, type,
          quantity_delta, quantity_before, quantity_after, notes)
     VALUES
-        (v_club_id, p_asset_id, NULL, p_operator_id, 'adjustment',
+        (v_club_id, p_batch_id, p_operator_id, 'adjustment',
          p_quantity_restored, v_available_before, v_available_before + p_quantity_restored,
          COALESCE(p_notes, 'Maintenance completed'));
 END;
 $$;
 
--- Decommission a quantity of an asset (write-off / retirement)
-CREATE OR REPLACE PROCEDURE retire_asset(
-    p_asset_id    UUID,
+-- Decommission a quantity from a specific batch (write-off / retirement)
+CREATE OR REPLACE PROCEDURE retire_batch(
+    p_batch_id    UUID,
     p_operator_id UUID,
     p_quantity    INT,
     p_notes       TEXT DEFAULT NULL
@@ -689,77 +776,38 @@ DECLARE
     v_total_qty        INT;
     v_available_before INT;
 BEGIN
-    SELECT club_id, total_quantity, available_quantity
+    SELECT at.club_id, ab.total_quantity, ab.available_quantity
     INTO   v_club_id, v_total_qty, v_available_before
-    FROM   assets
-    WHERE  id = p_asset_id;
+    FROM   asset_batches ab
+    JOIN   asset_types   at ON at.id = ab.asset_type_id
+    WHERE  ab.id = p_batch_id;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Asset % not found', p_asset_id;
+        RAISE EXCEPTION 'Batch % not found', p_batch_id;
     END IF;
 
     IF p_quantity > v_total_qty THEN
         RAISE EXCEPTION
-            'Cannot retire % units; total quantity is only %',
+            'Cannot retire % units; batch total quantity is only %',
             p_quantity, v_total_qty;
     END IF;
 
-    UPDATE assets
-    SET total_quantity     = total_quantity - p_quantity,
+    UPDATE asset_batches
+    SET total_quantity     = total_quantity     - p_quantity,
         available_quantity = GREATEST(0, available_quantity - p_quantity),
         status = CASE
                      WHEN total_quantity - p_quantity <= 0 THEN 'retired'::asset_status
                      ELSE status
                  END
-    WHERE id = p_asset_id;
+    WHERE id = p_batch_id;
 
     INSERT INTO stock_movements
-        (club_id, asset_id, loan_id, operator_id, type,
+        (club_id, asset_batch_id, operator_id, type,
          quantity_delta, quantity_before, quantity_after, notes)
     VALUES
-        (v_club_id, p_asset_id, NULL, p_operator_id, 'write_off',
+        (v_club_id, p_batch_id, p_operator_id, 'write_off',
          -p_quantity, v_available_before, GREATEST(0, v_available_before - p_quantity),
-         COALESCE(p_notes, 'Asset retired/decommissioned'));
-END;
-$$;
-
--- Add stock (new purchase or received donation)
-CREATE OR REPLACE PROCEDURE purchase_stock(
-    p_asset_id    UUID,
-    p_operator_id UUID,
-    p_quantity    INT,
-    p_notes       TEXT DEFAULT NULL
-) LANGUAGE plpgsql AS $$
-DECLARE
-    v_club_id          UUID;
-    v_available_before INT;
-BEGIN
-    IF p_quantity <= 0 THEN
-        RAISE EXCEPTION 'Quantity must be positive, got %', p_quantity;
-    END IF;
-
-    SELECT club_id, available_quantity
-    INTO   v_club_id, v_available_before
-    FROM   assets
-    WHERE  id = p_asset_id;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Asset % not found', p_asset_id;
-    END IF;
-
-    UPDATE assets
-    SET total_quantity     = total_quantity + p_quantity,
-        available_quantity = available_quantity + p_quantity,
-        status = CASE WHEN status = 'retired' THEN 'available'::asset_status ELSE status END
-    WHERE id = p_asset_id;
-
-    INSERT INTO stock_movements
-        (club_id, asset_id, loan_id, operator_id, type,
-         quantity_delta, quantity_before, quantity_after, notes)
-    VALUES
-        (v_club_id, p_asset_id, NULL, p_operator_id, 'purchase',
-         p_quantity, v_available_before, v_available_before + p_quantity,
-         COALESCE(p_notes, 'Stock purchased/received'));
+         COALESCE(p_notes, 'Batch retired/decommissioned'));
 END;
 $$;
 
@@ -768,7 +816,7 @@ $$;
 -- Seed Data
 -- ============================================================
 
--- System-wide asset categories
+-- System-wide asset categories (club_id IS NULL = shared across all clubs)
 INSERT INTO asset_categories (club_id, name, is_system) VALUES
     (NULL, 'Balls',              true),
     (NULL, 'Training Equipment', true),

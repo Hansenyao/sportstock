@@ -35,11 +35,6 @@ const ROLE_OPTIONS: { value: TeamRole; label: string }[] = [
   { value: 'team_manager',    label: 'Team Manager' },
 ];
 
-const ROLE_COLOR: Record<TeamRole, string> = {
-  head_coach:      'gold',
-  assistant_coach: 'blue',
-  team_manager:    'cyan',
-};
 
 const GENDER_COLOR: Record<Gender, string> = {
   Boys: 'geekblue', Girls: 'magenta', Mixed: 'purple',

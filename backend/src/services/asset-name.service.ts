@@ -3,12 +3,13 @@ import AppError from '../utils/AppError';
 
 export async function listAssetNames(clubId: string): Promise<Record<string, unknown>[]> {
   const { rows } = await db.query<Record<string, unknown>>(
-    `SELECT an.*,
+    `SELECT an.*, c.name AS category_name,
             COUNT(at.id) FILTER (WHERE at.is_active = true) AS type_count
      FROM asset_names an
+     LEFT JOIN asset_categories c ON c.id = an.category_id
      LEFT JOIN asset_types at ON at.asset_name_id = an.id
      WHERE an.club_id = $1
-     GROUP BY an.id
+     GROUP BY an.id, c.name
      ORDER BY an.name ASC`,
     [clubId]
   );
@@ -17,13 +18,14 @@ export async function listAssetNames(clubId: string): Promise<Record<string, unk
 
 export async function createAssetName(
   clubId: string,
-  name: string
+  name: string,
+  categoryId?: string | null
 ): Promise<Record<string, unknown>> {
   if (!name?.trim()) throw new AppError('name is required', 400);
   try {
     const { rows } = await db.query<Record<string, unknown>>(
-      'INSERT INTO asset_names (club_id, name) VALUES ($1, $2) RETURNING *',
-      [clubId, name.trim()]
+      'INSERT INTO asset_names (club_id, name, category_id) VALUES ($1, $2, $3) RETURNING *',
+      [clubId, name.trim(), categoryId ?? null]
     );
     return rows[0];
   } catch (err) {
@@ -36,13 +38,16 @@ export async function createAssetName(
 export async function updateAssetName(
   id: string,
   clubId: string,
-  name: string
+  name: string,
+  categoryId?: string | null
 ): Promise<Record<string, unknown>> {
   if (!name?.trim()) throw new AppError('name is required', 400);
   try {
     const { rows } = await db.query<Record<string, unknown>>(
-      'UPDATE asset_names SET name = $1 WHERE id = $2 AND club_id = $3 RETURNING *',
-      [name.trim(), id, clubId]
+      `UPDATE asset_names
+       SET name = $1, category_id = $2
+       WHERE id = $3 AND club_id = $4 RETURNING *`,
+      [name.trim(), categoryId ?? null, id, clubId]
     );
     if (!rows.length) throw new AppError('Asset name not found', 404);
     return rows[0];

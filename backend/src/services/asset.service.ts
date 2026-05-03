@@ -38,7 +38,7 @@ const TYPE_SELECT = `
     at.club_id,
     at.asset_name_id,
     an.name,
-    at.category_id,
+    an.category_id,
     c.name                                        AS category_name,
     at.brand,
     at.model,
@@ -75,7 +75,7 @@ const TYPE_SELECT = `
     )                                             AS batches
   FROM  asset_types at
   JOIN  asset_names       an ON an.id = at.asset_name_id
-  LEFT JOIN asset_categories c  ON c.id  = at.category_id
+  LEFT JOIN asset_categories c  ON c.id  = an.category_id
   LEFT JOIN asset_batches    ab ON ab.asset_type_id = at.id
 `;
 
@@ -95,7 +95,7 @@ export async function listAssets(
   const conditions = ['at.club_id = $1', 'at.is_active = true'];
   const params: unknown[] = [clubId];
 
-  if (category_id) conditions.push(`at.category_id = $${params.push(category_id)}`);
+  if (category_id) conditions.push(`an.category_id = $${params.push(category_id)}`);
   if (search)      conditions.push(`an.name ILIKE $${params.push('%' + search + '%')}`);
 
   const where = conditions.join(' AND ');
@@ -113,7 +113,7 @@ export async function listAssets(
     db.query<Record<string, unknown>>(
       `${TYPE_SELECT}
        WHERE ${where}
-       GROUP BY at.id, an.name, c.name
+       GROUP BY at.id, an.name, an.category_id, c.name
        ${having}
        ORDER BY an.name ASC, at.brand ASC NULLS LAST
        LIMIT $${params.push(Number(limit))} OFFSET $${params.push(offset)}`,
@@ -142,7 +142,7 @@ export async function getAsset(typeId: string, clubId: string): Promise<Record<s
   const { rows } = await db.query<Record<string, unknown>>(
     `${TYPE_SELECT}
      WHERE at.id = $1 AND at.club_id = $2 AND at.is_active = true
-     GROUP BY at.id, an.name, c.name`,
+     GROUP BY at.id, an.name, an.category_id, c.name`,
     [typeId, clubId]
   );
   if (!rows.length) throw new AppError('Asset not found', 404);
@@ -158,7 +158,6 @@ export async function createAsset(
 ): Promise<Record<string, unknown>> {
   const {
     asset_name_id,
-    category_id,
     brand, model, size,
     total_quantity = 1,
     purchase_date, purchase_price, useful_life_years,
@@ -194,24 +193,22 @@ export async function createAsset(
 
     if (existing.length) {
       typeId = existing[0].id;
-      // Update category / low_stock_threshold if provided
-      if (category_id !== undefined || low_stock_threshold !== undefined) {
+      if (low_stock_threshold !== undefined) {
         await client.query(
           `UPDATE asset_types SET
-             category_id         = COALESCE($1, category_id),
-             low_stock_threshold = COALESCE($2, low_stock_threshold),
+             low_stock_threshold = COALESCE($1, low_stock_threshold),
              updated_at          = NOW()
-           WHERE id = $3`,
-          [category_id ?? null, low_stock_threshold ?? null, typeId]
+           WHERE id = $2`,
+          [low_stock_threshold ?? null, typeId]
         );
       }
     } else {
       const { rows: typeRows } = await client.query<{ id: string }>(
         `INSERT INTO asset_types
-           (club_id, asset_name_id, category_id, brand, model, size, low_stock_threshold)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+           (club_id, asset_name_id, brand, model, size, low_stock_threshold)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
         [
-          clubId, asset_name_id, category_id ?? null,
+          clubId, asset_name_id,
           brand ?? null, model ?? null, size ?? null,
           low_stock_threshold ?? null,
         ]
@@ -262,7 +259,7 @@ export async function updateAsset(
   clubId: string,
   data: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const { asset_name_id, category_id, brand, model, size, low_stock_threshold } = data;
+  const { asset_name_id, brand, model, size, low_stock_threshold } = data;
 
   // Validate asset_name_id if changing
   if (asset_name_id) {
@@ -277,7 +274,6 @@ export async function updateAsset(
   const params: unknown[] = [];
 
   if (asset_name_id    !== undefined) setClauses.push(`asset_name_id       = $${params.push(asset_name_id)}`);
-  if (category_id      !== undefined) setClauses.push(`category_id         = $${params.push(category_id ?? null)}`);
   if (brand            !== undefined) setClauses.push(`brand               = $${params.push(brand ?? null)}`);
   if (model            !== undefined) setClauses.push(`model               = $${params.push(model ?? null)}`);
   if (size             !== undefined) setClauses.push(`size                = $${params.push(size ?? null)}`);

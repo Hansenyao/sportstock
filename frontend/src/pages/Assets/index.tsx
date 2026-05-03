@@ -14,7 +14,7 @@ import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   listAssets, createAsset, updateAsset, deleteAsset,
-  listCategories, createCategory, uploadAssetImage,
+  listCategories, uploadAssetImage,
   addBatch,
   type AssetType, type AssetBatch, type AssetStatus, type Category, type AssetFilters,
 } from '../../api/assets';
@@ -57,8 +57,6 @@ export default function AssetsPage() {
   // Reference data
   const [categories, setCategories]   = useState<Category[]>([]);
   const [assetNames, setAssetNames]   = useState<AssetName[]>([]);
-  const [newCatName, setNewCatName]   = useState('');
-  const [newCatLoading, setNewCatLoading] = useState(false);
 
   // Modal
   const [modalOpen, setModalOpen]   = useState(false);
@@ -130,7 +128,6 @@ export default function AssetsPage() {
   function openEditType(type: AssetType) {
     typeForm.setFieldsValue({
       asset_name_id:      type.asset_name_id,
-      category_id:        type.category_id ?? undefined,
       brand:              type.brand ?? '',
       model:              type.model ?? '',
       size:               type.size ?? '',
@@ -169,7 +166,6 @@ export default function AssetsPage() {
 
         const res = await createAsset({
           asset_name_id:       typeVals.asset_name_id,
-          category_id:         typeVals.category_id ?? null,
           brand:               typeVals.brand || null,
           model:               typeVals.model || null,
           size:                typeVals.size  || null,
@@ -192,7 +188,6 @@ export default function AssetsPage() {
         const values = await typeForm.validateFields();
         await updateAsset(editingType.id, {
           asset_name_id:       values.asset_name_id,
-          category_id:         values.category_id ?? null,
           brand:               values.brand || null,
           model:               values.model || null,
           size:                values.size  || null,
@@ -270,25 +265,8 @@ export default function AssetsPage() {
     }
   }
 
-  // ── Inline category add ───────────────────────────────────────────────────────
-
-  async function handleAddCategory() {
-    if (!newCatName.trim()) return;
-    setNewCatLoading(true);
-    try {
-      const res = await createCategory(newCatName.trim());
-      setCategories(prev => [...prev, res.data]);
-      setNewCatName('');
-      message.success('Category added');
-    } catch {
-      message.error('Failed to add category');
-    } finally {
-      setNewCatLoading(false);
-    }
-  }
-
-  const categoryOptions   = categories.map(c => ({ value: c.id, label: c.name }));
-  const assetNameOptions  = assetNames.map(n => ({ value: n.id, label: n.name }));
+  const categoryOptions  = categories.map(c => ({ value: c.id, label: c.name }));
+  const assetNameOptions = assetNames.map(n => ({ value: n.id, label: n.name }));
 
   // ── Expanded row: batch list ──────────────────────────────────────────────────
 
@@ -481,33 +459,6 @@ export default function AssetsPage() {
           options={assetNameOptions}
           filterOption={(input, option) =>
             String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-        />
-      </Form.Item>
-
-      <Form.Item name="category_id" label="Category">
-        <Select
-          placeholder="Select or create a category"
-          allowClear
-          options={categoryOptions}
-          dropdownRender={menu => (
-            <>
-              {menu}
-              <div style={{ padding: 8, borderTop: '1px solid #f0f0f0' }}>
-                <Flex gap={8}>
-                  <Input
-                    size="small"
-                    placeholder="New category name"
-                    value={newCatName}
-                    onChange={e => setNewCatName(e.target.value)}
-                    onKeyDown={e => e.stopPropagation()}
-                  />
-                  <Button size="small" type="primary" loading={newCatLoading} onClick={handleAddCategory}>
-                    Add
-                  </Button>
-                </Flex>
-              </div>
-            </>
-          )}
         />
       </Form.Item>
 

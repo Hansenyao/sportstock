@@ -218,10 +218,22 @@ CREATE TABLE asset_batches (
 
 ---
 
-## Implementation Order (planned)
+## Implementation Status
 
-1. **REQ-1 Teams** — schema additive, low risk, implement first
-2. **REQ-2 Asset Catalog + Batches** — requires DB reset; implement second (reset DB once after both schema changes are ready)
+### REQ-1: Teams — COMPLETE (2026-05-02)
+
+All backend and frontend changes shipped:
+- `teams` + `team_members` tables in db-init.sql
+- `loans.team_id` nullable FK (+ index); `LOAN_SELECT` includes `team_name`
+- `/api/v1/teams` CRUD + member management (add/update-role/remove)
+- `loan.service.ts`: team validation on create, direct `l.team_id` filter on list
+- `user.service.ts`: `getUser` returns `teams[]` array
+- Frontend: Teams page, sidebar nav, Users coach-detail modal, Loans team filter + tag, loan create team selector
+- **Design decision**: `team_id` on loans is optional — coaches without teams can still borrow
+
+### REQ-2: Asset Catalog + Batches — NOT STARTED
+
+Next to implement. Requires full DB reset (re-run db-init.sql).
 
 ---
 

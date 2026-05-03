@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, Select,
-  Typography, Flex, App, Popconfirm, Space,
+  Typography, Flex, App, Popconfirm, Space, Divider, Empty,
 } from 'antd';
-import { PlusOutlined, EditOutlined, StopOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, StopOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  listUsers, createUser, updateUser, deactivateUser, type ClubUser,
+  listUsers, getUser, createUser, updateUser, deactivateUser, type ClubUser,
 } from '../../api/users';
 import type { UserRole } from '../../types';
+import type { UserTeamMembership, TeamRole } from '../../api/teams';
 
 const { Title } = Typography;
 
@@ -22,6 +23,18 @@ const ROLE_COLOR: Record<string, string> = {
   club_admin: 'blue',
   asset_manager: 'cyan',
   coach: 'green',
+};
+
+const TEAM_ROLE_LABEL: Record<TeamRole, string> = {
+  head_coach: 'Head Coach',
+  assistant_coach: 'Assistant Coach',
+  team_manager: 'Team Manager',
+};
+
+const TEAM_ROLE_COLOR: Record<TeamRole, string> = {
+  head_coach: 'gold',
+  assistant_coach: 'blue',
+  team_manager: 'cyan',
 };
 
 type ModalMode = 'create' | 'edit';
@@ -41,6 +54,11 @@ export default function UsersPage() {
   const [modalMode, setModalMode] = useState<ModalMode>('create');
   const [editingUser, setEditingUser] = useState<ClubUser | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Coach detail modal (team memberships)
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailUser, setDetailUser] = useState<ClubUser | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const PAGE_SIZE = 20;
 
@@ -94,6 +112,20 @@ export default function UsersPage() {
     }
   }
 
+  async function openDetail(u: ClubUser) {
+    setDetailOpen(true);
+    setDetailUser(u);
+    setDetailLoading(true);
+    try {
+      const res = await getUser(u.id);
+      setDetailUser(res.data);
+    } catch {
+      message.error('Failed to load user details');
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
   async function handleDeactivate(u: ClubUser) {
     try {
       await deactivateUser(u.id);
@@ -143,17 +175,25 @@ export default function UsersPage() {
         <Tag color={active ? 'success' : 'default'}>{active ? 'Active' : 'Inactive'}</Tag>
       ),
     },
-    ...(isAdmin ? [{
+    {
       title: 'Actions',
       key: 'actions',
-      width: 120,
+      width: 130,
       render: (_: unknown, u: ClubUser) => (
         <Space size={4}>
-          <Button
-            type="text" size="small" icon={<EditOutlined />}
-            onClick={() => openEdit(u)}
-          />
-          {u.is_active && u.id !== me?.id && (
+          {u.role === 'coach' && (
+            <Button
+              type="text" size="small" icon={<InfoCircleOutlined />}
+              onClick={() => openDetail(u)}
+            />
+          )}
+          {isAdmin && (
+            <Button
+              type="text" size="small" icon={<EditOutlined />}
+              onClick={() => openEdit(u)}
+            />
+          )}
+          {isAdmin && u.is_active && u.id !== me?.id && (
             <Popconfirm
               title={`Deactivate ${u.name}?`}
               description="They will no longer be able to log in."
@@ -166,7 +206,7 @@ export default function UsersPage() {
           )}
         </Space>
       ),
-    }] : []),
+    },
   ];
 
   return (
@@ -195,6 +235,52 @@ export default function UsersPage() {
         }}
       />
 
+      {/* ── Coach detail modal (team memberships) ─────────────────────── */}
+      <Modal
+        open={detailOpen}
+        title={detailUser?.name}
+        onCancel={() => setDetailOpen(false)}
+        footer={<Button onClick={() => setDetailOpen(false)}>Close</Button>}
+        destroyOnClose
+      >
+        {detailLoading ? null : (
+          <div style={{ marginTop: 8 }}>
+            <Flex gap={8} wrap="wrap" style={{ marginBottom: 12 }}>
+              <span><strong>Email:</strong> {detailUser?.email}</span>
+              {detailUser?.phone && <span><strong>Phone:</strong> {detailUser.phone}</span>}
+            </Flex>
+
+            <Divider orientation="left" orientationMargin={0} style={{ fontSize: 13 }}>
+              Team Assignments
+            </Divider>
+
+            {!detailUser?.teams?.length ? (
+              <Empty description="Not assigned to any team" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                {(detailUser.teams as UserTeamMembership[]).map(t => (
+                  <Flex key={t.team_id} justify="space-between" align="center"
+                    style={{ padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}
+                  >
+                    <Flex align="center" gap={8}>
+                      <Tag color={t.gender === 'Boys' ? 'geekblue' : t.gender === 'Girls' ? 'magenta' : 'purple'}>
+                        {t.gender}
+                      </Tag>
+                      <Tag>{t.age_group}</Tag>
+                      <Typography.Text strong>{t.team_name}</Typography.Text>
+                    </Flex>
+                    <Tag color={TEAM_ROLE_COLOR[t.team_role as TeamRole]}>
+                      {TEAM_ROLE_LABEL[t.team_role as TeamRole]}
+                    </Tag>
+                  </Flex>
+                ))}
+              </Space>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Create / Edit user modal ───────────────────────────────────── */}
       <Modal
         open={modalOpen}
         title={modalMode === 'create' ? 'Add User' : 'Edit User'}

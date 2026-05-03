@@ -7,6 +7,7 @@ import DashboardLayout from '../layouts/DashboardLayout';
 import DashboardPage from '../pages/Dashboard';
 import ClubProfilePage from '../pages/ClubProfile';
 import UsersPage from '../pages/Users';
+import TeamsPage from '../pages/Teams';
 import AssetsPage from '../pages/Assets';
 import LoansPage from '../pages/Loans';
 import WriteOffsPage from '../pages/WriteOffs';
@@ -37,10 +38,11 @@ export default function AppRouter() {
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard"       element={<DashboardPage />} />
           <Route path="/dashboard/club"  element={<ClubProfilePage />} />
-          <Route path="/dashboard/assets" element={<AssetsPage />} />
+          <Route path="/dashboard/assets"      element={<AssetsPage />} />
           <Route path="/dashboard/loans"       element={<LoansPage />} />
           <Route path="/dashboard/write-offs"  element={<WriteOffsPage />} />
           <Route path="/dashboard/users"       element={<UsersPage />} />
+          <Route path="/dashboard/teams"       element={<TeamsPage />} />
         </Route>
       </Route>
 

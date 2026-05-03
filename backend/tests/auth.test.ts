@@ -104,7 +104,7 @@ describe('POST /api/v1/auth/register', () => {
     const res = await request(app)
       .post('/api/v1/auth/register')
       .send({
-        club: { name: 'Another Club', contact_email: 'another@test.com' },
+        club: { name: 'Another Club', contact_email: 'another@test.com', sport_type: 'Soccer' },
         user: { name: 'Duplicate', email: newUserEmail, password: 'TestPass@123' },
       });
     expect(res.status).toBe(409);
@@ -114,7 +114,7 @@ describe('POST /api/v1/auth/register', () => {
     const res = await request(app)
       .post('/api/v1/auth/register')
       .send({
-        club: { name: newClubName, contact_email: 'x@test.com' },
+        club: { name: newClubName, contact_email: 'x@test.com', sport_type: 'Soccer' },
         user: { name: 'Another Admin', email: `${PREFIX}another@test.com`, password: 'TestPass@123' },
       });
     expect(res.status).toBe(409);
@@ -129,7 +129,7 @@ describe('POST /api/v1/auth/verify-email', () => {
     await request(app)
       .post('/api/v1/auth/register')
       .send({
-        club: { name: `${PREFIX}VerifyClub`, contact_email: 'verify@test.com' },
+        club: { name: `${PREFIX}VerifyClub`, contact_email: 'verify@test.com', sport_type: 'Soccer' },
         user: { name: 'Verify User', email: verifyEmail, password: 'TestPass@123' },
       });
   });

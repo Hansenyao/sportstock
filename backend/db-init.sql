@@ -231,7 +231,7 @@ CREATE UNIQUE INDEX uq_asset_types_combination
 --   Quantity accounting and depreciation live here.
 CREATE TABLE asset_batches (
     id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    asset_type_id      UUID         NOT NULL REFERENCES asset_types(id) ON DELETE RESTRICT,
+    asset_type_id      UUID         NOT NULL REFERENCES asset_types(id) ON DELETE CASCADE,
     purchase_date      DATE,
     purchase_price     NUMERIC(12,2),
     useful_life_years  INT,
@@ -252,10 +252,10 @@ CREATE TABLE loans (
     club_id              UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
     coach_id             UUID        NOT NULL REFERENCES users(id),
     team_id              UUID        REFERENCES teams(id) ON DELETE SET NULL,
-    created_by           UUID        REFERENCES users(id),
-    approved_by          UUID        REFERENCES users(id),
-    checkout_by          UUID        REFERENCES users(id),
-    return_confirmed_by  UUID        REFERENCES users(id),
+    created_by           UUID        REFERENCES users(id) ON DELETE SET NULL,
+    approved_by          UUID        REFERENCES users(id) ON DELETE SET NULL,
+    checkout_by          UUID        REFERENCES users(id) ON DELETE SET NULL,
+    return_confirmed_by  UUID        REFERENCES users(id) ON DELETE SET NULL,
     reason               TEXT,
     status               loan_status NOT NULL DEFAULT 'pending',
     due_date             DATE        NOT NULL,
@@ -296,7 +296,7 @@ CREATE TABLE write_off_orders (
     reason        TEXT,
     source        write_off_source NOT NULL DEFAULT 'manual',
     loan_item_id  UUID             REFERENCES loan_items(id) ON DELETE SET NULL,
-    created_by    UUID             NOT NULL REFERENCES users(id),
+    created_by    UUID             NOT NULL REFERENCES users(id) ON DELETE SET NULL,
     notes         TEXT,
     created_at    TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ      NOT NULL DEFAULT NOW()

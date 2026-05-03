@@ -129,7 +129,7 @@ export async function listAssets(
          GROUP BY at.id
          ${having}
        ) sub`,
-      params.slice(0, -(status ? 3 : 2))  // strip limit, offset, (and status if present)
+      params.slice(0, -2)  // strip limit and offset; status (if any) stays for HAVING
     ),
   ]);
 
@@ -141,7 +141,7 @@ export async function listAssets(
 export async function getAsset(typeId: string, clubId: string): Promise<Record<string, unknown>> {
   const { rows } = await db.query<Record<string, unknown>>(
     `${TYPE_SELECT}
-     WHERE at.id = $1 AND at.club_id = $2
+     WHERE at.id = $1 AND at.club_id = $2 AND at.is_active = true
      GROUP BY at.id, an.name, c.name`,
     [typeId, clubId]
   );

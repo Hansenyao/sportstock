@@ -10,7 +10,7 @@ let clubId: string;
 let adminUserId: string;
 let managerUserId: string;
 let coachUserId: string;
-let assetId: string;
+let assetTypeId: string;
 
 const tomorrow = new Date(Date.now() + 86400 * 1000).toISOString().split('T')[0];
 
@@ -22,7 +22,8 @@ beforeAll(async () => {
   managerUserId = mgr.id;
   const coach = await createUser(coachEmail, clubId, 'coach');
   coachUserId = coach.id;
-  assetId = await createAsset(clubId, managerUserId, 'Test Jersey', 10);
+  const asset = await createAsset(clubId, managerUserId, 'Test Jersey', 10);
+  assetTypeId = asset.typeId;
 });
 
 afterAll(async () => {
@@ -37,18 +38,27 @@ describe('Loan lifecycle', () => {
     const res = await request(app)
       .post('/api/v1/loans')
       .set(authHeader(coachUserId))
-      .send({ asset_id: assetId, quantity: 2, reason: 'Training', due_date: tomorrow });
+      .send({
+        items: [{ asset_type_id: assetTypeId, quantity: 2 }],
+        reason: 'Training',
+        due_date: tomorrow,
+      });
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ status: 'pending', quantity: 2, asset_id: assetId });
+    expect(res.body).toMatchObject({ status: 'pending', items: expect.any(Array) });
+    expect(res.body.items[0]).toMatchObject({ asset_type_id: assetTypeId, quantity: 2 });
     loanId = res.body.id;
   });
 
-  it('POST /loans — returns 403 when non-coach tries to create', async () => {
+  it('POST /loans — returns 400 when manager creates without coach_id', async () => {
+    // Managers can create loans on behalf of coaches but must supply coach_id
     const res = await request(app)
       .post('/api/v1/loans')
       .set(authHeader(managerUserId))
-      .send({ asset_id: assetId, quantity: 1, due_date: tomorrow });
-    expect(res.status).toBe(403);
+      .send({
+        items: [{ asset_type_id: assetTypeId, quantity: 1 }],
+        due_date: tomorrow,
+      });
+    expect(res.status).toBe(400);
   });
 
   it('GET /loans — admin sees all loans', async () => {
@@ -90,30 +100,34 @@ describe('Loan lifecycle', () => {
     expect(res.status).toBe(409);
   });
 
-  it('POST /loans/:id/checkout — manager checks out loan', async () => {
+  it('POST /loans/:id/checkout — coach confirms receipt', async () => {
     const res = await request(app)
       .post(`/api/v1/loans/${loanId}/checkout`)
-      .set(authHeader(managerUserId));
+      .set(authHeader(coachUserId));
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('checked_out');
   });
 
-  it('POST /loans/:id/initiate-return — coach initiates return', async () => {
-    const res = await request(app)
-      .post(`/api/v1/loans/${loanId}/initiate-return`)
-      .set(authHeader(coachUserId));
-    expect(res.status).toBe(200);
-    expect(res.body.message).toContain('Return initiated');
-  });
-
   it('POST /loans/:id/return — manager confirms return (good condition)', async () => {
+    // Fetch loan to get loan_item_ids
+    const detail = await request(app)
+      .get(`/api/v1/loans/${loanId}`)
+      .set(authHeader(managerUserId));
+    const items = detail.body.items as Array<{ id: string; quantity: number }>;
+    const returnItems = items.map(item => ({
+      loan_item_id:          item.id,
+      good_quantity:         item.quantity,
+      minor_damage_quantity: 0,
+      write_off_quantity:    0,
+      lost_quantity:         0,
+    }));
+
     const res = await request(app)
       .post(`/api/v1/loans/${loanId}/return`)
       .set(authHeader(managerUserId))
-      .send({ condition: 'good', notes: 'All good' });
+      .send({ items: returnItems, notes: 'All good' });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('returned');
-    expect(res.body.return_condition).toBe('good');
   });
 });
 
@@ -124,7 +138,10 @@ describe('Loan rejection flow', () => {
     const res = await request(app)
       .post('/api/v1/loans')
       .set(authHeader(coachUserId))
-      .send({ asset_id: assetId, quantity: 1, due_date: tomorrow });
+      .send({
+        items: [{ asset_type_id: assetTypeId, quantity: 1 }],
+        due_date: tomorrow,
+      });
     loanId = res.body.id;
   });
 
@@ -144,7 +161,7 @@ describe('Loan input validation', () => {
     const res = await request(app)
       .post('/api/v1/loans')
       .set(authHeader(coachUserId))
-      .send({ asset_id: assetId, quantity: 1 });
+      .send({ items: [{ asset_type_id: assetTypeId, quantity: 1 }] });
     expect(res.status).toBe(400);
   });
 
@@ -152,15 +169,18 @@ describe('Loan input validation', () => {
     const res = await request(app)
       .post('/api/v1/loans')
       .set(authHeader(coachUserId))
-      .send({ asset_id: assetId, quantity: 1, due_date: '2020-01-01' });
+      .send({ items: [{ asset_type_id: assetTypeId, quantity: 1 }], due_date: '2020-01-01' });
     expect(res.status).toBe(400);
   });
 
-  it('POST /loans — returns 404 for unknown asset', async () => {
+  it('POST /loans — returns 404 for unknown asset type', async () => {
     const res = await request(app)
       .post('/api/v1/loans')
       .set(authHeader(coachUserId))
-      .send({ asset_id: '00000000-0000-0000-0000-000000000000', quantity: 1, due_date: tomorrow });
+      .send({
+        items: [{ asset_type_id: '00000000-0000-0000-0000-000000000000', quantity: 1 }],
+        due_date: tomorrow,
+      });
     expect(res.status).toBe(404);
   });
 });

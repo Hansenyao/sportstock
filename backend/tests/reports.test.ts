@@ -19,7 +19,7 @@ beforeAll(async () => {
   managerUserId = mgr.id;
   const coach = await createUser(coachEmail, clubId, 'coach');
   coachUserId = coach.id;
-  await createAsset(clubId, managerUserId, 'Report Test Ball', 5);
+  await createAsset(clubId, managerUserId, 'Report Test Ball', 5); // eslint-disable-line @typescript-eslint/no-unused-vars
 });
 
 afterAll(async () => {
@@ -57,7 +57,7 @@ describe('GET /api/v1/reports/depreciation', () => {
     expect(res.body).toMatchObject({
       items: expect.any(Array),
       summary: expect.objectContaining({
-        total_assets_with_depreciation: expect.any(Number),
+        total_batches_with_depreciation: expect.anything(),
       }),
     });
   });

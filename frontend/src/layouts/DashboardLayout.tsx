@@ -21,8 +21,8 @@ const ROLE_COLOR: Record<string, string> = {
 
 const NAV_ITEMS = [
   { key: '/dashboard',             icon: <DashboardOutlined />,    label: 'Overview' },
-  { key: '/dashboard/assets',      icon: <DatabaseOutlined />,     label: 'Assets' },
   { key: '/dashboard/asset-names', icon: <TagOutlined />,          label: 'Asset Names', managerOnly: true },
+  { key: '/dashboard/assets',      icon: <DatabaseOutlined />,     label: 'Assets' },
   { key: '/dashboard/loans',       icon: <SwapOutlined />,         label: 'Loans' },
   { key: '/dashboard/write-offs',  icon: <DeleteOutlined />,       label: 'Write-offs',  managerOnly: true },
   { key: '/dashboard/users',       icon: <TeamOutlined />,         label: 'Users',       adminOnly: true },

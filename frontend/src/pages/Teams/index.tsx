@@ -221,16 +221,30 @@ export default function TeamsPage() {
 
   const columns: ColumnsType<Team> = [
     {
-      title: 'Team Name',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string) => <Text strong>{name}</Text>,
+      title: 'Team',
+      key: 'team',
+      render: (_: unknown, team: Team) => (
+        <div>
+          <Text strong style={{ display: 'block' }}>{team.name}</Text>
+          <Space size={4} style={{ marginTop: 4, flexWrap: 'wrap' }}>
+            <Tag color={GENDER_COLOR[team.gender]} style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
+              {team.gender}
+            </Tag>
+            <Tag style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>{team.age_group}</Tag>
+            <Flex align="center" gap={3}>
+              <TeamOutlined style={{ color: '#8c8c8c', fontSize: 11 }} />
+              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>{team.member_count}</Text>
+            </Flex>
+          </Space>
+        </div>
+      ),
     },
     {
       title: 'Gender',
       dataIndex: 'gender',
       key: 'gender',
       width: 90,
+      responsive: ['md'] as ('md')[],
       render: (g: Gender) => <Tag color={GENDER_COLOR[g]}>{g}</Tag>,
     },
     {
@@ -238,6 +252,7 @@ export default function TeamsPage() {
       dataIndex: 'age_group',
       key: 'age_group',
       width: 100,
+      responsive: ['md'] as ('md')[],
       render: (ag: string) => <Tag>{ag}</Tag>,
     },
     {
@@ -245,6 +260,7 @@ export default function TeamsPage() {
       dataIndex: 'member_count',
       key: 'member_count',
       width: 90,
+      responsive: ['md'] as ('md')[],
       render: (count: number) => (
         <Flex align="center" gap={4}>
           <TeamOutlined style={{ color: '#1677ff' }} />
@@ -378,19 +394,24 @@ export default function TeamsPage() {
           dataSource={selectedTeam?.members ?? []}
           locale={{ emptyText: 'No members yet' }}
           renderItem={(member) => (
-            <List.Item
-              actions={[
-                <Select
-                  key="role"
-                  value={member.team_role}
-                  size="small"
-                  style={{ width: 150 }}
-                  options={ROLE_OPTIONS}
-                  loading={updatingRole === member.user_id}
-                  onChange={(role) => handleRoleChange(member, role)}
-                />,
+            <List.Item style={{ display: 'block', padding: '10px 0' }}>
+              {/* Row 1: avatar + name + remove button */}
+              <Flex align="center" gap={10}>
+                <Avatar
+                  size={36} icon={<UserOutlined />}
+                  style={{ background: '#e6f4ff', color: '#1677ff', flexShrink: 0 }}
+                >
+                  {member.name[0]?.toUpperCase()}
+                </Avatar>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {member.name}
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {member.email}
+                  </Text>
+                </div>
                 <Popconfirm
-                  key="remove"
                   title={`Remove ${member.name}?`}
                   onConfirm={() => handleRemoveMember(member)}
                   okText="Remove"
@@ -400,26 +421,21 @@ export default function TeamsPage() {
                     type="text" size="small" danger
                     icon={<CloseOutlined />}
                     loading={removingMember === member.user_id}
+                    style={{ flexShrink: 0 }}
                   />
-                </Popconfirm>,
-              ]}
-            >
-              <List.Item.Meta
-                avatar={
-                  <Avatar size={36} icon={<UserOutlined />} style={{ background: '#e6f4ff', color: '#1677ff' }}>
-                    {member.name[0]?.toUpperCase()}
-                  </Avatar>
-                }
-                title={
-                  <Flex align="center" gap={6}>
-                    <Text>{member.name}</Text>
-                    <Tag color={ROLE_COLOR[member.team_role]} style={{ margin: 0, fontSize: 11 }}>
-                      {ROLE_OPTIONS.find(r => r.value === member.team_role)?.label}
-                    </Tag>
-                  </Flex>
-                }
-                description={<Text type="secondary" style={{ fontSize: 12 }}>{member.email}</Text>}
-              />
+                </Popconfirm>
+              </Flex>
+              {/* Row 2: role select */}
+              <div style={{ paddingLeft: 46, marginTop: 6 }}>
+                <Select
+                  value={member.team_role}
+                  size="small"
+                  style={{ width: '100%' }}
+                  options={ROLE_OPTIONS}
+                  loading={updatingRole === member.user_id}
+                  onChange={(role) => handleRoleChange(member, role)}
+                />
+              </div>
             </List.Item>
           )}
           style={{ marginTop: 8, marginBottom: 0 }}

@@ -10,7 +10,7 @@ import {
   listWriteOffs, createWriteOff,
   type WriteOff, type WriteOffSource,
 } from '../../api/write-offs';
-import { listAssets, type Asset } from '../../api/assets';
+import { listAssets, type AssetType } from '../../api/assets';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -46,7 +46,7 @@ export default function WriteOffsPage() {
   const [page, setPage]       = useState(1);
   const [loading, setLoading] = useState(true);
 
-  const [assets, setAssets]   = useState<Asset[]>([]);
+  const [assets, setAssets]   = useState<AssetType[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating]     = useState(false);
   const [form] = Form.useForm();
@@ -70,7 +70,7 @@ export default function WriteOffsPage() {
     setCreating(true);
     try {
       await createWriteOff({
-        asset_id: values.asset_id as string,
+        asset_type_id: values.asset_type_id as string,
         quantity: Number(values.quantity),
         reason:   values.reason as string | undefined,
         notes:    values.notes as string | undefined,
@@ -94,7 +94,7 @@ export default function WriteOffsPage() {
           <div>
             <Text strong style={{ display: 'block', fontSize: 13 }}>{r.asset_name}</Text>
             <Text style={{ fontSize: 11, color: '#8c8c8c' }}>
-              {[r.brand, r.model, r.size && `Size: ${r.size}`, r.asset_tag && `#${r.asset_tag}`]
+              {[r.brand, r.model, r.size && `Size: ${r.size}`]
                 .filter(Boolean).join(' · ')}
             </Text>
           </div>
@@ -175,7 +175,7 @@ export default function WriteOffsPage() {
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleCreate} style={{ marginTop: 16 }}>
-          <Form.Item name="asset_id" label="Asset"
+          <Form.Item name="asset_type_id" label="Asset"
             rules={[{ required: true, message: 'Please select an asset' }]}>
             <Select
               showSearch

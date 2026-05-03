@@ -20,16 +20,6 @@ export const createCategory: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const bulkImport: RequestHandler = async (req, res, next) => {
-  try {
-    if (!req.file) throw new AppError('CSV file is required', 400);
-    const result = await assetService.bulkImport(req.user.club_id as string, req.user.id, req.file.buffer);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
 export const listAssets: RequestHandler = async (req, res, next) => {
   try {
     const result = await assetService.listAssets(req.user.club_id as string, req.query);
@@ -88,9 +78,31 @@ export const uploadImage: RequestHandler = async (req, res, next) => {
   }
 };
 
+export const addBatch: RequestHandler = async (req, res, next) => {
+  try {
+    const result = await assetService.addBatch(
+      req.params.id, req.user.club_id as string, req.user.id, req.body
+    );
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateBatch: RequestHandler = async (req, res, next) => {
+  try {
+    const result = await assetService.updateBatch(
+      req.params.batchId, req.params.id, req.user.club_id as string, req.body
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getDepreciation: RequestHandler = async (req, res, next) => {
   try {
-    const data = await assetService.getDepreciation(req.params.id, req.user.club_id as string);
+    const data = await assetService.getDepreciation(req.params.batchId, req.user.club_id as string);
     res.json(data);
   } catch (err) {
     next(err);

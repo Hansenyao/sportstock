@@ -46,29 +46,68 @@ export async function createUser(
   return rows[0];
 }
 
+export interface CreatedAsset {
+  typeId: string;
+  batchId: string;
+}
+
 export async function createAsset(
   clubId: string,
   operatorId: string,
   name: string,
   quantity = 5
-): Promise<string> {
+): Promise<CreatedAsset> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query<{ id: string }>(
-      `INSERT INTO assets (club_id, name, total_quantity, available_quantity, status)
-       VALUES ($1, $2, $3, $3, 'available') RETURNING id`,
-      [clubId, name, quantity]
+
+    // Upsert asset name
+    const { rows: nameRows } = await client.query<{ id: string }>(
+      `INSERT INTO asset_names (club_id, name) VALUES ($1, $2)
+       ON CONFLICT (club_id, name) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [clubId, name]
     );
-    const assetId = rows[0].id;
+    const nameId = nameRows[0].id;
+
+    // Find or create asset type (no brand/model/size)
+    const { rows: existingType } = await client.query<{ id: string }>(
+      `SELECT id FROM asset_types
+       WHERE club_id = $1 AND asset_name_id = $2
+         AND brand IS NULL AND model IS NULL AND size IS NULL`,
+      [clubId, nameId]
+    );
+    let typeId: string;
+    if (existingType.length) {
+      typeId = existingType[0].id;
+    } else {
+      const { rows: typeRows } = await client.query<{ id: string }>(
+        `INSERT INTO asset_types (club_id, asset_name_id) VALUES ($1, $2) RETURNING id`,
+        [clubId, nameId]
+      );
+      typeId = typeRows[0].id;
+    }
+
+    // Create batch
+    const { rows: batchRows } = await client.query<{ id: string }>(
+      `INSERT INTO asset_batches
+         (asset_type_id, total_quantity, available_quantity, status,
+          purchase_date, purchase_price, useful_life_years)
+       VALUES ($1, $2, $2, 'available', '2024-01-01', 50.00, 5) RETURNING id`,
+      [typeId, quantity]
+    );
+    const batchId = batchRows[0].id;
+
     await client.query(
       `INSERT INTO stock_movements
-         (club_id, asset_id, operator_id, type, quantity_delta, quantity_before, quantity_after, notes)
+         (club_id, asset_batch_id, operator_id, type,
+          quantity_delta, quantity_before, quantity_after, notes)
        VALUES ($1,$2,$3,'purchase',$4,0,$4,'Test setup')`,
-      [clubId, assetId, operatorId, quantity]
+      [clubId, batchId, operatorId, quantity]
     );
+
     await client.query('COMMIT');
-    return assetId;
+    return { typeId, batchId };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -78,6 +117,37 @@ export async function createAsset(
 }
 
 export async function deleteClub(clubId: string): Promise<void> {
+  // Nullify optional user FK refs in ALL loans that reference users from this club.
+  // This catches stale rows from failed previous runs where users were reused.
+  await query(
+    `UPDATE loans SET approved_by = NULL, checkout_by = NULL,
+     return_confirmed_by = NULL, created_by = NULL
+     WHERE approved_by        IN (SELECT id FROM users WHERE club_id = $1)
+        OR checkout_by        IN (SELECT id FROM users WHERE club_id = $1)
+        OR return_confirmed_by IN (SELECT id FROM users WHERE club_id = $1)
+        OR created_by          IN (SELECT id FROM users WHERE club_id = $1)`,
+    [clubId]
+  );
+  // Delete ALL loans/write-offs whose coach or creator belongs to this club
+  // (coach_id and created_by are NOT NULL so cannot be nullified)
+  await query(
+    `DELETE FROM write_off_orders
+     WHERE club_id = $1
+        OR created_by IN (SELECT id FROM users WHERE club_id = $1)`,
+    [clubId]
+  );
+  await query(
+    `DELETE FROM loans
+     WHERE club_id = $1
+        OR coach_id IN (SELECT id FROM users WHERE club_id = $1)`,
+    [clubId]
+  );
+  // Delete asset_batches before asset_types (RESTRICT FK on legacy schema)
+  await query(
+    `DELETE FROM asset_batches
+     WHERE asset_type_id IN (SELECT id FROM asset_types WHERE club_id = $1)`,
+    [clubId]
+  );
   await query('DELETE FROM clubs WHERE id = $1', [clubId]);
 }
 

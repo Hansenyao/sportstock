@@ -1,6 +1,6 @@
 import request from 'supertest';
 import app from '../src/app';
-import { authHeader, createClub, createUser, createAsset, deleteClub, deleteUsers } from './helpers';
+import { authHeader, createClub, createUser, deleteClub, deleteUsers } from './helpers';
 
 const PREFIX = 't_assets_';
 const adminEmail   = `${PREFIX}admin@test.com`;
@@ -59,13 +59,22 @@ describe('POST /api/v1/assets/categories', () => {
 
 describe('Asset CRUD', () => {
   let assetId: string;
+  let assetNameId: string;
+
+  beforeAll(async () => {
+    const nameRes = await request(app)
+      .post('/api/v1/asset-names')
+      .set(authHeader(managerUserId))
+      .send({ name: 'Test Ball' });
+    assetNameId = nameRes.body.id;
+  });
 
   it('POST /assets — creates asset as manager', async () => {
     const res = await request(app)
       .post('/api/v1/assets')
       .set(authHeader(managerUserId))
       .send({
-        name: 'Test Ball',
+        asset_name_id: assetNameId,
         total_quantity: 10,
         brand: 'Nike',
         purchase_price: 25.00,
@@ -75,11 +84,11 @@ describe('Asset CRUD', () => {
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
       name: 'Test Ball',
-      total_quantity: 10,
-      available_quantity: 10,
       status: 'available',
       club_id: clubId,
     });
+    expect(Number(res.body.total_quantity)).toBe(10);
+    expect(Number(res.body.available_quantity)).toBe(10);
     assetId = res.body.id;
   });
 
@@ -87,11 +96,11 @@ describe('Asset CRUD', () => {
     const res = await request(app)
       .post('/api/v1/assets')
       .set(authHeader(coachUserId))
-      .send({ name: 'Sneaky Ball', total_quantity: 1 });
+      .send({ asset_name_id: assetNameId, total_quantity: 1 });
     expect(res.status).toBe(403);
   });
 
-  it('POST /assets — returns 400 when name is missing', async () => {
+  it('POST /assets — returns 400 when asset_name_id is missing', async () => {
     const res = await request(app)
       .post('/api/v1/assets')
       .set(authHeader(managerUserId))
@@ -115,12 +124,12 @@ describe('Asset CRUD', () => {
     expect(res.body.data.every((a: Record<string, unknown>) => a.status === 'available')).toBe(true);
   });
 
-  it('GET /assets/:id — returns asset detail with recent_loans', async () => {
+  it('GET /assets/:id — returns asset detail with batches', async () => {
     const res = await request(app)
       .get(`/api/v1/assets/${assetId}`)
       .set(authHeader(coachUserId));
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ id: assetId, recent_loans: expect.any(Array) });
+    expect(res.body).toMatchObject({ id: assetId, batches: expect.any(Array) });
   });
 
   it('GET /assets/:id — returns 404 for unknown id', async () => {
@@ -139,15 +148,20 @@ describe('Asset CRUD', () => {
     expect(res.body.brand).toBe('Adidas');
   });
 
-  it('GET /assets/:id/depreciation — returns depreciation data', async () => {
+  it('GET /assets/:id/batches/:batchId/depreciation — returns depreciation data', async () => {
+    const detail = await request(app)
+      .get(`/api/v1/assets/${assetId}`)
+      .set(authHeader(managerUserId));
+    const batchId = (detail.body.batches as Array<Record<string, unknown>>)[0].id as string;
+
     const res = await request(app)
-      .get(`/api/v1/assets/${assetId}/depreciation`)
+      .get(`/api/v1/assets/${assetId}/batches/${batchId}/depreciation`)
       .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      asset_id: assetId,
-      purchase_price: expect.any(String),
-      net_book_value: expect.any(String),
+      batch_id: batchId,
+      purchase_price: expect.anything(),
+      net_book_value: expect.anything(),
     });
   });
 

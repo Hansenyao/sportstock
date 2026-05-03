@@ -4,19 +4,20 @@ import type { PaginatedResult } from '../types';
 
 const WRITE_OFF_SELECT = `
   SELECT wo.*,
-         a.name      AS asset_name,
-         a.image_url AS asset_image,
-         a.brand, a.model, a.size, a.asset_tag,
-         u.name      AS created_by_name
+         an.name      AS asset_name,
+         at.image_url AS asset_image,
+         at.brand, at.model, at.size,
+         u.name       AS created_by_name
   FROM  write_off_orders wo
-  JOIN  assets a ON a.id = wo.asset_id
-  JOIN  users  u ON u.id = wo.created_by
+  JOIN  asset_types  at ON at.id = wo.asset_type_id
+  JOIN  asset_names  an ON an.id = at.asset_name_id
+  JOIN  users        u  ON u.id  = wo.created_by
 `;
 
 export async function listWriteOffs(
   clubId: string,
-  { asset_id, source, from_date, to_date, page = 1, limit = 20 }: {
-    asset_id?: string;
+  { asset_type_id, source, from_date, to_date, page = 1, limit = 20 }: {
+    asset_type_id?: string;
     source?: string;
     from_date?: string;
     to_date?: string;
@@ -28,10 +29,10 @@ export async function listWriteOffs(
   const conditions = ['wo.club_id = $1'];
   const params: unknown[] = [clubId];
 
-  if (asset_id)  conditions.push(`wo.asset_id = $${params.push(asset_id)}`);
-  if (source)    conditions.push(`wo.source = $${params.push(source)}`);
-  if (from_date) conditions.push(`wo.created_at >= $${params.push(from_date)}`);
-  if (to_date)   conditions.push(`wo.created_at < $${params.push(to_date)}`);
+  if (asset_type_id) conditions.push(`wo.asset_type_id = $${params.push(asset_type_id)}`);
+  if (source)        conditions.push(`wo.source = $${params.push(source)}`);
+  if (from_date)     conditions.push(`wo.created_at >= $${params.push(from_date)}`);
+  if (to_date)       conditions.push(`wo.created_at < $${params.push(to_date)}`);
 
   const where = conditions.join(' AND ');
 
@@ -62,14 +63,14 @@ export async function getWriteOff(
 export async function createWriteOff(
   clubId: string,
   operatorId: string,
-  { asset_id, quantity, reason, notes }: {
-    asset_id?: string;
+  { asset_type_id, quantity, reason, notes }: {
+    asset_type_id?: string;
     quantity?: number | string;
     reason?: string;
     notes?: string;
   }
 ): Promise<Record<string, unknown>> {
-  if (!asset_id)  throw new AppError('asset_id is required', 400);
+  if (!asset_type_id) throw new AppError('asset_type_id is required', 400);
   if (!quantity || Number(quantity) < 1) throw new AppError('quantity must be at least 1', 400);
 
   const qty = Number(quantity);
@@ -78,47 +79,55 @@ export async function createWriteOff(
   try {
     await client.query('BEGIN');
 
-    // Fetch asset
-    const { rows: assetRows } = await client.query<Record<string, unknown>>(
-      'SELECT available_quantity, total_quantity FROM assets WHERE id = $1 AND club_id = $2 AND is_active = true',
-      [asset_id, clubId]
+    // Verify asset type belongs to this club and get available batches FIFO
+    const { rows: batchRows } = await client.query<{ id: string; available_quantity: number }>(
+      `SELECT ab.id, ab.available_quantity
+       FROM asset_batches ab
+       JOIN asset_types at ON at.id = ab.asset_type_id
+       WHERE ab.asset_type_id = $1 AND at.club_id = $2
+         AND ab.available_quantity > 0 AND ab.status != 'retired'
+       ORDER BY ab.purchase_date ASC NULLS LAST, ab.created_at ASC`,
+      [asset_type_id, clubId]
     );
-    if (!assetRows.length) throw new AppError('Asset not found', 404);
 
-    const availBefore = Number(assetRows[0].available_quantity);
-    const totalBefore = Number(assetRows[0].total_quantity);
+    if (!batchRows.length) throw new AppError('Asset not found or no available stock', 404);
 
-    if (qty > availBefore) {
+    const totalAvail = batchRows.reduce((s, r) => s + Number(r.available_quantity), 0);
+    if (qty > totalAvail) {
       throw new AppError(
-        `Cannot write off ${qty} units; only ${availBefore} available in stock`,
+        `Cannot write off ${qty} units; only ${totalAvail} available in stock`,
         409
       );
     }
 
-    // Deduct from asset
-    await client.query(
-      `UPDATE assets
-       SET available_quantity = available_quantity - $1,
-           total_quantity     = total_quantity - $1,
-           status = CASE WHEN total_quantity - $1 <= 0 THEN 'retired'::asset_status ELSE status END,
-           updated_at = NOW()
-       WHERE id = $2`,
-      [qty, asset_id]
-    );
+    // Deduct FIFO across batches
+    let remaining = qty;
+    for (const batch of batchRows) {
+      if (remaining <= 0) break;
+      const deduct = Math.min(remaining, Number(batch.available_quantity));
+      remaining -= deduct;
+      const availBefore = Number(batch.available_quantity);
 
-    // Stock movement
-    await client.query(
-      `INSERT INTO stock_movements
-         (club_id, asset_id, operator_id, type, quantity_delta, quantity_before, quantity_after, notes)
-       VALUES ($1,$2,$3,'write_off',$4,$5,$6,$7)`,
-      [clubId, asset_id, operatorId, -qty, availBefore, availBefore - qty, reason ?? 'Manual write-off']
-    );
+      await client.query(
+        `UPDATE asset_batches
+         SET available_quantity = available_quantity - $1,
+             total_quantity     = total_quantity - $1,
+             updated_at         = NOW()
+         WHERE id = $2`,
+        [deduct, batch.id]
+      );
+      await client.query(
+        `INSERT INTO stock_movements
+           (club_id, asset_batch_id, operator_id, type, quantity_delta, quantity_before, quantity_after, notes)
+         VALUES ($1,$2,$3,'write_off',$4,$5,$6,$7)`,
+        [clubId, batch.id, operatorId, -deduct, availBefore, availBefore - deduct, reason ?? 'Manual write-off']
+      );
+    }
 
-    // Write-off order record
     const { rows } = await client.query<Record<string, unknown>>(
-      `INSERT INTO write_off_orders (club_id, asset_id, quantity, reason, source, created_by, notes)
+      `INSERT INTO write_off_orders (club_id, asset_type_id, quantity, reason, source, created_by, notes)
        VALUES ($1,$2,$3,$4,'manual',$5,$6) RETURNING *`,
-      [clubId, asset_id, qty, reason ?? null, operatorId, notes ?? null]
+      [clubId, asset_type_id, qty, reason ?? null, operatorId, notes ?? null]
     );
 
     await client.query('COMMIT');

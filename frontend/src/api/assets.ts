@@ -8,25 +8,38 @@ export interface Category {
   is_system: boolean;
 }
 
-export interface Asset {
+export interface AssetBatch {
   id: string;
-  name: string;
-  status: AssetStatus;
+  purchase_date?: string | null;
+  purchase_price?: number | null;
+  useful_life_years?: number | null;
   total_quantity: number;
   available_quantity: number;
+  status: AssetStatus;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface AssetType {
+  id: string;
+  club_id: string;
+  asset_name_id: string;
+  name: string;
   category_id?: string | null;
   category_name?: string | null;
   brand?: string | null;
   model?: string | null;
   size?: string | null;
-  asset_tag?: string | null;
-  purchase_date?: string | null;
-  purchase_price?: number | null;
-  useful_life_years?: number | null;
-  notes?: string | null;
-  low_stock_threshold?: number | null;
   image_url?: string | null;
+  low_stock_threshold?: number | null;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
+  total_quantity: number;
+  available_quantity: number;
+  batch_count: number;
+  status: AssetStatus;
+  batches: AssetBatch[];
 }
 
 export interface PaginatedResult<T> {
@@ -51,13 +64,16 @@ export const createCategory = (name: string) =>
   client.post<Category>('/assets/categories', { name });
 
 export const listAssets = (params?: AssetFilters) =>
-  client.get<PaginatedResult<Asset>>('/assets', { params });
+  client.get<PaginatedResult<AssetType>>('/assets', { params });
+
+export const getAsset = (id: string) =>
+  client.get<AssetType>(`/assets/${id}`);
 
 export const createAsset = (data: Record<string, unknown>) =>
-  client.post<Asset>('/assets', data);
+  client.post<AssetType>('/assets', data);
 
 export const updateAsset = (id: string, data: Record<string, unknown>) =>
-  client.put<Asset>(`/assets/${id}`, data);
+  client.put<AssetType>(`/assets/${id}`, data);
 
 export const deleteAsset = (id: string) =>
   client.delete(`/assets/${id}`);
@@ -69,3 +85,12 @@ export const uploadAssetImage = (id: string, file: File) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 };
+
+export const addBatch = (typeId: string, data: Record<string, unknown>) =>
+  client.post<AssetType>(`/assets/${typeId}/batches`, data);
+
+export const updateBatch = (typeId: string, batchId: string, data: Record<string, unknown>) =>
+  client.put<AssetType>(`/assets/${typeId}/batches/${batchId}`, data);
+
+export const getBatchDepreciation = (typeId: string, batchId: string) =>
+  client.get<Record<string, unknown>>(`/assets/${typeId}/batches/${batchId}/depreciation`);

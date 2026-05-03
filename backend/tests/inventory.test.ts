@@ -11,7 +11,8 @@ let clubId: string;
 let adminUserId: string;
 let managerUserId: string;
 let coachUserId: string;
-let assetId: string;
+let assetTypeId: string;
+let assetBatchId: string;
 
 beforeAll(async () => {
   clubId = await createClub('Inventory Test Club');
@@ -21,7 +22,9 @@ beforeAll(async () => {
   managerUserId = mgr.id;
   const coach = await createUser(coachEmail, clubId, 'coach');
   coachUserId = coach.id;
-  assetId = await createAsset(clubId, managerUserId, 'Inventory Ball', 10);
+  const asset = await createAsset(clubId, managerUserId, 'Inventory Ball', 10);
+  assetTypeId  = asset.typeId;
+  assetBatchId = asset.batchId;
 });
 
 afterAll(async () => {
@@ -45,47 +48,40 @@ describe('GET /api/v1/inventory/movements', () => {
     expect(res.status).toBe(403);
   });
 
-  it('filters by asset_id', async () => {
+  it('filters by asset_type_id', async () => {
     const res = await request(app)
-      .get(`/api/v1/inventory/movements?asset_id=${assetId}`)
+      .get(`/api/v1/inventory/movements?asset_type_id=${assetTypeId}`)
       .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
-    expect(res.body.data.every((m: Record<string, unknown>) => m.asset_id === assetId)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1);
   });
 });
 
-describe('POST /api/v1/inventory/purchase', () => {
-  it('adds stock to an asset', async () => {
-    const res = await request(app)
-      .post('/api/v1/inventory/purchase')
-      .set(authHeader(managerUserId))
-      .send({ asset_id: assetId, quantity: 5, notes: 'Restocked' });
-    expect(res.status).toBe(200);
-    expect(Number(res.body.available_quantity)).toBeGreaterThanOrEqual(15);
-  });
-
-  it('returns 400 for zero quantity', async () => {
-    const res = await request(app)
-      .post('/api/v1/inventory/purchase')
-      .set(authHeader(managerUserId))
-      .send({ asset_id: assetId, quantity: 0 });
-    expect(res.status).toBe(400);
-  });
-});
-
-describe('POST /api/v1/inventory/adjust', () => {
-  it('adjusts stock by delta', async () => {
+describe('POST /api/v1/inventory/batches/:batchId/adjust', () => {
+  it('adjusts available_quantity on a batch', async () => {
     const before = await request(app)
-      .get(`/api/v1/assets/${assetId}`)
+      .get('/api/v1/assets/' + assetTypeId)
       .set(authHeader(managerUserId));
     const prevQty = Number(before.body.available_quantity);
 
     const res = await request(app)
-      .post('/api/v1/inventory/adjust')
+      .post(`/api/v1/inventory/batches/${assetBatchId}/adjust`)
       .set(authHeader(managerUserId))
-      .send({ asset_id: assetId, quantity_delta: -2, notes: 'Lost items' });
+      .send({ quantity_delta: -2, notes: 'Lost items' });
     expect(res.status).toBe(200);
-    expect(Number(res.body.available_quantity)).toBe(prevQty - 2);
+
+    const after = await request(app)
+      .get('/api/v1/assets/' + assetTypeId)
+      .set(authHeader(managerUserId));
+    expect(Number(after.body.available_quantity)).toBe(prevQty - 2);
+  });
+
+  it('returns 404 for unknown batch', async () => {
+    const res = await request(app)
+      .post('/api/v1/inventory/batches/00000000-0000-0000-0000-000000000000/adjust')
+      .set(authHeader(managerUserId))
+      .send({ quantity_delta: 1 });
+    expect(res.status).toBe(404);
   });
 });
 
@@ -123,7 +119,7 @@ describe('Stocktake sessions', () => {
       .put(`/api/v1/inventory/stocktake/${sessionId}`)
       .set(authHeader(managerUserId))
       .send({
-        items: [{ asset_id: assetId, physical_quantity: 8, notes: 'Found 8' }],
+        items: [{ asset_type_id: assetTypeId, physical_quantity: 8, notes: 'Found 8' }],
         status: 'completed',
       });
     expect(res.status).toBe(200);

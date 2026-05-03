@@ -18,8 +18,8 @@ import {
   type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload,
 } from '../../api/loans';
 import { listAssets, type Asset } from '../../api/assets';
-import { listUsers, type ClubUser } from '../../api/users';
-import { listTeams, type Team } from '../../api/teams';
+import { listUsers, getUser, type ClubUser } from '../../api/users';
+import { listTeams, type Team, type UserTeamMembership } from '../../api/teams';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -94,6 +94,10 @@ export default function LoansPage() {
   const [teams, setTeams]     = useState<Team[]>([]);
   const [teamId, setTeamId]   = useState<string | undefined>(undefined);
 
+  // Teams for the coach being selected in create/edit form
+  const [createCoachTeams, setCreateCoachTeams] = useState<UserTeamMembership[]>([]);
+  const [createCoachTeamsLoading, setCreateCoachTeamsLoading] = useState(false);
+
   // Cart & create drawer state
   const [cart, setCart]             = useState<CartItem[]>(loadCart);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
@@ -144,7 +148,10 @@ export default function LoansPage() {
       listUsers({ role: 'coach', limit: 200 }).then(r => setCoaches(r.data.data)).catch(() => {});
       listTeams().then(r => setTeams(r.data)).catch(() => {});
     }
-  }, [isManager]);
+    if (isCoach && user?.id) {
+      getUser(user.id).then(r => setCreateCoachTeams(r.data.teams ?? [])).catch(() => {});
+    }
+  }, [isManager, isCoach, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cart operations ─────────────────────────────────────────────────────────
 
@@ -192,7 +199,26 @@ export default function LoansPage() {
   function openCreate() {
     setCreateStep(1);
     createForm.resetFields();
+    // Pre-select team for coaches already in exactly one team
+    if (isCoach && createCoachTeams.length === 1) {
+      createForm.setFieldValue('team_id', createCoachTeams[0].team_id);
+    }
     setCartDrawerOpen(true);
+  }
+
+  async function handleCoachSelect(coachId: string) {
+    createForm.setFieldValue('team_id', undefined);
+    setCreateCoachTeams([]);
+    if (!coachId) return;
+    setCreateCoachTeamsLoading(true);
+    try {
+      const res = await getUser(coachId);
+      const teams = res.data.teams ?? [];
+      setCreateCoachTeams(teams);
+      if (teams.length === 1) createForm.setFieldValue('team_id', teams[0].team_id);
+    } catch {} finally {
+      setCreateCoachTeamsLoading(false);
+    }
   }
 
   async function handleCreate(values: Record<string, unknown>) {
@@ -204,6 +230,7 @@ export default function LoansPage() {
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
+        team_id:  values.team_id  as string | undefined,
       });
       message.success('Loan request submitted');
       clearCart();
@@ -497,6 +524,11 @@ export default function LoansPage() {
               }}>
                 {isMobile ? loan.coach_name : `Borrower: ${loan.coach_name}`}
               </Text>
+              {loan.team_name && (
+                <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', marginTop: 2 }}>
+                  {loan.team_name}
+                </Tag>
+              )}
               {createdByOther && (
                 <Text style={{ fontSize: 11, color: '#bfbfbf', display: 'block' }}>
                   Created by: {loan.created_by_name}
@@ -808,6 +840,24 @@ export default function LoansPage() {
                     filterOption={(input, option) =>
                       String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                     options={coaches.map(c => ({ value: c.id, label: c.name }))}
+                    onChange={handleCoachSelect}
+                    loading={createCoachTeamsLoading}
+                  />
+                </Form.Item>
+              )}
+              {createCoachTeams.length > 0 && (
+                <Form.Item
+                  name="team_id"
+                  label="Team"
+                  rules={createCoachTeams.length > 1 ? [{ required: true, message: 'Please select a team' }] : []}
+                >
+                  <Select
+                    placeholder="Select team"
+                    disabled={createCoachTeams.length === 1}
+                    options={createCoachTeams.map(t => ({
+                      value: t.team_id,
+                      label: `${t.team_name} (${t.age_group} · ${t.gender})`,
+                    }))}
                   />
                 </Form.Item>
               )}

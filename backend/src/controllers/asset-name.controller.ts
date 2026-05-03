@@ -10,7 +10,9 @@ export const listAssetNames: RequestHandler = async (req, res, next) => {
 
 export const createAssetName: RequestHandler = async (req, res, next) => {
   try {
-    const name = await assetNameService.createAssetName(req.user.club_id as string, req.body.name);
+    const name = await assetNameService.createAssetName(
+      req.user.club_id as string, req.body.name, req.body.category_id ?? null
+    );
     res.status(201).json(name);
   } catch (err) { next(err); }
 };
@@ -18,7 +20,7 @@ export const createAssetName: RequestHandler = async (req, res, next) => {
 export const updateAssetName: RequestHandler = async (req, res, next) => {
   try {
     const name = await assetNameService.updateAssetName(
-      req.params.id, req.user.club_id as string, req.body.name
+      req.params.id, req.user.club_id as string, req.body.name, req.body.category_id ?? null
     );
     res.json(name);
   } catch (err) { next(err); }

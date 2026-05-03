@@ -198,20 +198,20 @@ CREATE UNIQUE INDEX uq_team_head_coach ON team_members (team_id) WHERE team_role
 -- ASSET_NAMES: approved name catalog per club; admin/asset_manager creates entries here
 --   before assets of that name can be added to inventory.
 CREATE TABLE asset_names (
-    id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    club_id    UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-    name       VARCHAR(100) NOT NULL,
-    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id     UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    name        VARCHAR(100) NOT NULL,
+    category_id UUID         REFERENCES asset_categories(id) ON DELETE SET NULL,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     UNIQUE (club_id, name)
 );
 
 -- ASSET_TYPES: one row per unique (name + brand + model + size) combination per club.
---   Carries shared metadata: category, image, low-stock threshold.
+--   Category is inherited from asset_names; image and low-stock threshold live here.
 CREATE TABLE asset_types (
     id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     club_id             UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
     asset_name_id       UUID         NOT NULL REFERENCES asset_names(id) ON DELETE RESTRICT,
-    category_id         UUID         REFERENCES asset_categories(id) ON DELETE SET NULL,
     brand               VARCHAR(100),
     model               VARCHAR(100),
     size                VARCHAR(100),
@@ -390,7 +390,7 @@ CREATE INDEX idx_asset_names_club_id ON asset_names(club_id);
 -- Asset types
 CREATE INDEX idx_asset_types_club_id       ON asset_types(club_id);
 CREATE INDEX idx_asset_types_asset_name_id ON asset_types(asset_name_id);
-CREATE INDEX idx_asset_types_club_category ON asset_types(club_id, category_id);
+CREATE INDEX idx_asset_names_club_category ON asset_names(club_id, category_id);
 CREATE INDEX idx_asset_types_club_active   ON asset_types(club_id) WHERE is_active = true;
 
 -- Asset batches

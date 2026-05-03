@@ -50,7 +50,7 @@ export async function getDepreciationReport(clubId: string): Promise<{
      JOIN asset_types at ON at.id = ab.asset_type_id
      JOIN asset_names an ON an.id = at.asset_name_id
      JOIN LATERAL get_asset_depreciation(ab.id) d ON true
-     LEFT JOIN asset_categories c ON c.id = at.category_id
+     LEFT JOIN asset_categories c ON c.id = an.category_id
      WHERE at.club_id = $1 AND at.is_active = true
      ORDER BY an.name, ab.purchase_date ASC NULLS LAST`,
     [clubId]

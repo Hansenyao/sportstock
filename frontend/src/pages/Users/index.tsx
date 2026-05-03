@@ -250,7 +250,7 @@ export default function UsersPage() {
               {detailUser?.phone && <span><strong>Phone:</strong> {detailUser.phone}</span>}
             </Flex>
 
-            <Divider orientation="left" orientationMargin={0} style={{ fontSize: 13 }}>
+            <Divider orientation="left" style={{ fontSize: 13 }}>
               Team Assignments
             </Divider>
 

@@ -29,6 +29,8 @@ export interface Loan {
   coach_id: string;
   coach_name: string;
   coach_email?: string;
+  team_id?: string | null;
+  team_name?: string | null;
   created_by?: string | null;
   created_by_name?: string | null;
   approved_by?: string | null;
@@ -51,6 +53,7 @@ export interface Loan {
 export interface LoanFilters {
   status?: LoanStatus;
   coach_id?: string;
+  team_id?: string;
   from_date?: string;
   to_date?: string;
   page?: number;
@@ -74,6 +77,7 @@ export interface CreateLoanPayload {
   due_date: string;
   reason?: string;
   coach_id?: string;
+  team_id?: string;
 }
 
 export interface UpdateLoanPayload {

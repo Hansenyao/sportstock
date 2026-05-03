@@ -27,13 +27,15 @@ const LOAN_SELECT = `
          cb.name AS created_by_name,
          ap.name AS approved_by_name,
          co.name AS checkout_by_name,
-         rc.name AS return_confirmed_by_name
+         rc.name AS return_confirmed_by_name,
+         t.name  AS team_name
   FROM  loans l
   JOIN  users u  ON u.id  = l.coach_id
   LEFT JOIN users cb ON cb.id = l.created_by
   LEFT JOIN users ap ON ap.id = l.approved_by
   LEFT JOIN users co ON co.id = l.checkout_by
   LEFT JOIN users rc ON rc.id = l.return_confirmed_by
+  LEFT JOIN teams t  ON t.id  = l.team_id
 `;
 
 const ITEM_SELECT = `
@@ -80,9 +82,7 @@ export async function listLoans(
   } else if (coach_id) {
     conditions.push(`l.coach_id = $${params.push(coach_id)}`);
   } else if (team_id) {
-    conditions.push(
-      `l.coach_id IN (SELECT user_id FROM team_members WHERE team_id = $${params.push(team_id)})`
-    );
+    conditions.push(`l.team_id = $${params.push(team_id)}`);
   }
   if (status)    conditions.push(`l.status = $${params.push(status)}`);
   if (from_date) conditions.push(`l.created_at >= $${params.push(from_date)}`);
@@ -145,11 +145,12 @@ export async function createLoan(
   clubId: string,
   requesterId: string,
   requesterRole: string,
-  { items, due_date, reason, coach_id }: {
+  { items, due_date, reason, coach_id, team_id }: {
     items?: LoanItemInput[];
     due_date?: string;
     reason?: string;
     coach_id?: string;
+    team_id?: string;
   }
 ): Promise<Record<string, unknown>> {
   if (!items?.length) throw new AppError('At least one item is required', 400);
@@ -172,6 +173,17 @@ export async function createLoan(
   );
   if (!coachRows.length) throw new AppError('Borrower not found in this club', 404);
   const coachName = coachRows[0].name;
+
+  // Validate team if provided: must belong to club and coach must be a member
+  if (team_id) {
+    const { rows: teamRows } = await db.query<{ id: string }>(
+      `SELECT t.id FROM teams t
+       JOIN team_members tm ON tm.team_id = t.id
+       WHERE t.id = $1 AND t.club_id = $2 AND tm.user_id = $3`,
+      [team_id, clubId, coachId]
+    );
+    if (!teamRows.length) throw new AppError('Coach is not a member of this team', 400);
+  }
 
   const client = await db.pool.connect();
   try {
@@ -197,9 +209,9 @@ export async function createLoan(
 
     // Insert loan
     const { rows: loanRows } = await client.query<Record<string, unknown>>(
-      `INSERT INTO loans (club_id, coach_id, created_by, reason, status, due_date)
-       VALUES ($1,$2,$3,$4,'pending',$5) RETURNING *`,
-      [clubId, coachId, requesterId, reason ?? null, due_date]
+      `INSERT INTO loans (club_id, coach_id, team_id, created_by, reason, status, due_date)
+       VALUES ($1,$2,$3,$4,$5,'pending',$6) RETURNING *`,
+      [clubId, coachId, team_id ?? null, requesterId, reason ?? null, due_date]
     );
     const loan = loanRows[0];
 

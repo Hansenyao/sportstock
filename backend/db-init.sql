@@ -225,6 +225,7 @@ CREATE TABLE loans (
     id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     club_id              UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
     coach_id             UUID        NOT NULL REFERENCES users(id),
+    team_id              UUID        REFERENCES teams(id) ON DELETE SET NULL,
     created_by           UUID        REFERENCES users(id),
     approved_by          UUID        REFERENCES users(id),
     checkout_by          UUID        REFERENCES users(id),
@@ -363,6 +364,7 @@ CREATE INDEX idx_assets_club_category ON assets(club_id, category_id);
 -- Loans
 CREATE INDEX idx_loans_club_id     ON loans(club_id);
 CREATE INDEX idx_loans_coach_id    ON loans(coach_id);
+CREATE INDEX idx_loans_team_id     ON loans(team_id);
 CREATE INDEX idx_loans_club_status ON loans(club_id, status);
 -- Partial index for overdue-check background job
 CREATE INDEX idx_loans_active_due  ON loans(due_date) WHERE status = 'checked_out';

@@ -17,6 +17,8 @@ DROP TABLE IF EXISTS stock_movements      CASCADE;
 DROP TABLE IF EXISTS loan_items           CASCADE;
 DROP TABLE IF EXISTS loans                CASCADE;
 DROP TABLE IF EXISTS assets               CASCADE;
+DROP TABLE IF EXISTS team_members         CASCADE;
+DROP TABLE IF EXISTS teams                CASCADE;
 DROP TABLE IF EXISTS users                CASCADE;
 DROP TABLE IF EXISTS asset_categories     CASCADE;
 DROP TABLE IF EXISTS clubs                CASCADE;
@@ -164,6 +166,30 @@ CREATE TABLE users (
         role = 'super_admin' OR club_id IS NOT NULL
     )
 );
+
+-- TEAMS: coaching teams within a club
+CREATE TABLE teams (
+    id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id    UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    name       VARCHAR(100) NOT NULL,
+    gender     VARCHAR(10)  NOT NULL CHECK (gender IN ('Boys', 'Girls', 'Mixed')),
+    age_group  VARCHAR(10)  NOT NULL CHECK (age_group IN ('U4','U5','U6','U7','U8','U9','U10','U11','U12','U13','U14','U15','U16','U17','U18','U19','U20','U21','Adult')),
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- TEAM_MEMBERS: many-to-many coaches <-> teams; team_role is a position label only (no permission change)
+CREATE TABLE team_members (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_id    UUID        NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    team_role  VARCHAR(20) NOT NULL CHECK (team_role IN ('head_coach', 'assistant_coach', 'team_manager')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (team_id, user_id)
+);
+
+-- Enforce: each team may have at most one head coach
+CREATE UNIQUE INDEX uq_team_head_coach ON team_members (team_id) WHERE team_role = 'head_coach';
 
 -- ASSETS: equipment owned by a club
 CREATE TABLE assets (
@@ -321,6 +347,13 @@ CREATE TABLE stocktake_items (
 -- Users
 CREATE INDEX idx_users_club_id ON users(club_id);
 CREATE INDEX idx_users_email   ON users(email);
+
+-- Teams
+CREATE INDEX idx_teams_club_id ON teams(club_id);
+
+-- Team members
+CREATE INDEX idx_team_members_team_id ON team_members(team_id);
+CREATE INDEX idx_team_members_user_id ON team_members(user_id);
 
 -- Assets
 CREATE INDEX idx_assets_club_id       ON assets(club_id);
@@ -486,6 +519,10 @@ CREATE TRIGGER trg_write_off_orders_updated_at
 
 CREATE TRIGGER trg_fcm_tokens_updated_at
     BEFORE UPDATE ON fcm_tokens
+    FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
+
+CREATE TRIGGER trg_teams_updated_at
+    BEFORE UPDATE ON teams
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 
 CREATE TRIGGER trg_asset_low_stock

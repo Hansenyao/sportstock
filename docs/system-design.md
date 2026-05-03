@@ -1,7 +1,7 @@
 # SportStock — System Design
 
-> Document Version: v3.0
-> Updated: 2026-04-25
+> Document Version: v4.0
+> Updated: 2026-05-02
 
 ---
 
@@ -94,6 +94,24 @@ erDiagram
         boolean is_active
     }
 
+    TEAM {
+        uuid id PK
+        uuid club_id FK
+        string name
+        enum gender "Boys | Girls | Mixed"
+        string age_group "U4..U21 | Adult"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    TEAM_MEMBER {
+        uuid id PK
+        uuid team_id FK
+        uuid user_id FK
+        enum team_role "head_coach | assistant_coach | team_manager"
+        timestamp created_at
+    }
+
     ASSET {
         uuid id PK
         uuid club_id FK
@@ -161,6 +179,9 @@ erDiagram
     }
 
     CLUB ||--o{ USER : has
+    CLUB ||--o{ TEAM : has
+    TEAM ||--o{ TEAM_MEMBER : contains
+    USER ||--o{ TEAM_MEMBER : belongs_to
     CLUB ||--o{ ASSET : owns
     CLUB ||--o{ LOAN : manages
     LOAN ||--o{ LOAN_ITEM : contains
@@ -347,6 +368,7 @@ flowchart TD
 | Auth (protected) | `/api/v1/auth` | JWT | `GET /me`, `PUT /password` |
 | Clubs | `/api/v1/clubs` | JWT | `GET /me`, `PUT /me`, `PUT /me/logo` |
 | Users | `/api/v1/users` | JWT | CRUD; `POST /` (admin only — creates user directly) |
+| Teams | `/api/v1/teams` | JWT | CRUD (admin only); member management: `POST /:id/members`, `PUT /:id/members/:userId`, `DELETE /:id/members/:userId` |
 | Assets | `/api/v1/assets` | JWT | CRUD, categories, depreciation |
 | Loans | `/api/v1/loans` | JWT | Request (multi-asset cart), approve/reject, check-out, return (per-item condition + write-off) |
 | Write-offs | `/api/v1/write-offs` | JWT | List, get, create (admin+manager only) |

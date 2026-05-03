@@ -619,8 +619,12 @@ export default function AssetsPage() {
         width={600}
         destroyOnClose
       >
-        {((modalMode === 'create' && createStep === 1) || modalMode === 'editType') && typeFormContent}
-        {((modalMode === 'create' && createStep === 2) || modalMode === 'addBatch') && batchFormContent}
+        <div style={{ display: ((modalMode === 'create' && createStep === 1) || modalMode === 'editType') ? undefined : 'none' }}>
+          {(modalMode === 'create' || modalMode === 'editType') && typeFormContent}
+        </div>
+        <div style={{ display: ((modalMode === 'create' && createStep === 2) || modalMode === 'addBatch') ? undefined : 'none' }}>
+          {(modalMode === 'create' || modalMode === 'addBatch') && batchFormContent}
+        </div>
 
         <Flex gap={8} justify="flex-end" style={{ marginTop: 16 }}>
           {modalMode === 'create' && createStep === 2 && (

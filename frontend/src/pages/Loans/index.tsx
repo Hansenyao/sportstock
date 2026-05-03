@@ -2,12 +2,12 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, Select, Typography, Flex, App,
   Space, Tabs, DatePicker, Popconfirm, InputNumber, Drawer, Badge,
-  Avatar, Card, List, Divider, Empty, Grid, Tooltip,
+  Avatar, Card, List, Divider, Empty, Grid, Tooltip, Row, Col,
 } from 'antd';
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
   ArrowDownOutlined, ShoppingCartOutlined, DeleteOutlined, EditOutlined,
-  MinusOutlined, DeleteFilled, CheckCircleOutlined,
+  MinusOutlined, DeleteFilled, CheckCircleOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -15,7 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   listLoans, createLoan, updateLoan, deleteLoan, approveLoan, rejectLoan,
   checkoutLoan, confirmReturn,
-  type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload,
+  type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload, type LoanFilters,
 } from '../../api/loans';
 import { listAssets, type Asset } from '../../api/assets';
 import { listUsers, getUser, type ClubUser } from '../../api/users';
@@ -44,6 +44,14 @@ const STATUS_LABEL: Record<LoanStatus, string> = {
   pending: 'Pending', approved: 'Approved', rejected: 'Rejected',
   checked_out: 'Checked Out', returned: 'Returned',
 };
+
+const DATE_PRESET_OPTIONS = [
+  { value: '7d',     label: 'Last 7 days' },
+  { value: '30d',    label: 'Last 30 days' },
+  { value: '3m',     label: 'Last 3 months' },
+  { value: '1y',     label: 'Last year' },
+  { value: 'custom', label: 'Custom range…' },
+];
 
 const CART_KEY = 'sportstock_loan_cart';
 const PAGE_SIZE = 20;
@@ -87,12 +95,14 @@ export default function LoansPage() {
   const [loading, setLoading]   = useState(true);
   const [activeTab, setActiveTab] = useState<string>('all');
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
+  const [filters, setFilters]   = useState<LoanFilters>({});
+  const [datePreset, setDatePreset] = useState<string>('all');
+  const [customDateRange, setCustomDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 
   // Reference data
   const [assets, setAssets]   = useState<Asset[]>([]);
   const [coaches, setCoaches] = useState<ClubUser[]>([]);
   const [teams, setTeams]     = useState<Team[]>([]);
-  const [teamId, setTeamId]   = useState<string | undefined>(undefined);
 
   // Teams for the coach being selected in create/edit form
   const [createCoachTeams, setCreateCoachTeams] = useState<UserTeamMembership[]>([]);
@@ -127,18 +137,46 @@ export default function LoansPage() {
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
-  const fetchLoans = useCallback(async (p = page, tab = activeTab, tid = teamId) => {
+  const fetchLoans = useCallback(async (p = page, tab = activeTab, f = filters) => {
     setLoading(true);
     try {
-      const params: Record<string, unknown> = { page: p, limit: PAGE_SIZE };
+      const params: LoanFilters = { page: p, limit: PAGE_SIZE };
       if (tab !== 'all') params.status = tab as LoanStatus;
-      if (tid) params.team_id = tid;
+      if (f.team_id)   params.team_id   = f.team_id;
+      if (f.coach_id)  params.coach_id  = f.coach_id;
+      if (f.search)    params.search    = f.search;
+      if (f.from_date) params.from_date = f.from_date;
+      if (f.to_date)   params.to_date   = f.to_date;
       const res = await listLoans(params);
       setLoans(res.data.data);
       setTotal(res.data.total);
     } catch { message.error('Failed to load loans'); }
     finally { setLoading(false); }
-  }, [page, activeTab, teamId, message]);
+  }, [page, activeTab, filters, message]);
+
+  function applyFilters(changed: Partial<LoanFilters>) {
+    const next = { ...filters, ...changed };
+    setFilters(next);
+    setPage(1);
+    setExpandedRows([]);
+    fetchLoans(1, activeTab, next);
+  }
+
+  function applyDatePreset(preset: string, custom?: [dayjs.Dayjs, dayjs.Dayjs] | null) {
+    setDatePreset(preset);
+    const now = dayjs();
+    let from_date: string | undefined;
+    let to_date: string | undefined;
+    if      (preset === '7d')  from_date = now.subtract(7,  'day'  ).startOf('day').toISOString();
+    else if (preset === '30d') from_date = now.subtract(30, 'day'  ).startOf('day').toISOString();
+    else if (preset === '3m')  from_date = now.subtract(3,  'month').startOf('day').toISOString();
+    else if (preset === '1y')  from_date = now.subtract(1,  'year' ).startOf('day').toISOString();
+    else if (preset === 'custom' && custom) {
+      from_date = custom[0].startOf('day').toISOString();
+      to_date   = custom[1].endOf('day').toISOString();
+    }
+    applyFilters({ from_date, to_date });
+  }
 
   useEffect(() => { fetchLoans(); }, []); // eslint-disable-line
 
@@ -408,7 +446,7 @@ export default function LoansPage() {
     setActiveTab(key);
     setPage(1);
     setExpandedRows([]);
-    fetchLoans(1, key);
+    fetchLoans(1, key, filters);
   }
 
   // ── Expandable row: item list ────────────────────────────────────────────────
@@ -706,25 +744,64 @@ export default function LoansPage() {
         </Badge>
       </Flex>
 
-      {isManager && teams.length > 0 && (
-        <Flex align="center" gap={8} style={{ marginBottom: 12 }}>
-          <span style={{ fontSize: 13, color: '#666', flexShrink: 0 }}>Team:</span>
+      {/* Filters */}
+      <Row gutter={[12, 8]} style={{ marginBottom: 12 }}>
+        <Col xs={24} sm={10} md={7}>
+          <Input
+            placeholder="Search asset or borrower…"
+            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+            allowClear
+            onChange={e => applyFilters({ search: e.target.value || undefined })}
+          />
+        </Col>
+        {isManager && teams.length > 0 && (
+          <Col xs={12} sm={7} md={5}>
+            <Select
+              allowClear
+              placeholder="All Teams"
+              style={{ width: '100%' }}
+              value={filters.team_id}
+              options={teams.map(t => ({ value: t.id, label: `${t.name} (${t.age_group} ${t.gender})` }))}
+              onChange={val => applyFilters({ team_id: val || undefined })}
+            />
+          </Col>
+        )}
+        {isManager && coaches.length > 0 && (
+          <Col xs={12} sm={7} md={5}>
+            <Select
+              allowClear
+              placeholder="All Coaches"
+              style={{ width: '100%' }}
+              value={filters.coach_id}
+              options={coaches.map(c => ({ value: c.id, label: c.name }))}
+              onChange={val => applyFilters({ coach_id: val || undefined })}
+            />
+          </Col>
+        )}
+        <Col xs={24} sm={isManager ? 10 : 14} md={isManager ? 7 : 17}>
           <Select
             allowClear
-            placeholder="All teams"
-            style={{ width: 200 }}
-            value={teamId}
-            options={teams.map(t => ({ value: t.id, label: `${t.name} (${t.age_group} ${t.gender})` }))}
-            onChange={(val) => {
-              setTeamId(val);
-              setPage(1);
-              setExpandedRows([]);
-              fetchLoans(1, activeTab, val);
-            }}
-            size="small"
+            placeholder="All Time"
+            style={{ width: '100%' }}
+            value={datePreset === 'all' ? undefined : datePreset}
+            options={DATE_PRESET_OPTIONS}
+            onChange={val => applyDatePreset((val as string) || 'all')}
           />
-        </Flex>
-      )}
+        </Col>
+        {datePreset === 'custom' && (
+          <Col xs={24} md={16}>
+            <DatePicker.RangePicker
+              style={{ width: '100%' }}
+              value={customDateRange}
+              onChange={range => {
+                const r = range as [dayjs.Dayjs, dayjs.Dayjs] | null;
+                setCustomDateRange(r);
+                if (r) applyDatePreset('custom', r);
+              }}
+            />
+          </Col>
+        )}
+      </Row>
 
       <Tabs
         activeKey={activeTab}

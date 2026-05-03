@@ -63,8 +63,9 @@ export async function listLoans(
   clubId: string,
   userId: string,
   role: string,
-  { status, coach_id, team_id, from_date, to_date, page = 1, limit = 20 }: {
+  { status, search, coach_id, team_id, from_date, to_date, page = 1, limit = 20 }: {
     status?: string;
+    search?: string;
     coach_id?: string;
     team_id?: string;
     from_date?: string;
@@ -79,14 +80,25 @@ export async function listLoans(
 
   if (role === 'coach') {
     conditions.push(`l.coach_id = $${params.push(userId)}`);
-  } else if (coach_id) {
-    conditions.push(`l.coach_id = $${params.push(coach_id)}`);
-  } else if (team_id) {
-    conditions.push(`l.team_id = $${params.push(team_id)}`);
+  } else {
+    if (coach_id) conditions.push(`l.coach_id = $${params.push(coach_id)}`);
+    if (team_id)  conditions.push(`l.team_id  = $${params.push(team_id)}`);
   }
   if (status)    conditions.push(`l.status = $${params.push(status)}`);
   if (from_date) conditions.push(`l.created_at >= $${params.push(from_date)}`);
   if (to_date)   conditions.push(`l.created_at < $${params.push(to_date)}`);
+  if (search) {
+    const kw = `%${search}%`;
+    const idx = params.push(kw);
+    conditions.push(`(
+      EXISTS (SELECT 1 FROM users u2 WHERE u2.id = l.coach_id AND u2.name ILIKE $${idx})
+      OR EXISTS (
+        SELECT 1 FROM loan_items li2
+        JOIN assets a2 ON a2.id = li2.asset_id
+        WHERE li2.loan_id = l.id AND a2.name ILIKE $${idx}
+      )
+    )`);
+  }
 
   const where = conditions.join(' AND ');
 

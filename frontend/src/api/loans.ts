@@ -52,6 +52,7 @@ export interface Loan {
 
 export interface LoanFilters {
   status?: LoanStatus;
+  search?: string;
   coach_id?: string;
   team_id?: string;
   from_date?: string;

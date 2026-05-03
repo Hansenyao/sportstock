@@ -6,13 +6,12 @@ export type WriteOffSource = 'manual' | 'loan_return' | 'loan_lost';
 export interface WriteOff {
   id: string;
   club_id: string;
-  asset_id: string;
+  asset_type_id: string;
   asset_name: string;
   asset_image?: string | null;
   brand?: string | null;
   model?: string | null;
   size?: string | null;
-  asset_tag?: string | null;
   quantity: number;
   reason?: string | null;
   source: WriteOffSource;
@@ -24,7 +23,7 @@ export interface WriteOff {
 }
 
 export interface WriteOffFilters {
-  asset_id?: string;
+  asset_type_id?: string;
   source?: WriteOffSource;
   from_date?: string;
   to_date?: string;
@@ -33,7 +32,7 @@ export interface WriteOffFilters {
 }
 
 export interface CreateWriteOffPayload {
-  asset_id: string;
+  asset_type_id: string;
   quantity: number;
   reason?: string;
   notes?: string;

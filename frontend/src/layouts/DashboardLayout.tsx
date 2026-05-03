@@ -3,7 +3,7 @@ import { Layout, Menu, Button, Avatar, Typography, Flex, Tag, Grid, Drawer } fro
 import {
   DashboardOutlined, DatabaseOutlined, SwapOutlined,
   TeamOutlined, BankOutlined, LogoutOutlined, MenuOutlined,
-  AppstoreOutlined, DeleteOutlined, UsergroupAddOutlined,
+  AppstoreOutlined, DeleteOutlined, UsergroupAddOutlined, TagOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,6 +22,7 @@ const ROLE_COLOR: Record<string, string> = {
 const NAV_ITEMS = [
   { key: '/dashboard',             icon: <DashboardOutlined />,    label: 'Overview' },
   { key: '/dashboard/assets',      icon: <DatabaseOutlined />,     label: 'Assets' },
+  { key: '/dashboard/asset-names', icon: <TagOutlined />,          label: 'Asset Names', managerOnly: true },
   { key: '/dashboard/loans',       icon: <SwapOutlined />,         label: 'Loans' },
   { key: '/dashboard/write-offs',  icon: <DeleteOutlined />,       label: 'Write-offs',  managerOnly: true },
   { key: '/dashboard/users',       icon: <TeamOutlined />,         label: 'Users',       adminOnly: true },

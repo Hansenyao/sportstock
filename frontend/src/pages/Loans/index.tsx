@@ -17,7 +17,7 @@ import {
   checkoutLoan, confirmReturn,
   type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload, type LoanFilters,
 } from '../../api/loans';
-import { listAssets, type Asset } from '../../api/assets';
+import { listAssets, type AssetType } from '../../api/assets';
 import { listUsers, getUser, type ClubUser } from '../../api/users';
 import { listTeams, type Team, type UserTeamMembership } from '../../api/teams';
 
@@ -100,7 +100,7 @@ export default function LoansPage() {
   const [customDateRange, setCustomDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 
   // Reference data
-  const [assets, setAssets]   = useState<Asset[]>([]);
+  const [assets, setAssets]   = useState<AssetType[]>([]);
   const [coaches, setCoaches] = useState<ClubUser[]>([]);
   const [teams, setTeams]     = useState<Team[]>([]);
 
@@ -193,21 +193,20 @@ export default function LoansPage() {
 
   // ── Cart operations ─────────────────────────────────────────────────────────
 
-  function cartAdd(asset: Asset) {
+  function cartAdd(asset: AssetType) {
     setCart(prev => {
-      const existing = prev.find(i => i.asset_id === asset.id);
+      const existing = prev.find(i => i.asset_type_id === asset.id);
       const next = existing
-        ? prev.map(i => i.asset_id === asset.id
+        ? prev.map(i => i.asset_type_id === asset.id
             ? { ...i, quantity: Math.min(i.quantity + 1, asset.available_quantity) }
             : i)
         : [...prev, {
-            asset_id: asset.id,
+            asset_type_id: asset.id,
             asset_name: asset.name,
             asset_image: asset.image_url,
             brand: asset.brand,
             model: asset.model,
             size: asset.size,
-            asset_tag: asset.asset_tag,
             available_quantity: asset.available_quantity,
             quantity: 1,
           }];
@@ -216,18 +215,18 @@ export default function LoansPage() {
     });
   }
 
-  function cartSetQty(assetId: string, qty: number) {
+  function cartSetQty(assetTypeId: string, qty: number) {
     setCart(prev => {
       const next = qty < 1
-        ? prev.filter(i => i.asset_id !== assetId)
-        : prev.map(i => i.asset_id === assetId ? { ...i, quantity: qty } : i);
+        ? prev.filter(i => i.asset_type_id !== assetTypeId)
+        : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i);
       saveCart(next);
       return next;
     });
   }
 
-  function cartRemove(assetId: string) {
-    setCart(prev => { const next = prev.filter(i => i.asset_id !== assetId); saveCart(next); return next; });
+  function cartRemove(assetTypeId: string) {
+    setCart(prev => { const next = prev.filter(i => i.asset_type_id !== assetTypeId); saveCart(next); return next; });
   }
 
   function clearCart() { setCart([]); saveCart([]); }
@@ -264,7 +263,7 @@ export default function LoansPage() {
     setCreating(true);
     try {
       await createLoan({
-        items: cart.map(i => ({ asset_id: i.asset_id, quantity: i.quantity })),
+        items: cart.map(i => ({ asset_type_id: i.asset_type_id, quantity: i.quantity })),
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
@@ -392,30 +391,29 @@ export default function LoansPage() {
       coach_id: loan.coach_id,
     });
     setEditCart(loan.items.map(item => ({
-      asset_id: item.asset_id,
+      asset_type_id: item.asset_type_id,
       asset_name: item.asset_name,
       asset_image: item.asset_image,
       brand: item.brand,
       model: item.model,
       size: item.size,
-      asset_tag: item.asset_tag,
-      available_quantity: item.asset_available_quantity + item.quantity, // original + currently on loan
+      available_quantity: 9999,
       quantity: item.quantity,
     })));
     setEditingLoan(loan);
     setEditOpen(true);
   }
 
-  function editCartSetQty(assetId: string, qty: number) {
-    setEditCart(prev => qty < 1 ? prev.filter(i => i.asset_id !== assetId) : prev.map(i => i.asset_id === assetId ? { ...i, quantity: qty } : i));
+  function editCartSetQty(assetTypeId: string, qty: number) {
+    setEditCart(prev => qty < 1 ? prev.filter(i => i.asset_type_id !== assetTypeId) : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i));
   }
 
-  function editCartAdd(asset: Asset) {
+  function editCartAdd(asset: AssetType) {
     setEditCart(prev => {
-      if (prev.find(i => i.asset_id === asset.id)) return prev;
+      if (prev.find(i => i.asset_type_id === asset.id)) return prev;
       return [...prev, {
-        asset_id: asset.id, asset_name: asset.name, asset_image: asset.image_url,
-        brand: asset.brand, model: asset.model, size: asset.size, asset_tag: asset.asset_tag,
+        asset_type_id: asset.id, asset_name: asset.name, asset_image: asset.image_url,
+        brand: asset.brand, model: asset.model, size: asset.size,
         available_quantity: asset.available_quantity, quantity: 1,
       }];
     });
@@ -427,7 +425,7 @@ export default function LoansPage() {
     setEditing(true);
     try {
       await updateLoan(editingLoan.id, {
-        items:    editCart.map(i => ({ asset_id: i.asset_id, quantity: i.quantity })),
+        items:    editCart.map(i => ({ asset_type_id: i.asset_type_id, quantity: i.quantity })),
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
@@ -490,7 +488,7 @@ export default function LoansPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Text strong style={{ display: 'block', fontSize: 13 }}>{item.asset_name}</Text>
                   <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
-                    {[item.brand, item.model, item.size && `Size: ${item.size}`, item.asset_tag && `#${item.asset_tag}`]
+                    {[item.brand, item.model, item.size && `Size: ${item.size}`]
                       .filter(Boolean).join(' · ')}
                   </Text>
                   {item.return_notes && (
@@ -713,16 +711,16 @@ export default function LoansPage() {
                   </Text>
                 </div>
                 <Flex align="center" gap={4}>
-                  <Button size="small" icon={<MinusOutlined />} onClick={() => setQty(item.asset_id, item.quantity - 1)} />
+                  <Button size="small" icon={<MinusOutlined />} onClick={() => setQty(item.asset_type_id, item.quantity - 1)} />
                   <InputNumber
                     size="small" min={1} max={item.available_quantity} value={item.quantity}
-                    onChange={v => setQty(item.asset_id, v ?? 1)}
+                    onChange={v => setQty(item.asset_type_id, v ?? 1)}
                     style={{ width: 48 }} controls={false}
                   />
                   <Button size="small" icon={<PlusOutlined />}
                     disabled={item.quantity >= item.available_quantity}
-                    onClick={() => setQty(item.asset_id, item.quantity + 1)} />
-                  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(item.asset_id)} />
+                    onClick={() => setQty(item.asset_type_id, item.quantity + 1)} />
+                  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(item.asset_type_id)} />
                 </Flex>
               </Flex>
             </List.Item>
@@ -860,8 +858,8 @@ export default function LoansPage() {
             </Text>
             <List
               dataSource={assets}
-              renderItem={(asset: Asset) => {
-                const inCart = cart.find(i => i.asset_id === asset.id);
+              renderItem={(asset: AssetType) => {
+                const inCart = cart.find(i => i.asset_type_id === asset.id);
                 const disabled = asset.available_quantity === 0;
                 return (
                   <List.Item
@@ -990,7 +988,7 @@ export default function LoansPage() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <Text strong>{item.asset_name}</Text>
                       <Text style={{ fontSize: 12, color: '#8c8c8c', display: 'block' }}>
-                        {[item.brand, item.size && `Size: ${item.size}`, item.asset_tag && `#${item.asset_tag}`]
+                        {[item.brand, item.size && `Size: ${item.size}`]
                           .filter(Boolean).join(' · ')}
                         {' '}· Loaned: <Text strong>{item.quantity}</Text>
                       </Text>
@@ -1094,12 +1092,12 @@ export default function LoansPage() {
               style={{ width: '100%', marginBottom: 12 }}
               filterOption={(input, option) =>
                 String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-              options={assetOptions.filter(o => !editCart.find(i => i.asset_id === o.value))}
+              options={assetOptions.filter(o => !editCart.find(i => i.asset_type_id === o.value))}
               onSelect={(_val, option: typeof assetOptions[0]) => editCartAdd(option._asset)}
               value={null}
             />
 
-            {renderCartItems(editCart, editCartSetQty, id => setEditCart(prev => prev.filter(i => i.asset_id !== id)))}
+            {renderCartItems(editCart, editCartSetQty, id => setEditCart(prev => prev.filter(i => i.asset_type_id !== id)))}
 
             <Divider style={{ margin: '12px 0' }} />
 

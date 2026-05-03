@@ -6,16 +6,14 @@ export type LoanStatus = 'pending' | 'approved' | 'rejected' | 'checked_out' | '
 export interface LoanItem {
   id: string;
   loan_id: string;
-  asset_id: string;
+  asset_type_id: string;
   asset_name: string;
   asset_image?: string | null;
   brand?: string | null;
   model?: string | null;
   size?: string | null;
-  asset_tag?: string | null;
-  asset_available_quantity: number;
   quantity: number;
-  returned_quantity?: number | null;       // computed: good + minor_damage
+  returned_quantity?: number | null;
   good_quantity?: number | null;
   minor_damage_quantity?: number | null;
   write_off_quantity?: number | null;
@@ -62,19 +60,18 @@ export interface LoanFilters {
 }
 
 export interface CartItem {
-  asset_id: string;
+  asset_type_id: string;
   asset_name: string;
   asset_image?: string | null;
   brand?: string | null;
   model?: string | null;
   size?: string | null;
-  asset_tag?: string | null;
   available_quantity: number;
   quantity: number;
 }
 
 export interface CreateLoanPayload {
-  items: { asset_id: string; quantity: number }[];
+  items: { asset_type_id: string; quantity: number }[];
   due_date: string;
   reason?: string;
   coach_id?: string;
@@ -82,7 +79,7 @@ export interface CreateLoanPayload {
 }
 
 export interface UpdateLoanPayload {
-  items?: { asset_id: string; quantity: number }[];
+  items?: { asset_type_id: string; quantity: number }[];
   due_date?: string;
   reason?: string;
   coach_id?: string;

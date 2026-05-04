@@ -40,7 +40,7 @@ function StatCard({ title, value, icon, color }: StatCardProps) {
         </div>
         <div>
           <Text style={{ fontSize: 13, color: '#8c8c8c', display: 'block' }}>{title}</Text>
-          <Statistic value={value} valueStyle={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }} />
+          <Statistic value={value} styles={{ content: { fontSize: 24, fontWeight: 700, lineHeight: 1.2 } }} />
         </div>
       </Flex>
     </Card>

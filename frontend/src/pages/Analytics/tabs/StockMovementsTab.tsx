@@ -95,7 +95,7 @@ export default function StockMovementsTab({ movements, recentMovements }: Props)
                 </div>
                 <div>
                   <Text style={{ fontSize: 13, color: '#8c8c8c', display: 'block' }}>{card.title}</Text>
-                  <Statistic value={card.value} valueStyle={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }} />
+                  <Statistic value={card.value} styles={{ content: { fontSize: 24, fontWeight: 700, lineHeight: 1.2 } }} />
                 </div>
               </Flex>
             </Card>

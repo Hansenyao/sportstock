@@ -53,16 +53,18 @@ const DATE_PRESET_OPTIONS = [
   { value: 'custom', label: 'Custom range…' },
 ];
 
-const CART_KEY = 'sportstock_loan_cart';
 const PAGE_SIZE = 20;
 
 // ── Cart helpers ──────────────────────────────────────────────────────────────
 
-function loadCart(): CartItem[] {
-  try { return JSON.parse(localStorage.getItem(CART_KEY) ?? '[]'); } catch { return []; }
+function cartKey(userId: string | undefined) {
+  return `sportstock_loan_cart_${userId ?? 'anon'}`;
 }
-function saveCart(items: CartItem[]) {
-  localStorage.setItem(CART_KEY, JSON.stringify(items));
+function loadCart(userId: string | undefined): CartItem[] {
+  try { return JSON.parse(localStorage.getItem(cartKey(userId)) ?? '[]'); } catch { return []; }
+}
+function saveCart(userId: string | undefined, items: CartItem[]) {
+  localStorage.setItem(cartKey(userId), JSON.stringify(items));
 }
 
 // ── Asset thumbnail ───────────────────────────────────────────────────────────
@@ -110,7 +112,7 @@ export default function LoansPage() {
   const [editCoachTeams, setEditCoachTeams] = useState<UserTeamMembership[]>([]);
 
   // Cart & create drawer state
-  const [cart, setCart]             = useState<CartItem[]>(loadCart);
+  const [cart, setCart]             = useState<CartItem[]>(() => loadCart(user?.id));
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [createForm] = Form.useForm();
@@ -211,7 +213,7 @@ export default function LoansPage() {
             available_quantity: asset.available_quantity,
             quantity: 1,
           }];
-      saveCart(next);
+      saveCart(user?.id, next);
       return next;
     });
   }
@@ -221,16 +223,16 @@ export default function LoansPage() {
       const next = qty < 1
         ? prev.filter(i => i.asset_type_id !== assetTypeId)
         : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i);
-      saveCart(next);
+      saveCart(user?.id, next);
       return next;
     });
   }
 
   function cartRemove(assetTypeId: string) {
-    setCart(prev => { const next = prev.filter(i => i.asset_type_id !== assetTypeId); saveCart(next); return next; });
+    setCart(prev => { const next = prev.filter(i => i.asset_type_id !== assetTypeId); saveCart(user?.id, next); return next; });
   }
 
-  function clearCart() { setCart([]); saveCart([]); }
+  function clearCart() { setCart([]); saveCart(user?.id, []); }
 
   // ── Create loan ─────────────────────────────────────────────────────────────
 

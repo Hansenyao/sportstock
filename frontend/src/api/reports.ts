@@ -96,10 +96,21 @@ export interface MonthlyTrend {
   loan_count: number;
 }
 
+export interface TeamSummary {
+  id: string;
+  name: string;
+  age_group: string;
+  gender: string;
+  total_loans: number;
+  active_loans: number;
+  overdue_loans: number;
+}
+
 export interface LoanUsageReport {
   top_assets: TopAsset[];
   coach_summary: CoachSummary[];
   monthly_trend: MonthlyTrend[];
+  team_summary: TeamSummary | null;
 }
 
 export interface MovementSummary {
@@ -152,13 +163,14 @@ export function getAlerts(): Promise<AlertsReport> {
 }
 
 // getLoanUsage coerces pg aggregate strings (COUNT/SUM) to numbers
-export function getLoanUsage(): Promise<LoanUsageReport> {
+export function getLoanUsage(params?: { team_id?: string }): Promise<LoanUsageReport> {
   return client
     .get<{
       top_assets: Record<string, unknown>[];
       coach_summary: Record<string, unknown>[];
       monthly_trend: Record<string, unknown>[];
-    }>('/reports/loan-usage')
+      team_summary: Record<string, unknown> | null;
+    }>('/reports/loan-usage', { params })
     .then(r => ({
       top_assets: r.data.top_assets.map(x => ({
         id: String(x.id),
@@ -176,6 +188,17 @@ export function getLoanUsage(): Promise<LoanUsageReport> {
         month: String(x.month),
         loan_count: Number(x.loan_count),
       })),
+      team_summary: r.data.team_summary
+        ? {
+            id:            String(r.data.team_summary.id),
+            name:          String(r.data.team_summary.name),
+            age_group:     String(r.data.team_summary.age_group),
+            gender:        String(r.data.team_summary.gender),
+            total_loans:   Number(r.data.team_summary.total_loans),
+            active_loans:  Number(r.data.team_summary.active_loans),
+            overdue_loans: Number(r.data.team_summary.overdue_loans),
+          }
+        : null,
     }));
 }
 

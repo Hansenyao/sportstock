@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Layout, Menu, Button, Avatar, Typography, Flex, Tag, Grid, Drawer } from 'antd';
 import {
   DashboardOutlined, DatabaseOutlined, SwapOutlined,
-  TeamOutlined, BankOutlined, LogoutOutlined, MenuOutlined,
+  TeamOutlined, SettingOutlined, LogoutOutlined, MenuOutlined,
   AppstoreOutlined, DeleteOutlined, TrophyOutlined, TagOutlined, BarChartOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
@@ -28,7 +28,7 @@ const NAV_ITEMS = [
   { key: '/dashboard/analytics',   icon: <BarChartOutlined />,     label: 'Analytics',   managerOnly: true },
   { key: '/dashboard/users',       icon: <TeamOutlined />,         label: 'Users',       adminOnly: true },
   { key: '/dashboard/teams',       icon: <TrophyOutlined />,       label: 'Teams',       adminOnly: true },
-  { key: '/dashboard/club',        icon: <BankOutlined />,         label: 'Club Profile' },
+  { key: '/dashboard/settings',    icon: <SettingOutlined />,      label: 'Settings',    adminOnly: true },
 ];
 
 export default function DashboardLayout() {

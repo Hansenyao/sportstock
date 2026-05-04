@@ -119,17 +119,23 @@ export async function getDepreciationReport(clubId: string): Promise<{
 
 export async function getLoanUsage(
   clubId: string,
-  { from_date, to_date }: { from_date?: string; to_date?: string }
+  { from_date, to_date, team_id }: { from_date?: string; to_date?: string; team_id?: string }
 ): Promise<{
   top_assets: Record<string, unknown>[];
   coach_summary: Record<string, unknown>[];
   monthly_trend: Record<string, unknown>[];
+  team_summary: Record<string, unknown> | null;
 }> {
   const params: unknown[] = [clubId];
-  const dateFilters: string[] = [];
-  if (from_date) dateFilters.push(`l.created_at >= $${params.push(from_date)}`);
-  if (to_date)   dateFilters.push(`l.created_at <  $${params.push(to_date)}`);
-  const dateWhere = dateFilters.length ? ' AND ' + dateFilters.join(' AND ') : '';
+  const extraWhere: string[] = [];
+  if (team_id)   extraWhere.push(`l.team_id = $${params.push(team_id)}`);
+  if (from_date) extraWhere.push(`l.created_at >= $${params.push(from_date)}`);
+  if (to_date)   extraWhere.push(`l.created_at <  $${params.push(to_date)}`);
+  const filterWhere = extraWhere.length ? ' AND ' + extraWhere.join(' AND ') : '';
+
+  // Separate params for monthly_trend (no alias prefix on column names)
+  const trendParams: unknown[] = [clubId];
+  const trendWhere = team_id ? ` AND team_id = $${trendParams.push(team_id)}` : '';
 
   const [topAssets, coachSummary, monthlyTrend] = await Promise.all([
     db.query<Record<string, unknown>>(
@@ -140,7 +146,7 @@ export async function getLoanUsage(
        JOIN loans      l  ON l.id  = li.loan_id
        JOIN asset_types at ON at.id = li.asset_type_id
        JOIN asset_names an ON an.id = at.asset_name_id
-       WHERE l.club_id = $1 AND l.status != 'pending' ${dateWhere}
+       WHERE l.club_id = $1 AND l.status != 'pending' ${filterWhere}
        GROUP BY at.id, an.name
        ORDER BY loan_count DESC
        LIMIT 10`,
@@ -152,7 +158,7 @@ export async function getLoanUsage(
               COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'checked_out') AS active_loans
        FROM loans l
        JOIN users u ON u.id = l.coach_id
-       WHERE l.club_id = $1 ${dateWhere}
+       WHERE l.club_id = $1 ${filterWhere}
        GROUP BY u.id, u.name
        ORDER BY loan_count DESC`,
       params
@@ -160,16 +166,43 @@ export async function getLoanUsage(
     db.query<Record<string, unknown>>(
       `SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month, COUNT(*) AS loan_count
        FROM loans
-       WHERE club_id = $1 AND created_at >= NOW() - INTERVAL '6 months'
+       WHERE club_id = $1 AND created_at >= NOW() - INTERVAL '6 months' ${trendWhere}
        GROUP BY month ORDER BY month`,
-      [clubId]
+      trendParams
     ),
   ]);
+
+  let teamSummaryRow: Record<string, unknown> | undefined;
+  if (team_id) {
+    const { rows } = await db.query<Record<string, unknown>>(
+      `SELECT t.id, t.name, t.age_group, t.gender,
+              COUNT(DISTINCT l.id)                                          AS total_loans,
+              COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'checked_out') AS active_loans,
+              COUNT(DISTINCT l.id) FILTER (
+                WHERE l.status = 'checked_out' AND l.due_date < CURRENT_DATE
+              ) AS overdue_loans
+       FROM teams t
+       LEFT JOIN loans l ON l.team_id = t.id AND l.club_id = $1
+       WHERE t.id = $2 AND t.club_id = $1
+       GROUP BY t.id, t.name, t.age_group, t.gender`,
+      [clubId, team_id]
+    );
+    if (rows[0]) {
+      const r = rows[0];
+      teamSummaryRow = {
+        ...r,
+        total_loans:   Number(r.total_loans),
+        active_loans:  Number(r.active_loans),
+        overdue_loans: Number(r.overdue_loans),
+      };
+    }
+  }
 
   return {
     top_assets:    topAssets.rows,
     coach_summary: coachSummary.rows,
     monthly_trend: monthlyTrend.rows,
+    team_summary:  teamSummaryRow ?? null,
   };
 }
 

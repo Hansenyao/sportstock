@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Tabs, Badge, Spin, Flex, Alert, Typography } from 'antd';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  getSummary, getDepreciation, getAlerts, getLoanUsage, getMovements, getRecentMovements,
+  getSummary, getDepreciation, getAlerts, getMovements, getRecentMovements,
   type SummaryReport, type DepreciationReport, type AlertsReport,
-  type LoanUsageReport, type MovementSummary, type RecentMovement,
+  type MovementSummary, type RecentMovement,
 } from '../../api/reports';
 import { getMyClub, type Club } from '../../api/clubs';
 import OverviewTab from './tabs/OverviewTab';
@@ -19,7 +19,6 @@ interface PageData {
   summary: SummaryReport;
   depreciation: DepreciationReport;
   alerts: AlertsReport;
-  loanUsage: LoanUsageReport;
   movements: MovementSummary[];
   recentMovements: RecentMovement[];
   club: Club;
@@ -41,17 +40,16 @@ export default function AnalyticsPage() {
 
     async function load() {
       try {
-        const [summary, depreciation, alerts, loanUsage, movements, recentMovements, club] =
+        const [summary, depreciation, alerts, movements, recentMovements, club] =
           await Promise.all([
             getSummary(),
             getDepreciation(),
             getAlerts(),
-            getLoanUsage(),
             getMovements(),
             getRecentMovements(),
             getMyClub(),
           ]);
-        setData({ summary, depreciation, alerts, loanUsage, movements, recentMovements, club });
+        setData({ summary, depreciation, alerts, movements, recentMovements, club });
       } catch {
         setError('Failed to load analytics data. Please refresh the page.');
       } finally {
@@ -100,7 +98,7 @@ export default function AnalyticsPage() {
     {
       key: 'loans',
       label: 'Loan Analysis',
-      children: <LoanAnalysisTab loanUsage={data.loanUsage} />,
+      children: <LoanAnalysisTab />,
     },
     {
       key: 'movements',

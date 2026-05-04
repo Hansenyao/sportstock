@@ -1,16 +1,26 @@
 import * as db from '../db';
 
 export async function getSummary(clubId: string): Promise<Record<string, unknown>> {
-  const [{ rows: assetRows }, { rows: loanRows }] = await Promise.all([
+  const [{ rows: assetRows }, { rows: loanRows }, { rows: categoryRows }] = await Promise.all([
     db.query<Record<string, unknown>>(
       `SELECT
-         COUNT(DISTINCT at.id)                                         AS total_assets,
-         COALESCE(SUM(ab.total_quantity)     FILTER (WHERE at.is_active = true), 0) AS total_items,
-         COALESCE(SUM(ab.available_quantity) FILTER (WHERE at.is_active = true), 0) AS available_items,
+         COUNT(DISTINCT at.id)                                                            AS total_assets,
+         COALESCE(SUM(ab.total_quantity)     FILTER (WHERE at.is_active = true), 0)      AS total_items,
+         COALESCE(SUM(ab.available_quantity) FILTER (WHERE at.is_active = true), 0)      AS available_items,
          COALESCE(
            SUM(ab.purchase_price * ab.total_quantity)
            FILTER (WHERE at.is_active = true AND ab.purchase_price IS NOT NULL), 0
-         )                                                             AS total_purchase_value
+         )                                                                                AS total_purchase_value,
+         COALESCE(SUM(ab.total_quantity)
+           FILTER (WHERE at.is_active = true AND ab.status != 'retired'), 0)             AS active_total,
+         COALESCE(SUM(ab.available_quantity)
+           FILTER (WHERE at.is_active = true AND ab.status != 'retired'), 0)             AS available_qty,
+         COALESCE(SUM(ab.total_quantity)
+           FILTER (WHERE at.is_active = true AND ab.status = 'on_loan'), 0)              AS on_loan_qty,
+         COALESCE(SUM(ab.total_quantity)
+           FILTER (WHERE at.is_active = true AND ab.status = 'maintenance'), 0)          AS maintenance_qty,
+         COALESCE(SUM(ab.total_quantity)
+           FILTER (WHERE at.is_active = true AND ab.status = 'retired'), 0)              AS retired_qty
        FROM asset_types at
        LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
        WHERE at.club_id = $1`,
@@ -23,8 +33,41 @@ export async function getSummary(clubId: string): Promise<Record<string, unknown
        FROM loans WHERE club_id = $1 AND status = 'checked_out'`,
       [clubId]
     ),
+    db.query<Record<string, unknown>>(
+      `SELECT
+         COALESCE(ac.name, 'Uncategorized')               AS category_name,
+         COALESCE(SUM(ab.total_quantity)
+           FILTER (WHERE ab.status != 'retired'), 0)      AS total_qty,
+         COALESCE(SUM(ab.available_quantity)
+           FILTER (WHERE ab.status != 'retired'), 0)      AS available_qty
+       FROM asset_types at
+       JOIN asset_names an ON an.id = at.asset_name_id
+       LEFT JOIN asset_categories ac ON ac.id = an.category_id
+       LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
+       WHERE at.club_id = $1 AND at.is_active = true
+       GROUP BY ac.id, ac.name
+       ORDER BY total_qty DESC`,
+      [clubId]
+    ),
   ]);
-  return { ...assetRows[0], ...loanRows[0] };
+
+  const asset = assetRows[0];
+  const loan  = loanRows[0];
+
+  return {
+    ...asset,
+    ...loan,
+    active_total:    Number(asset.active_total),
+    available_qty:   Number(asset.available_qty),
+    on_loan_qty:     Number(asset.on_loan_qty),
+    maintenance_qty: Number(asset.maintenance_qty),
+    retired_qty:     Number(asset.retired_qty),
+    category_breakdown: categoryRows.map((r) => ({
+      ...r,
+      total_qty:     Number(r.total_qty),
+      available_qty: Number(r.available_qty),
+    })),
+  };
 }
 
 export async function getDepreciationReport(clubId: string): Promise<{

@@ -85,3 +85,50 @@ describe('GET /api/v1/reports/movements', () => {
     expect(Array.isArray(res.body)).toBe(true);
   });
 });
+
+describe('GET /api/v1/reports/summary — enhanced fields', () => {
+  it('returns status-breakdown counts', async () => {
+    const res = await request(app)
+      .get('/api/v1/reports/summary')
+      .set(authHeader(managerUserId));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      active_total:    expect.any(Number),
+      available_qty:   expect.any(Number),
+      on_loan_qty:     expect.any(Number),
+      maintenance_qty: expect.any(Number),
+      retired_qty:     expect.any(Number),
+    });
+    // active_total must be non-negative and >= available_qty
+    expect(res.body.active_total).toBeGreaterThanOrEqual(0);
+    expect(res.body.active_total).toBeGreaterThanOrEqual(res.body.available_qty);
+  });
+
+  it('returns category_breakdown array with correct shape', async () => {
+    const res = await request(app)
+      .get('/api/v1/reports/summary')
+      .set(authHeader(managerUserId));
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.category_breakdown)).toBe(true);
+    if (res.body.category_breakdown.length > 0) {
+      expect(res.body.category_breakdown[0]).toMatchObject({
+        category_name: expect.any(String),
+        total_qty:     expect.any(Number),
+        available_qty: expect.any(Number),
+      });
+    }
+  });
+
+  it('existing fields are still present', async () => {
+    const res = await request(app)
+      .get('/api/v1/reports/summary')
+      .set(authHeader(managerUserId));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      total_assets:        expect.anything(),
+      total_items:         expect.anything(),
+      available_items:     expect.anything(),
+      total_purchase_value: expect.anything(),
+    });
+  });
+});

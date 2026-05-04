@@ -1,0 +1,177 @@
+import client from './client';
+
+// ─── Types ────────────────────────────────────────────────────────────────
+
+export interface CategoryBreakdown {
+  category_name: string;
+  total_qty: number;
+  available_qty: number;
+}
+
+export interface SummaryReport {
+  total_assets: number;
+  total_items: number;
+  available_items: number;
+  total_purchase_value: number;
+  active_total: number;
+  available_qty: number;
+  on_loan_qty: number;
+  maintenance_qty: number;
+  retired_qty: number;
+  active_loans: number;
+  overdue_loans: number;
+  category_breakdown: CategoryBreakdown[];
+}
+
+export interface DepreciationItem {
+  batch_id: string;
+  asset_name: string;
+  brand: string | null;
+  model: string | null;
+  purchase_date: string;
+  purchase_price: number;
+  total_quantity: number;
+  useful_life_years: number;
+  years_elapsed: number;
+  annual_depreciation: number;
+  accumulated_depreciation: number;
+  net_book_value: number;
+}
+
+export interface DepreciationReport {
+  items: DepreciationItem[];
+  summary: {
+    total_batches_with_depreciation: number;
+    total_purchase_value: string;
+    total_net_book_value: string;
+    total_accumulated_depreciation: string;
+  };
+}
+
+export interface RetirementRiskItem {
+  batch_id: string;
+  asset_name: string;
+  brand: string | null;
+  model: string | null;
+  size: string | null;
+  purchase_date: string;
+  useful_life_years: number;
+  total_quantity: number;
+  batch_status: string;
+  life_used_percent: number;
+}
+
+export interface LowStockItem {
+  asset_type_id: string;
+  asset_name: string;
+  brand: string | null;
+  model: string | null;
+  size: string | null;
+  total_qty: number;
+  available_qty: number;
+  effective_threshold: number;
+}
+
+export interface AlertsReport {
+  retirement_risk: RetirementRiskItem[];
+  low_stock: LowStockItem[];
+  total_alert_count: number;
+}
+
+export interface TopAsset {
+  id: string;
+  name: string;
+  loan_count: number;
+  total_quantity_borrowed: number;
+}
+
+export interface CoachSummary {
+  id: string;
+  name: string;
+  loan_count: number;
+  active_loans: number;
+}
+
+export interface MonthlyTrend {
+  month: string;
+  loan_count: number;
+}
+
+export interface LoanUsageReport {
+  top_assets: TopAsset[];
+  coach_summary: CoachSummary[];
+  monthly_trend: MonthlyTrend[];
+}
+
+export interface MovementSummary {
+  type: string;
+  count: number;
+  total_units: number;
+}
+
+export interface RecentMovement {
+  id: string;
+  asset_type_name: string;
+  type: string;
+  quantity_delta: number;
+  created_at: string;
+}
+
+// ─── API functions ─────────────────────────────────────────────────────────
+
+export function getSummary(): Promise<SummaryReport> {
+  return client.get<SummaryReport>('/reports/summary').then(r => r.data);
+}
+
+export function getDepreciation(): Promise<DepreciationReport> {
+  return client.get<DepreciationReport>('/reports/depreciation').then(r => r.data);
+}
+
+export function getAlerts(): Promise<AlertsReport> {
+  return client.get<AlertsReport>('/reports/alerts').then(r => r.data);
+}
+
+// getLoanUsage coerces pg aggregate strings (COUNT/SUM) to numbers
+export function getLoanUsage(): Promise<LoanUsageReport> {
+  return client
+    .get<{
+      top_assets: Record<string, unknown>[];
+      coach_summary: Record<string, unknown>[];
+      monthly_trend: Record<string, unknown>[];
+    }>('/reports/loan-usage')
+    .then(r => ({
+      top_assets: r.data.top_assets.map(x => ({
+        id: String(x.id),
+        name: String(x.name),
+        loan_count: Number(x.loan_count),
+        total_quantity_borrowed: Number(x.total_quantity_borrowed),
+      })),
+      coach_summary: r.data.coach_summary.map(x => ({
+        id: String(x.id),
+        name: String(x.name),
+        loan_count: Number(x.loan_count),
+        active_loans: Number(x.active_loans),
+      })),
+      monthly_trend: r.data.monthly_trend.map(x => ({
+        month: String(x.month),
+        loan_count: Number(x.loan_count),
+      })),
+    }));
+}
+
+// getMovements coerces pg aggregate strings to numbers
+export function getMovements(): Promise<MovementSummary[]> {
+  return client
+    .get<Record<string, unknown>[]>('/reports/movements')
+    .then(r =>
+      r.data.map(x => ({
+        type: String(x.type),
+        count: Number(x.count),
+        total_units: Number(x.total_units),
+      }))
+    );
+}
+
+export function getRecentMovements(): Promise<RecentMovement[]> {
+  return client.get<RecentMovement[]>('/reports/movements/recent').then(r => r.data);
+}

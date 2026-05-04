@@ -169,7 +169,7 @@ export function getLoanUsage(params?: { team_id?: string }): Promise<LoanUsageRe
       top_assets: Record<string, unknown>[];
       coach_summary: Record<string, unknown>[];
       monthly_trend: Record<string, unknown>[];
-      team_summary: Record<string, unknown> | null;
+      team_summary: Record<string, unknown>;
     }>('/reports/loan-usage', { params })
     .then(r => ({
       top_assets: r.data.top_assets.map(x => ({

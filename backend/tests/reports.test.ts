@@ -141,18 +141,16 @@ describe('GET /api/v1/reports/alerts', () => {
   let lowStockTypeId: string;
 
   beforeAll(async () => {
-    const { rows: nameRows } = await dbQuery<{ id: string }>(
-      `INSERT INTO asset_names (club_id, name) VALUES ($1, 'Alert Test Ball') RETURNING id`,
+    // Asset type 1: retirement-risk only
+    const { rows: retireNameRows } = await dbQuery<{ id: string }>(
+      `INSERT INTO asset_names (club_id, name) VALUES ($1, 'Alert Retire Ball') RETURNING id`,
       [clubId]
     );
-    const nameId = nameRows[0].id;
-
-    const { rows: typeRows } = await dbQuery<{ id: string }>(
+    const { rows: retireTypeRows } = await dbQuery<{ id: string }>(
       `INSERT INTO asset_types (club_id, asset_name_id) VALUES ($1, $2) RETURNING id`,
-      [clubId, nameId]
+      [clubId, retireNameRows[0].id]
     );
-    const typeId = typeRows[0].id;
-    lowStockTypeId = typeId;
+    const retireTypeId = retireTypeRows[0].id;
 
     // Retirement-risk batch: 2019-01-01 start, 5-year life → ~146% elapsed
     const { rows: batchRows } = await dbQuery<{ id: string }>(
@@ -160,9 +158,20 @@ describe('GET /api/v1/reports/alerts', () => {
          (asset_type_id, total_quantity, available_quantity, status,
           purchase_date, purchase_price, useful_life_years)
        VALUES ($1, 5, 5, 'available', '2019-01-01', 100.00, 5) RETURNING id`,
-      [typeId]
+      [retireTypeId]
     );
     retirementBatchId = batchRows[0].id;
+
+    // Asset type 2: low-stock only (no retirement-risk batch)
+    const { rows: stockNameRows } = await dbQuery<{ id: string }>(
+      `INSERT INTO asset_names (club_id, name) VALUES ($1, 'Alert Stock Ball') RETURNING id`,
+      [clubId]
+    );
+    const { rows: stockTypeRows } = await dbQuery<{ id: string }>(
+      `INSERT INTO asset_types (club_id, asset_name_id) VALUES ($1, $2) RETURNING id`,
+      [clubId, stockNameRows[0].id]
+    );
+    lowStockTypeId = stockTypeRows[0].id;
 
     // Low-stock batch: available_quantity=1, club default threshold=2
     await dbQuery(
@@ -170,7 +179,7 @@ describe('GET /api/v1/reports/alerts', () => {
          (asset_type_id, total_quantity, available_quantity, status,
           purchase_date, purchase_price, useful_life_years)
        VALUES ($1, 10, 1, 'available', '2024-01-01', 20.00, 3)`,
-      [typeId]
+      [lowStockTypeId]
     );
   });
 

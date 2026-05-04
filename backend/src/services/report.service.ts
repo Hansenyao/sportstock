@@ -241,24 +241,7 @@ export async function getAlerts(clubId: string): Promise<{
          COALESCE(SUM(ab.total_quantity)
            FILTER (WHERE ab.status != 'retired'), 0)                         AS total_qty,
          COALESCE(SUM(ab.available_quantity)
-           FILTER (WHERE ab.status != 'retired'
-             AND NOT (
-               ab.purchase_date IS NOT NULL
-               AND ab.useful_life_years IS NOT NULL
-               AND (
-                 CASE
-                   WHEN c.retirement_alert_mode = 'percent' THEN
-                     EXTRACT(EPOCH FROM (NOW() - ab.purchase_date))
-                     / (ab.useful_life_years * 365.25 * 86400) * 100
-                     >= c.retirement_alert_value
-                   ELSE
-                     ab.useful_life_years * 12
-                     - EXTRACT(EPOCH FROM (NOW() - ab.purchase_date)) / (30.4375 * 86400)
-                     <= c.retirement_alert_value
-                 END
-               )
-             )
-           ), 0)                                                              AS available_qty,
+           FILTER (WHERE ab.status != 'retired'), 0)                         AS available_qty,
          COALESCE(at.low_stock_threshold, c.low_stock_threshold)             AS effective_threshold
        FROM asset_types at
        JOIN asset_names an ON an.id = at.asset_name_id AND an.club_id = $1
@@ -268,25 +251,7 @@ export async function getAlerts(clubId: string): Promise<{
        GROUP BY at.id, an.name, at.brand, at.model, at.size,
                 at.low_stock_threshold, c.low_stock_threshold
        HAVING
-         COALESCE(SUM(ab.available_quantity)
-           FILTER (WHERE ab.status != 'retired'
-             AND NOT (
-               ab.purchase_date IS NOT NULL
-               AND ab.useful_life_years IS NOT NULL
-               AND (
-                 CASE
-                   WHEN c.retirement_alert_mode = 'percent' THEN
-                     EXTRACT(EPOCH FROM (NOW() - ab.purchase_date))
-                     / (ab.useful_life_years * 365.25 * 86400) * 100
-                     >= c.retirement_alert_value
-                   ELSE
-                     ab.useful_life_years * 12
-                     - EXTRACT(EPOCH FROM (NOW() - ab.purchase_date)) / (30.4375 * 86400)
-                     <= c.retirement_alert_value
-                 END
-               )
-             )
-           ), 0)
+         COALESCE(SUM(ab.available_quantity) FILTER (WHERE ab.status != 'retired'), 0)
          <= COALESCE(at.low_stock_threshold, c.low_stock_threshold)
        ORDER BY available_qty ASC`,
       [clubId]

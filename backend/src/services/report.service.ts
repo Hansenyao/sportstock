@@ -284,3 +284,26 @@ export async function getAlerts(clubId: string): Promise<{
     total_alert_count: retirementRows.length + lowStockRows.length,
   };
 }
+
+export async function getRecentMovements(clubId: string): Promise<Record<string, unknown>[]> {
+  const { rows } = await db.query<Record<string, unknown>>(
+    `SELECT
+       sm.id,
+       COALESCE(an.name, 'Unknown') AS asset_type_name,
+       sm.type,
+       sm.quantity_delta,
+       sm.created_at
+     FROM stock_movements sm
+     LEFT JOIN asset_batches ab ON ab.id  = sm.asset_batch_id
+     LEFT JOIN asset_types   at ON at.id  = ab.asset_type_id
+     LEFT JOIN asset_names   an ON an.id  = at.asset_name_id
+     WHERE sm.club_id = $1
+     ORDER BY sm.created_at DESC
+     LIMIT 10`,
+    [clubId]
+  );
+  return rows.map((r) => ({
+    ...r,
+    quantity_delta: Number(r.quantity_delta),
+  }));
+}

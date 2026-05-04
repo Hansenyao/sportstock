@@ -251,3 +251,30 @@ describe('GET /api/v1/reports/alerts', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('GET /api/v1/reports/movements/recent', () => {
+  it('returns array of up to 10 recent movements with required fields', async () => {
+    const res = await request(app)
+      .get('/api/v1/reports/movements/recent')
+      .set(authHeader(managerUserId));
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBeLessThanOrEqual(10);
+    if (res.body.length > 0) {
+      expect(res.body[0]).toMatchObject({
+        id:              expect.any(String),
+        asset_type_name: expect.any(String),
+        type:            expect.any(String),
+        quantity_delta:  expect.any(Number),
+        created_at:      expect.any(String),
+      });
+    }
+  });
+
+  it('returns 403 for coach', async () => {
+    const res = await request(app)
+      .get('/api/v1/reports/movements/recent')
+      .set(authHeader(coachUserId));
+    expect(res.status).toBe(403);
+  });
+});

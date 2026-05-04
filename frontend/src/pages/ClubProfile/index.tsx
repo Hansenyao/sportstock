@@ -53,8 +53,13 @@ export default function ClubProfilePage() {
   }
 
   function cancelEdit() {
-    form.resetFields();
     if (club) {
+      form.setFieldsValue({
+        name: club.name,
+        sport_type: club.sport_type,
+        contact_email: club.contact_email,
+        address: club.address ?? '',
+      });
       setAlertMode(club.retirement_alert_mode ?? 'percent');
       setAlertValue(club.retirement_alert_value ?? 80);
     }
@@ -187,7 +192,7 @@ export default function ClubProfilePage() {
                 min={1}
                 max={alertMode === 'percent' ? 100 : 120}
                 value={alertValue}
-                onChange={v => setAlertValue(v ?? 1)}
+                onChange={v => setAlertValue(v !== null ? v : alertValue)}
                 addonAfter={alertMode === 'percent' ? '%' : 'months'}
                 style={{ width: 160 }}
               />

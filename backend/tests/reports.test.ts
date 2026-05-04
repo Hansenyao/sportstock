@@ -11,6 +11,8 @@ let clubId: string;
 let adminUserId: string;
 let managerUserId: string;
 let coachUserId: string;
+let teamId: string;
+let loanId: string;
 
 beforeAll(async () => {
   clubId = await createClub('Reports Test Club');
@@ -21,6 +23,22 @@ beforeAll(async () => {
   const coach = await createUser(coachEmail, clubId, 'coach');
   coachUserId = coach.id;
   await createAsset(clubId, managerUserId, 'Report Test Ball', 5); // eslint-disable-line @typescript-eslint/no-unused-vars
+
+  // Create a team for the team-filter tests
+  const { rows: [team] } = await dbQuery<{ id: string }>(
+    `INSERT INTO teams (club_id, name, gender, age_group)
+     VALUES ($1, 'Reports Team', 'Boys', 'U12') RETURNING id`,
+    [clubId]
+  );
+  teamId = team.id;
+
+  // Create a checked-out loan belonging to that team
+  const { rows: [loan] } = await dbQuery<{ id: string }>(
+    `INSERT INTO loans (club_id, coach_id, team_id, status, due_date, created_by)
+     VALUES ($1, $2, $3, 'checked_out', CURRENT_DATE + INTERVAL '7 days', $2) RETURNING id`,
+    [clubId, coachUserId, teamId]
+  );
+  loanId = loan.id;
 });
 
 afterAll(async () => {
@@ -292,5 +310,31 @@ describe('GET /api/v1/reports/movements/recent', () => {
       .get('/api/v1/reports/movements/recent')
       .set(authHeader(coachUserId));
     expect(res.status).toBe(403);
+  });
+});
+
+describe('GET /api/v1/reports/loan-usage?team_id', () => {
+  it('returns team_summary when team_id is provided', async () => {
+    const res = await request(app)
+      .get(`/api/v1/reports/loan-usage?team_id=${teamId}`)
+      .set(authHeader(managerUserId));
+    expect(res.status).toBe(200);
+    expect(res.body.team_summary).toMatchObject({
+      id: teamId,
+      name: 'Reports Team',
+      total_loans: expect.any(Number),
+      active_loans: expect.any(Number),
+      overdue_loans: expect.any(Number),
+    });
+    expect(Number(res.body.team_summary.total_loans)).toBeGreaterThanOrEqual(1);
+    expect(Number(res.body.team_summary.active_loans)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('returns null team_summary when team_id is not provided', async () => {
+    const res = await request(app)
+      .get('/api/v1/reports/loan-usage')
+      .set(authHeader(managerUserId));
+    expect(res.status).toBe(200);
+    expect(res.body.team_summary).toBeNull();
   });
 });

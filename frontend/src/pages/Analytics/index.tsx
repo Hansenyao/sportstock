@@ -34,13 +34,14 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     if (user && user.role !== 'club_admin' && user.role !== 'asset_manager') {
+      setLoading(false);
       navigate('/dashboard', { replace: true });
       return;
     }
 
     async function load() {
       try {
-        const [summary, depreciation, alerts, loanUsage, movements, recentMovements, clubRes] =
+        const [summary, depreciation, alerts, loanUsage, movements, recentMovements, club] =
           await Promise.all([
             getSummary(),
             getDepreciation(),
@@ -50,10 +51,7 @@ export default function AnalyticsPage() {
             getRecentMovements(),
             getMyClub(),
           ]);
-        setData({
-          summary, depreciation, alerts, loanUsage, movements, recentMovements,
-          club: clubRes.data,
-        });
+        setData({ summary, depreciation, alerts, loanUsage, movements, recentMovements, club });
       } catch {
         setError('Failed to load analytics data. Please refresh the page.');
       } finally {

@@ -27,7 +27,7 @@ export default function ClubProfilePage() {
 
   useEffect(() => {
     getMyClub()
-      .then(res => setClub(res.data))
+      .then(club => setClub(club))
       .catch(() => message.error('Failed to load club info'))
       .finally(() => setLoading(false));
   }, [message]);

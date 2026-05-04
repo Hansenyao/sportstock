@@ -14,7 +14,7 @@ export interface Club {
 }
 
 export const getMyClub = () =>
-  client.get<Club>('/clubs/me');
+  client.get<Club>('/clubs/me').then(r => r.data);
 
 export const updateMyClub = (
   data: Partial<Pick<

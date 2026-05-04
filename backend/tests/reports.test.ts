@@ -330,11 +330,17 @@ describe('GET /api/v1/reports/loan-usage?team_id', () => {
     expect(Number(res.body.team_summary.active_loans)).toBeGreaterThanOrEqual(1);
   });
 
-  it('returns null team_summary when team_id is not provided', async () => {
+  it('returns global team_summary when team_id is not provided', async () => {
     const res = await request(app)
       .get('/api/v1/reports/loan-usage')
       .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
-    expect(res.body.team_summary).toBeNull();
+    expect(res.body.team_summary).toMatchObject({
+      id:           null,
+      name:         'All Teams',
+      total_loans:  expect.any(Number),
+      active_loans: expect.any(Number),
+      overdue_loans: expect.any(Number),
+    });
   });
 });

@@ -97,10 +97,10 @@ export interface MonthlyTrend {
 }
 
 export interface TeamSummary {
-  id: string;
+  id: string | null;
   name: string;
-  age_group: string;
-  gender: string;
+  age_group?: string;
+  gender?: string;
   total_loans: number;
   active_loans: number;
   overdue_loans: number;
@@ -110,7 +110,7 @@ export interface LoanUsageReport {
   top_assets: TopAsset[];
   coach_summary: CoachSummary[];
   monthly_trend: MonthlyTrend[];
-  team_summary: TeamSummary | null;
+  team_summary: TeamSummary;
 }
 
 export interface MovementSummary {
@@ -188,17 +188,15 @@ export function getLoanUsage(params?: { team_id?: string }): Promise<LoanUsageRe
         month: String(x.month),
         loan_count: Number(x.loan_count),
       })),
-      team_summary: r.data.team_summary
-        ? {
-            id:            String(r.data.team_summary.id),
-            name:          String(r.data.team_summary.name),
-            age_group:     String(r.data.team_summary.age_group),
-            gender:        String(r.data.team_summary.gender),
-            total_loans:   Number(r.data.team_summary.total_loans),
-            active_loans:  Number(r.data.team_summary.active_loans),
-            overdue_loans: Number(r.data.team_summary.overdue_loans),
-          }
-        : null,
+      team_summary: {
+        id:            r.data.team_summary.id != null ? String(r.data.team_summary.id) : null,
+        name:          String(r.data.team_summary.name),
+        age_group:     r.data.team_summary.age_group != null ? String(r.data.team_summary.age_group) : undefined,
+        gender:        r.data.team_summary.gender != null ? String(r.data.team_summary.gender) : undefined,
+        total_loans:   Number(r.data.team_summary.total_loans),
+        active_loans:  Number(r.data.team_summary.active_loans),
+        overdue_loans: Number(r.data.team_summary.overdue_loans),
+      },
     }));
 }
 

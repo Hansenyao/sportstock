@@ -75,34 +75,32 @@ export default function LoanAnalysisTab() {
         </div>
       )}
 
-      {/* Team Summary Cards — only when a team is selected */}
-      {loanUsage.team_summary && (
-        <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-          <Col xs={24} sm={8}>
-            <Card style={{ borderRadius: 12, border: 'none' }}>
-              <Statistic title="Total Loans" value={loanUsage.team_summary.total_loans} />
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card style={{ borderRadius: 12, border: 'none' }}>
-              <Statistic
-                title="Active Loans"
-                value={loanUsage.team_summary.active_loans}
-                valueStyle={{ color: '#1677ff' }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card style={{ borderRadius: 12, border: 'none' }}>
-              <Statistic
-                title="Overdue Loans"
-                value={loanUsage.team_summary.overdue_loans}
-                valueStyle={{ color: loanUsage.team_summary.overdue_loans > 0 ? '#ff4d4f' : undefined }}
-              />
-            </Card>
-          </Col>
-        </Row>
-      )}
+      {/* Loan Summary Cards */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 12, border: 'none' }}>
+            <Statistic title="Total Loans" value={loanUsage.team_summary.total_loans} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 12, border: 'none' }}>
+            <Statistic
+              title="Active Loans"
+              value={loanUsage.team_summary.active_loans}
+              valueStyle={{ color: '#1677ff' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card style={{ borderRadius: 12, border: 'none' }}>
+            <Statistic
+              title="Overdue Loans"
+              value={loanUsage.team_summary.overdue_loans}
+              valueStyle={{ color: loanUsage.team_summary.overdue_loans > 0 ? '#ff4d4f' : undefined }}
+            />
+          </Card>
+        </Col>
+      </Row>
 
       {/* Monthly Loan Trend */}
       <Card

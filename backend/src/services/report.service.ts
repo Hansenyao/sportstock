@@ -124,7 +124,7 @@ export async function getLoanUsage(
   top_assets: Record<string, unknown>[];
   coach_summary: Record<string, unknown>[];
   monthly_trend: Record<string, unknown>[];
-  team_summary: Record<string, unknown> | null;
+  team_summary: Record<string, unknown>;
 }> {
   const params: unknown[] = [clubId];
   const extraWhere: string[] = [];
@@ -172,7 +172,7 @@ export async function getLoanUsage(
     ),
   ]);
 
-  let teamSummaryRow: Record<string, unknown> | undefined;
+  let teamSummaryRow: Record<string, unknown>;
   if (team_id) {
     const { rows } = await db.query<Record<string, unknown>>(
       `SELECT t.id, t.name, t.age_group, t.gender,
@@ -187,22 +187,38 @@ export async function getLoanUsage(
        GROUP BY t.id, t.name, t.age_group, t.gender`,
       [clubId, team_id]
     );
-    if (rows[0]) {
-      const r = rows[0];
-      teamSummaryRow = {
-        ...r,
-        total_loans:   Number(r.total_loans),
-        active_loans:  Number(r.active_loans),
-        overdue_loans: Number(r.overdue_loans),
-      };
-    }
+    const r = rows[0] ?? {};
+    teamSummaryRow = {
+      ...r,
+      total_loans:   Number(r.total_loans   ?? 0),
+      active_loans:  Number(r.active_loans  ?? 0),
+      overdue_loans: Number(r.overdue_loans ?? 0),
+    };
+  } else {
+    const { rows } = await db.query<Record<string, unknown>>(
+      `SELECT COUNT(DISTINCT id)                                           AS total_loans,
+              COUNT(DISTINCT id) FILTER (WHERE status = 'checked_out')    AS active_loans,
+              COUNT(DISTINCT id) FILTER (
+                WHERE status = 'checked_out' AND due_date < CURRENT_DATE
+              ) AS overdue_loans
+       FROM loans WHERE club_id = $1`,
+      [clubId]
+    );
+    const r = rows[0] ?? {};
+    teamSummaryRow = {
+      id:            null,
+      name:          'All Teams',
+      total_loans:   Number(r.total_loans   ?? 0),
+      active_loans:  Number(r.active_loans  ?? 0),
+      overdue_loans: Number(r.overdue_loans ?? 0),
+    };
   }
 
   return {
     top_assets:    topAssets.rows,
     coach_summary: coachSummary.rows,
     monthly_trend: monthlyTrend.rows,
-    team_summary:  teamSummaryRow ?? null,
+    team_summary:  teamSummaryRow,
   };
 }
 

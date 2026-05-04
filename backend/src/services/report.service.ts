@@ -44,7 +44,7 @@ export async function getSummary(clubId: string): Promise<Record<string, unknown
        JOIN asset_names an ON an.id = at.asset_name_id
        LEFT JOIN asset_categories ac ON ac.id = an.category_id
        LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
-       WHERE at.club_id = $1 AND at.is_active = true
+       WHERE at.club_id = $1 AND at.is_active = true AND an.club_id = $1
        GROUP BY ac.id, ac.name
        ORDER BY total_qty DESC`,
       [clubId]
@@ -55,15 +55,19 @@ export async function getSummary(clubId: string): Promise<Record<string, unknown
   const loan  = loanRows[0];
 
   return {
-    ...asset,
-    ...loan,
-    active_total:    Number(asset.active_total),
-    available_qty:   Number(asset.available_qty),
-    on_loan_qty:     Number(asset.on_loan_qty),
-    maintenance_qty: Number(asset.maintenance_qty),
-    retired_qty:     Number(asset.retired_qty),
-    category_breakdown: categoryRows.map((r) => ({
-      ...r,
+    total_assets:         Number(asset.total_assets),
+    total_items:          Number(asset.total_items),
+    available_items:      Number(asset.available_items),
+    total_purchase_value: Number(asset.total_purchase_value),
+    active_total:         Number(asset.active_total),
+    available_qty:        Number(asset.available_qty),
+    on_loan_qty:          Number(asset.on_loan_qty),
+    maintenance_qty:      Number(asset.maintenance_qty),
+    retired_qty:          Number(asset.retired_qty),
+    active_loans:         Number(loan.active_loans),
+    overdue_loans:        Number(loan.overdue_loans),
+    category_breakdown:   categoryRows.map((r) => ({
+      category_name: String(r.category_name),
       total_qty:     Number(r.total_qty),
       available_qty: Number(r.available_qty),
     })),

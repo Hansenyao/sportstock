@@ -15,8 +15,8 @@ export async function getSummary(clubId: string): Promise<Record<string, unknown
            FILTER (WHERE at.is_active = true AND ab.status != 'retired'), 0)             AS active_total,
          COALESCE(SUM(ab.available_quantity)
            FILTER (WHERE at.is_active = true AND ab.status != 'retired'), 0)             AS available_qty,
-         COALESCE(SUM(ab.total_quantity)
-           FILTER (WHERE at.is_active = true AND ab.status = 'on_loan'), 0)              AS on_loan_qty,
+         COALESCE(SUM(ab.total_quantity - ab.available_quantity)
+           FILTER (WHERE at.is_active = true AND ab.status IN ('available', 'on_loan')), 0) AS on_loan_qty,
          COALESCE(SUM(ab.total_quantity)
            FILTER (WHERE at.is_active = true AND ab.status = 'maintenance'), 0)          AS maintenance_qty,
          COALESCE(SUM(ab.total_quantity)
@@ -103,8 +103,8 @@ export async function getDepreciationReport(clubId: string): Promise<{
     [clubId]
   );
 
-  const totalPurchase = rows.reduce((s, r) => s + parseFloat(String(r.purchase_price || 0)), 0);
-  const totalNet      = rows.reduce((s, r) => s + parseFloat(String(r.net_book_value   || 0)), 0);
+  const totalPurchase = rows.reduce((s, r) => s + parseFloat(String(r.purchase_price || 0)) * Number(r.total_quantity), 0);
+  const totalNet      = rows.reduce((s, r) => s + parseFloat(String(r.net_book_value   || 0)) * Number(r.total_quantity), 0);
 
   return {
     items: rows,

@@ -10,24 +10,52 @@ export async function getClub(clubId: string): Promise<Record<string, unknown>> 
 
 export async function updateClub(
   clubId: string,
-  { name, sport_type, address, contact_email, low_stock_threshold }: {
+  {
+    name,
+    sport_type,
+    address,
+    contact_email,
+    low_stock_threshold,
+    retirement_alert_mode,
+    retirement_alert_value,
+  }: {
     name?: string;
     sport_type?: string;
     address?: string;
     contact_email?: string;
     low_stock_threshold?: unknown;
+    retirement_alert_mode?: unknown;
+    retirement_alert_value?: unknown;
   }
 ): Promise<Record<string, unknown>> {
+  if (
+    retirement_alert_mode !== undefined &&
+    retirement_alert_mode !== null &&
+    !['months', 'percent'].includes(String(retirement_alert_mode))
+  ) {
+    throw new AppError('retirement_alert_mode must be "months" or "percent"', 422);
+  }
+
   const { rows } = await db.query<Record<string, unknown>>(
     `UPDATE clubs SET
-       name                = COALESCE($1, name),
-       sport_type          = COALESCE($2, sport_type),
-       address             = COALESCE($3, address),
-       contact_email       = COALESCE($4, contact_email),
-       low_stock_threshold = COALESCE($5, low_stock_threshold)
-     WHERE id = $6 RETURNING *`,
-    [name ?? null, sport_type ?? null, address ?? null, contact_email ?? null,
-     low_stock_threshold != null ? parseInt(String(low_stock_threshold)) : null, clubId]
+       name                   = COALESCE($1, name),
+       sport_type             = COALESCE($2, sport_type),
+       address                = COALESCE($3, address),
+       contact_email          = COALESCE($4, contact_email),
+       low_stock_threshold    = COALESCE($5, low_stock_threshold),
+       retirement_alert_mode  = COALESCE($6, retirement_alert_mode),
+       retirement_alert_value = COALESCE($7, retirement_alert_value)
+     WHERE id = $8 RETURNING *`,
+    [
+      name ?? null,
+      sport_type ?? null,
+      address ?? null,
+      contact_email ?? null,
+      low_stock_threshold != null ? parseInt(String(low_stock_threshold)) : null,
+      retirement_alert_mode != null ? String(retirement_alert_mode) : null,
+      retirement_alert_value != null ? parseInt(String(retirement_alert_value)) : null,
+      clubId,
+    ]
   );
   return rows[0];
 }

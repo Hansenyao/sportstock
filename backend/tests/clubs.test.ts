@@ -99,3 +99,34 @@ describe('POST /api/v1/auth/register — club registration flow', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('PUT /api/v1/clubs/me — retirement alert settings', () => {
+  it('updates retirement_alert_mode and retirement_alert_value', async () => {
+    const res = await request(app)
+      .put('/api/v1/clubs/me')
+      .set(authHeader(adminUserId))
+      .send({ retirement_alert_mode: 'months', retirement_alert_value: 6 });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      retirement_alert_mode:  'months',
+      retirement_alert_value: 6,
+    });
+  });
+
+  it('GET /clubs/me returns retirement alert fields', async () => {
+    const res = await request(app)
+      .get('/api/v1/clubs/me')
+      .set(authHeader(adminUserId));
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('retirement_alert_mode');
+    expect(res.body).toHaveProperty('retirement_alert_value');
+  });
+
+  it('rejects invalid retirement_alert_mode', async () => {
+    const res = await request(app)
+      .put('/api/v1/clubs/me')
+      .set(authHeader(adminUserId))
+      .send({ retirement_alert_mode: 'invalid' });
+    expect(res.status).toBe(422);
+  });
+});

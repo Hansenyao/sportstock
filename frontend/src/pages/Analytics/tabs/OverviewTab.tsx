@@ -51,7 +51,7 @@ export default function OverviewTab({ summary, depreciation }: Props) {
   const originalValue = summary.total_purchase_value;
   const netValue = Number(depreciation.summary.total_net_book_value);
   const depRate = originalValue > 0
-    ? Math.round(((originalValue - netValue) / originalValue) * 100)
+    ? Math.min(100, Math.max(0, Math.round(((originalValue - netValue) / originalValue) * 100)))
     : 0;
 
   const fmt = (v: number) =>
@@ -135,11 +135,9 @@ export default function OverviewTab({ summary, depreciation }: Props) {
                     cx="50%"
                     cy="50%"
                     outerRadius={90}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    labelLine={false}
                   >
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    {pieData.map((entry, i) => (
+                      <Cell key={entry.name} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip />

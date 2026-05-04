@@ -189,3 +189,133 @@ export async function getMovementsSummary(
   );
   return rows;
 }
+
+export async function getAlerts(clubId: string): Promise<{
+  retirement_risk: Record<string, unknown>[];
+  low_stock: Record<string, unknown>[];
+  total_alert_count: number;
+}> {
+  const [{ rows: retirementRows }, { rows: lowStockRows }] = await Promise.all([
+    db.query<Record<string, unknown>>(
+      `SELECT
+         ab.id                AS batch_id,
+         an.name              AS asset_name,
+         at.brand, at.model, at.size,
+         ab.purchase_date,
+         ab.useful_life_years,
+         ab.total_quantity,
+         ab.status            AS batch_status,
+         ROUND(
+           EXTRACT(EPOCH FROM (NOW() - ab.purchase_date))
+           / (ab.useful_life_years * 365.25 * 86400) * 100
+         )::int               AS life_used_percent
+       FROM asset_batches ab
+       JOIN asset_types at ON at.id = ab.asset_type_id
+       JOIN asset_names  an ON an.id = at.asset_name_id
+       JOIN clubs         c  ON c.id  = at.club_id
+       WHERE at.club_id = $1
+         AND at.is_active = true
+         AND ab.status    != 'retired'
+         AND ab.purchase_date     IS NOT NULL
+         AND ab.useful_life_years IS NOT NULL
+         AND (
+           CASE
+             WHEN c.retirement_alert_mode = 'percent' THEN
+               EXTRACT(EPOCH FROM (NOW() - ab.purchase_date))
+               / (ab.useful_life_years * 365.25 * 86400) * 100
+               >= c.retirement_alert_value
+             ELSE
+               ab.useful_life_years * 12
+               - EXTRACT(EPOCH FROM (NOW() - ab.purchase_date)) / (30.4375 * 86400)
+               <= c.retirement_alert_value
+           END
+         )
+       ORDER BY life_used_percent DESC`,
+      [clubId]
+    ),
+    db.query<Record<string, unknown>>(
+      `SELECT
+         at.id                                                                AS asset_type_id,
+         an.name                                                              AS asset_name,
+         at.brand, at.model, at.size,
+         COALESCE(SUM(ab.total_quantity)
+           FILTER (WHERE ab.status != 'retired'), 0)                         AS total_qty,
+         COALESCE(SUM(ab.available_quantity)
+           FILTER (WHERE ab.status != 'retired'
+             AND NOT (
+               ab.purchase_date IS NOT NULL
+               AND ab.useful_life_years IS NOT NULL
+               AND (
+                 CASE
+                   WHEN c.retirement_alert_mode = 'percent' THEN
+                     EXTRACT(EPOCH FROM (NOW() - ab.purchase_date))
+                     / (ab.useful_life_years * 365.25 * 86400) * 100
+                     >= c.retirement_alert_value
+                   ELSE
+                     ab.useful_life_years * 12
+                     - EXTRACT(EPOCH FROM (NOW() - ab.purchase_date)) / (30.4375 * 86400)
+                     <= c.retirement_alert_value
+                 END
+               )
+             )
+           ), 0)                                                              AS available_qty,
+         COALESCE(at.low_stock_threshold, c.low_stock_threshold)             AS effective_threshold
+       FROM asset_types at
+       JOIN asset_names an ON an.id = at.asset_name_id AND an.club_id = $1
+       JOIN clubs        c  ON c.id  = at.club_id
+       LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
+       WHERE at.club_id = $1 AND at.is_active = true
+       GROUP BY at.id, an.name, at.brand, at.model, at.size,
+                at.low_stock_threshold, c.low_stock_threshold
+       HAVING
+         COALESCE(SUM(ab.available_quantity)
+           FILTER (WHERE ab.status != 'retired'
+             AND NOT (
+               ab.purchase_date IS NOT NULL
+               AND ab.useful_life_years IS NOT NULL
+               AND (
+                 CASE
+                   WHEN c.retirement_alert_mode = 'percent' THEN
+                     EXTRACT(EPOCH FROM (NOW() - ab.purchase_date))
+                     / (ab.useful_life_years * 365.25 * 86400) * 100
+                     >= c.retirement_alert_value
+                   ELSE
+                     ab.useful_life_years * 12
+                     - EXTRACT(EPOCH FROM (NOW() - ab.purchase_date)) / (30.4375 * 86400)
+                     <= c.retirement_alert_value
+                 END
+               )
+             )
+           ), 0)
+         <= COALESCE(at.low_stock_threshold, c.low_stock_threshold)
+       ORDER BY available_qty ASC`,
+      [clubId]
+    ),
+  ]);
+
+  return {
+    retirement_risk:   retirementRows.map((r) => ({
+      batch_id:          String(r.batch_id),
+      asset_name:        String(r.asset_name),
+      brand:             r.brand ?? null,
+      model:             r.model ?? null,
+      size:              r.size ?? null,
+      purchase_date:     String(r.purchase_date),
+      useful_life_years: Number(r.useful_life_years),
+      total_quantity:    Number(r.total_quantity),
+      batch_status:      String(r.batch_status),
+      life_used_percent: Number(r.life_used_percent),
+    })),
+    low_stock: lowStockRows.map((r) => ({
+      asset_type_id:       String(r.asset_type_id),
+      asset_name:          String(r.asset_name),
+      brand:               r.brand ?? null,
+      model:               r.model ?? null,
+      size:                r.size ?? null,
+      total_qty:           Number(r.total_qty),
+      available_qty:       Number(r.available_qty),
+      effective_threshold: Number(r.effective_threshold),
+    })),
+    total_alert_count: retirementRows.length + lowStockRows.length,
+  };
+}

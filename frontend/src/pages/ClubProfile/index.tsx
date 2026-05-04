@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
   Card, Descriptions, Form, Input, Select, Button, Typography,
-  Flex, Spin, App,
+  Flex, Spin, App, Radio, InputNumber,
 } from 'antd';
 import { EditOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { getMyClub, updateMyClub, type Club } from '../../api/clubs';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 const SPORT_TYPES = [
   'Football', 'Basketball', 'Swimming', 'Tennis', 'Volleyball',
@@ -25,9 +25,16 @@ export default function ClubProfilePage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [alertMode, setAlertMode] = useState<'months' | 'percent'>('percent');
+  const [alertValue, setAlertValue] = useState<number>(80);
+
   useEffect(() => {
     getMyClub()
-      .then(res => setClub(res.data))
+      .then(c => {
+        setClub(c);
+        setAlertMode(c.retirement_alert_mode ?? 'percent');
+        setAlertValue(c.retirement_alert_value ?? 80);
+      })
       .catch(() => message.error('Failed to load club info'))
       .finally(() => setLoading(false));
   }, [message]);
@@ -40,23 +47,46 @@ export default function ClubProfilePage() {
       contact_email: club.contact_email,
       address: club.address ?? '',
     });
+    setAlertMode(club.retirement_alert_mode ?? 'percent');
+    setAlertValue(club.retirement_alert_value ?? 80);
     setEditing(true);
   }
 
   function cancelEdit() {
-    form.resetFields();
+    if (club) {
+      form.setFieldsValue({
+        name: club.name,
+        sport_type: club.sport_type,
+        contact_email: club.contact_email,
+        address: club.address ?? '',
+      });
+      setAlertMode(club.retirement_alert_mode ?? 'percent');
+      setAlertValue(club.retirement_alert_value ?? 80);
+    }
     setEditing(false);
   }
 
-  async function handleSave(values: { name: string; sport_type: string; contact_email: string; address?: string }) {
+  async function handleSave(values: {
+    name: string;
+    sport_type: string;
+    contact_email: string;
+    address?: string;
+  }) {
     setSaving(true);
     try {
-      const res = await updateMyClub(values);
+      const res = await updateMyClub({
+        ...values,
+        retirement_alert_mode:  alertMode,
+        retirement_alert_value: alertValue,
+      });
       setClub(res.data);
+      setAlertMode(res.data.retirement_alert_mode ?? 'percent');
+      setAlertValue(res.data.retirement_alert_value ?? 80);
       setEditing(false);
       message.success('Club profile updated');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? 'Failed to save changes';
       message.error(msg);
     } finally {
@@ -71,6 +101,12 @@ export default function ClubProfilePage() {
       </Flex>
     );
   }
+
+  const alertModeLabel = alertMode === 'percent' ? 'Life elapsed (%)' : 'Remaining life (months)';
+  const alertSummary =
+    alertMode === 'percent'
+      ? `Alert when ≥ ${alertValue}% of useful life has elapsed`
+      : `Alert when ≤ ${alertValue} months of useful life remain`;
 
   return (
     <div style={{ maxWidth: 720 }}>
@@ -126,6 +162,48 @@ export default function ClubProfilePage() {
             <Descriptions.Item label="Address">{club?.address || '—'}</Descriptions.Item>
             <Descriptions.Item label="Member Since">
               {club?.created_at ? new Date(club.created_at).toLocaleDateString() : '—'}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Card>
+
+      <Card
+        title="Analytics Alert Thresholds"
+        style={{ marginTop: 24, borderRadius: 12, border: 'none' }}
+      >
+        {editing ? (
+          <div>
+            <Text style={{ display: 'block', fontWeight: 500, marginBottom: 8 }}>
+              Retirement Alert Trigger
+            </Text>
+            <Radio.Group
+              value={alertMode}
+              onChange={e => setAlertMode(e.target.value as 'months' | 'percent')}
+              style={{ marginBottom: 16 }}
+            >
+              <Radio value="percent">Life elapsed (%)</Radio>
+              <Radio value="months">Remaining life (months)</Radio>
+            </Radio.Group>
+            <Flex align="center" gap={8}>
+              <Text>
+                {alertMode === 'percent' ? 'Alert when life elapsed ≥' : 'Alert when remaining months ≤'}
+              </Text>
+              <InputNumber
+                min={1}
+                max={alertMode === 'percent' ? 100 : 120}
+                value={alertValue}
+                onChange={v => setAlertValue(v !== null ? v : alertValue)}
+                addonAfter={alertMode === 'percent' ? '%' : 'months'}
+                style={{ width: 160 }}
+              />
+            </Flex>
+          </div>
+        ) : (
+          <Descriptions column={1} size="small">
+            <Descriptions.Item label="Retirement Alert Mode">{alertModeLabel}</Descriptions.Item>
+            <Descriptions.Item label="Threshold">{alertSummary}</Descriptions.Item>
+            <Descriptions.Item label="Low Stock Default">
+              {club?.low_stock_threshold ?? 2} units
             </Descriptions.Item>
           </Descriptions>
         )}

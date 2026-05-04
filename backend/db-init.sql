@@ -128,6 +128,10 @@ CREATE TABLE clubs (
     logo_url            TEXT,
     -- default available-quantity threshold below which low-stock alerts fire
     low_stock_threshold INT         NOT NULL DEFAULT 2,
+    -- analytics alert configuration
+    retirement_alert_mode  VARCHAR(10) NOT NULL DEFAULT 'percent'
+      CHECK (retirement_alert_mode IN ('months', 'percent')),
+    retirement_alert_value INT         NOT NULL DEFAULT 80,
     is_active           BOOLEAN     NOT NULL DEFAULT true,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()

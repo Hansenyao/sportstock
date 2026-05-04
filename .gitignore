@@ -38,3 +38,6 @@ backend/.env
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# superpowers brainstorming sessions
+.superpowers/

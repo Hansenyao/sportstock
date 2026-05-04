@@ -36,3 +36,21 @@ export const getMovements: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getAlerts: RequestHandler = async (req, res, next) => {
+  try {
+    const data = await reportService.getAlerts(req.user.club_id as string);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getRecentMovements: RequestHandler = async (req, res, next) => {
+  try {
+    const data = await reportService.getRecentMovements(req.user.club_id as string);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+};

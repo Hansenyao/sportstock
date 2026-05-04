@@ -12,6 +12,7 @@ import AssetNamesPage from '../pages/AssetNames';
 import AssetsPage from '../pages/Assets';
 import LoansPage from '../pages/Loans';
 import WriteOffsPage from '../pages/WriteOffs';
+import AnalyticsPage from '../pages/Analytics';
 
 function RequireAuth() {
   const { isAuthenticated, isValidating } = useAuth();
@@ -43,6 +44,7 @@ export default function AppRouter() {
           <Route path="/dashboard/assets"      element={<AssetsPage />} />
           <Route path="/dashboard/loans"       element={<LoansPage />} />
           <Route path="/dashboard/write-offs"  element={<WriteOffsPage />} />
+          <Route path="/dashboard/analytics"   element={<AnalyticsPage />} />
           <Route path="/dashboard/users"       element={<UsersPage />} />
           <Route path="/dashboard/teams"       element={<TeamsPage />} />
         </Route>

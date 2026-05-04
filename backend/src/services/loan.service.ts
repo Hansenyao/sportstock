@@ -63,8 +63,9 @@ export async function listLoans(
   clubId: string,
   userId: string,
   role: string,
-  { status, search, coach_id, team_id, from_date, to_date, page = 1, limit = 20 }: {
+  { status, overdue, search, coach_id, team_id, from_date, to_date, page = 1, limit = 20 }: {
     status?: string;
+    overdue?: string;
     search?: string;
     coach_id?: string;
     team_id?: string;
@@ -84,7 +85,12 @@ export async function listLoans(
     if (coach_id) conditions.push(`l.coach_id = $${params.push(coach_id)}`);
     if (team_id)  conditions.push(`l.team_id  = $${params.push(team_id)}`);
   }
-  if (status)    conditions.push(`l.status = $${params.push(status)}`);
+  if (overdue) {
+    conditions.push(`l.status = 'checked_out'`);
+    conditions.push(`l.due_date < CURRENT_DATE`);
+  } else if (status) {
+    conditions.push(`l.status = $${params.push(status)}`);
+  }
   if (from_date) conditions.push(`l.created_at >= $${params.push(from_date)}`);
   if (to_date)   conditions.push(`l.created_at < $${params.push(to_date)}`);
   if (search) {

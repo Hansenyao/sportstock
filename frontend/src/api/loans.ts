@@ -50,6 +50,7 @@ export interface Loan {
 
 export interface LoanFilters {
   status?: LoanStatus;
+  overdue?: boolean;
   search?: string;
   coach_id?: string;
   team_id?: string;

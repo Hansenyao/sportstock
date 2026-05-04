@@ -32,6 +32,7 @@ const STATUS_TABS = [
   { key: 'pending',     label: 'Pending' },
   { key: 'approved',    label: 'Approved' },
   { key: 'checked_out', label: 'Checked Out' },
+  { key: 'overdue',     label: 'Overdue' },
   { key: 'returned',    label: 'Returned' },
   { key: 'rejected',    label: 'Rejected' },
 ] as const;
@@ -144,7 +145,11 @@ export default function LoansPage() {
     setLoading(true);
     try {
       const params: LoanFilters = { page: p, limit: PAGE_SIZE };
-      if (tab !== 'all') params.status = tab as LoanStatus;
+      if (tab === 'overdue') {
+        params.overdue = true;
+      } else if (tab !== 'all') {
+        params.status = tab as LoanStatus;
+      }
       if (f.team_id)   params.team_id   = f.team_id;
       if (f.coach_id)  params.coach_id  = f.coach_id;
       if (f.search)    params.search    = f.search;

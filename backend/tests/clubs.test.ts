@@ -113,13 +113,15 @@ describe('PUT /api/v1/clubs/me — retirement alert settings', () => {
     });
   });
 
-  it('GET /clubs/me returns retirement alert fields', async () => {
+  it('GET /clubs/me returns persisted retirement alert fields', async () => {
     const res = await request(app)
       .get('/api/v1/clubs/me')
       .set(authHeader(adminUserId));
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('retirement_alert_mode');
-    expect(res.body).toHaveProperty('retirement_alert_value');
+    expect(res.body).toMatchObject({
+      retirement_alert_mode:  'months',
+      retirement_alert_value: 6,
+    });
   });
 
   it('rejects invalid retirement_alert_mode', async () => {
@@ -128,5 +130,32 @@ describe('PUT /api/v1/clubs/me — retirement alert settings', () => {
       .set(authHeader(adminUserId))
       .send({ retirement_alert_mode: 'invalid' });
     expect(res.status).toBe(422);
+  });
+
+  it('rejects non-numeric retirement_alert_value with 422', async () => {
+    const res = await request(app)
+      .put('/api/v1/clubs/me')
+      .set(authHeader(adminUserId))
+      .send({ retirement_alert_value: 'notanumber' });
+    expect(res.status).toBe(422);
+  });
+
+  it('preserves existing retirement_alert_value when only mode is sent', async () => {
+    // First set a known state
+    await request(app)
+      .put('/api/v1/clubs/me')
+      .set(authHeader(adminUserId))
+      .send({ retirement_alert_mode: 'percent', retirement_alert_value: 90 });
+
+    // Update only the mode — value must remain 90
+    const res = await request(app)
+      .put('/api/v1/clubs/me')
+      .set(authHeader(adminUserId))
+      .send({ retirement_alert_mode: 'months' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      retirement_alert_mode:  'months',
+      retirement_alert_value: 90,
+    });
   });
 });

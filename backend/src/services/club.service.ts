@@ -36,6 +36,13 @@ export async function updateClub(
     throw new AppError('retirement_alert_mode must be "months" or "percent"', 422);
   }
 
+  if (retirement_alert_value !== undefined && retirement_alert_value !== null) {
+    const parsed = parseInt(String(retirement_alert_value), 10);
+    if (isNaN(parsed) || parsed <= 0) {
+      throw new AppError('retirement_alert_value must be a positive integer', 422);
+    }
+  }
+
   const { rows } = await db.query<Record<string, unknown>>(
     `UPDATE clubs SET
        name                   = COALESCE($1, name),
@@ -51,9 +58,9 @@ export async function updateClub(
       sport_type ?? null,
       address ?? null,
       contact_email ?? null,
-      low_stock_threshold != null ? parseInt(String(low_stock_threshold)) : null,
+      low_stock_threshold != null ? parseInt(String(low_stock_threshold), 10) : null,
       retirement_alert_mode != null ? String(retirement_alert_mode) : null,
-      retirement_alert_value != null ? parseInt(String(retirement_alert_value)) : null,
+      retirement_alert_value != null ? parseInt(String(retirement_alert_value), 10) : null,
       clubId,
     ]
   );

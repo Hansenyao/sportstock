@@ -253,22 +253,38 @@ describe('GET /api/v1/reports/alerts', () => {
 });
 
 describe('GET /api/v1/reports/movements/recent', () => {
+  beforeAll(async () => {
+    const { rows: batchRows } = await dbQuery<{ id: string }>(
+      `SELECT ab.id FROM asset_batches ab
+       JOIN asset_types at ON at.id = ab.asset_type_id
+       WHERE at.club_id = $1 LIMIT 1`,
+      [clubId]
+    );
+    if (batchRows.length > 0) {
+      await dbQuery(
+        `INSERT INTO stock_movements
+           (club_id, asset_batch_id, type, quantity_delta, quantity_before, quantity_after)
+         VALUES ($1, $2, 'purchase', 5, 0, 5)`,
+        [clubId, batchRows[0].id]
+      );
+    }
+  });
+
   it('returns array of up to 10 recent movements with required fields', async () => {
     const res = await request(app)
       .get('/api/v1/reports/movements/recent')
       .set(authHeader(managerUserId));
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBeGreaterThan(0);
     expect(res.body.length).toBeLessThanOrEqual(10);
-    if (res.body.length > 0) {
-      expect(res.body[0]).toMatchObject({
-        id:              expect.any(String),
-        asset_type_name: expect.any(String),
-        type:            expect.any(String),
-        quantity_delta:  expect.any(Number),
-        created_at:      expect.any(String),
-      });
-    }
+    expect(res.body[0]).toMatchObject({
+      id:              expect.any(String),
+      asset_type_name: expect.any(String),
+      type:            expect.any(String),
+      quantity_delta:  expect.any(Number),
+      created_at:      expect.any(String),
+    });
   });
 
   it('returns 403 for coach', async () => {

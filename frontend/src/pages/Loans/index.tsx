@@ -53,16 +53,18 @@ const DATE_PRESET_OPTIONS = [
   { value: 'custom', label: 'Custom range…' },
 ];
 
-const CART_KEY = 'sportstock_loan_cart';
 const PAGE_SIZE = 20;
 
 // ── Cart helpers ──────────────────────────────────────────────────────────────
 
-function loadCart(): CartItem[] {
-  try { return JSON.parse(localStorage.getItem(CART_KEY) ?? '[]'); } catch { return []; }
+function cartKey(userId: string | undefined) {
+  return `sportstock_loan_cart_${userId ?? 'anon'}`;
 }
-function saveCart(items: CartItem[]) {
-  localStorage.setItem(CART_KEY, JSON.stringify(items));
+function loadCart(userId: string | undefined): CartItem[] {
+  try { return JSON.parse(localStorage.getItem(cartKey(userId)) ?? '[]'); } catch { return []; }
+}
+function saveCart(userId: string | undefined, items: CartItem[]) {
+  localStorage.setItem(cartKey(userId), JSON.stringify(items));
 }
 
 // ── Asset thumbnail ───────────────────────────────────────────────────────────
@@ -107,9 +109,10 @@ export default function LoansPage() {
   // Teams for the coach being selected in create/edit form
   const [createCoachTeams, setCreateCoachTeams] = useState<UserTeamMembership[]>([]);
   const [createCoachTeamsLoading, setCreateCoachTeamsLoading] = useState(false);
+  const [editCoachTeams, setEditCoachTeams] = useState<UserTeamMembership[]>([]);
 
   // Cart & create drawer state
-  const [cart, setCart]             = useState<CartItem[]>(loadCart);
+  const [cart, setCart]             = useState<CartItem[]>(() => loadCart(user?.id));
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [createForm] = Form.useForm();
@@ -210,7 +213,7 @@ export default function LoansPage() {
             available_quantity: asset.available_quantity,
             quantity: 1,
           }];
-      saveCart(next);
+      saveCart(user?.id, next);
       return next;
     });
   }
@@ -220,16 +223,16 @@ export default function LoansPage() {
       const next = qty < 1
         ? prev.filter(i => i.asset_type_id !== assetTypeId)
         : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i);
-      saveCart(next);
+      saveCart(user?.id, next);
       return next;
     });
   }
 
   function cartRemove(assetTypeId: string) {
-    setCart(prev => { const next = prev.filter(i => i.asset_type_id !== assetTypeId); saveCart(next); return next; });
+    setCart(prev => { const next = prev.filter(i => i.asset_type_id !== assetTypeId); saveCart(user?.id, next); return next; });
   }
 
-  function clearCart() { setCart([]); saveCart([]); }
+  function clearCart() { setCart([]); saveCart(user?.id, []); }
 
   // ── Create loan ─────────────────────────────────────────────────────────────
 
@@ -389,6 +392,7 @@ export default function LoansPage() {
       due_date: dayjs(loan.due_date),
       reason:   loan.reason ?? undefined,
       coach_id: loan.coach_id,
+      team_id:  loan.team_id ?? undefined,
     });
     setEditCart(loan.items.map(item => ({
       asset_type_id: item.asset_type_id,
@@ -400,6 +404,16 @@ export default function LoansPage() {
       available_quantity: 9999,
       quantity: item.quantity,
     })));
+    // Load teams for this loan's coach
+    if (isCoach) {
+      setEditCoachTeams(createCoachTeams);
+    } else if (loan.coach_id) {
+      getUser(loan.coach_id)
+        .then(r => setEditCoachTeams(r.data.teams ?? []))
+        .catch(() => setEditCoachTeams([]));
+    } else {
+      setEditCoachTeams([]);
+    }
     setEditingLoan(loan);
     setEditOpen(true);
   }
@@ -429,6 +443,7 @@ export default function LoansPage() {
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
+        team_id:  (values.team_id as string | undefined) ?? null,
       });
       message.success('Loan updated');
       setEditOpen(false);
@@ -1109,6 +1124,22 @@ export default function LoansPage() {
                     filterOption={(input, option) =>
                       String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                     options={coaches.map(c => ({ value: c.id, label: c.name }))}
+                  />
+                </Form.Item>
+              )}
+              {editCoachTeams.length > 0 && (
+                <Form.Item
+                  name="team_id"
+                  label="Team"
+                  rules={editCoachTeams.length > 1 ? [{ required: true, message: 'Please select a team' }] : []}
+                >
+                  <Select
+                    placeholder="Select team"
+                    disabled={editCoachTeams.length === 1}
+                    options={editCoachTeams.map(t => ({
+                      value: t.team_id,
+                      label: `${t.team_name} (${t.age_group} · ${t.gender})`,
+                    }))}
                   />
                 </Form.Item>
               )}

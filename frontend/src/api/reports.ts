@@ -31,7 +31,6 @@ export interface DepreciationItem {
   purchase_date: string;
   purchase_price: number;
   total_quantity: number;
-  useful_life_years: number;
   years_elapsed: number;
   annual_depreciation: number;
   accumulated_depreciation: number;
@@ -124,9 +123,30 @@ export function getSummary(): Promise<SummaryReport> {
 }
 
 export function getDepreciation(): Promise<DepreciationReport> {
-  return client.get<DepreciationReport>('/reports/depreciation').then(r => r.data);
+  return client
+    .get<{
+      items: Record<string, unknown>[];
+      summary: DepreciationReport['summary'];
+    }>('/reports/depreciation')
+    .then(r => ({
+      summary: r.data.summary,
+      items: r.data.items.map(x => ({
+        batch_id:                 String(x.batch_id),
+        asset_name:               String(x.asset_name),
+        brand:                    x.brand != null ? String(x.brand) : null,
+        model:                    x.model != null ? String(x.model) : null,
+        purchase_date:            String(x.purchase_date),
+        purchase_price:           Number(x.purchase_price),
+        total_quantity:           Number(x.total_quantity),
+        years_elapsed:            Number(x.years_elapsed),
+        annual_depreciation:      Number(x.annual_depreciation),
+        accumulated_depreciation: Number(x.accumulated_depreciation),
+        net_book_value:           Number(x.net_book_value),
+      })),
+    }));
 }
 
+// Coercion is handled server-side; raw pg rows are mapped before the JSON response.
 export function getAlerts(): Promise<AlertsReport> {
   return client.get<AlertsReport>('/reports/alerts').then(r => r.data);
 }

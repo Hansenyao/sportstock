@@ -7,9 +7,9 @@ export interface Club {
   address?: string | null;
   contact_email: string;
   logo_url?: string | null;
-  low_stock_threshold: number;
-  retirement_alert_mode: 'months' | 'percent';
-  retirement_alert_value: number;
+  low_stock_threshold?: number;
+  retirement_alert_mode?: 'months' | 'percent';
+  retirement_alert_value?: number;
   created_at: string;
 }
 

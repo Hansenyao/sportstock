@@ -179,15 +179,14 @@ Returns the 10 most recent `stock_movements` rows for the club:
 
 No pagination needed — this is a summary widget only.
 
-### 6.4 DB Migration — `clubs` table
+### 6.4 DB Schema Update — `clubs` table
 
-Add two columns:
+No migration needed — the database is re-initialized from `db-init.sql`. Add the two columns directly to the `CREATE TABLE clubs` definition:
 
 ```sql
-ALTER TABLE clubs
-  ADD COLUMN retirement_alert_mode  VARCHAR(10) NOT NULL DEFAULT 'percent'
-    CHECK (retirement_alert_mode IN ('months', 'percent')),
-  ADD COLUMN retirement_alert_value INT         NOT NULL DEFAULT 80;
+retirement_alert_mode  VARCHAR(10) NOT NULL DEFAULT 'percent'
+  CHECK (retirement_alert_mode IN ('months', 'percent')),
+retirement_alert_value INT         NOT NULL DEFAULT 80,
 ```
 
 ### 6.5 Club settings API

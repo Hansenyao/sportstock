@@ -12,7 +12,7 @@ let adminUserId: string;
 let managerUserId: string;
 let coachUserId: string;
 let teamId: string;
-let loanId: string;
+let loanId: string; // cascade-deleted with club; reserved for future loan-specific assertions
 
 beforeAll(async () => {
   clubId = await createClub('Reports Test Club');

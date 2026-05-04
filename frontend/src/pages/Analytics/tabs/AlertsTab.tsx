@@ -1,4 +1,4 @@
-import { Table, Progress, Tag, Typography, Space, Card } from 'antd';
+import { Table, Progress, Tag, Typography, Space, Card, Flex } from 'antd';
 import { WarningOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { AlertsReport, RetirementRiskItem, LowStockItem } from '../../../api/reports';
@@ -56,7 +56,7 @@ export default function AlertsTab({ alerts, club }: Props) {
       key: 'life_used',
       width: 180,
       render: (_: unknown, row: RetirementRiskItem) => (
-        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+        <Flex vertical gap={2} style={{ width: '100%' }}>
           <Progress
             percent={Math.min(row.life_used_percent, 100)}
             strokeColor={row.life_used_percent >= 90 ? '#ff4d4f' : '#fa8c16'}
@@ -64,7 +64,7 @@ export default function AlertsTab({ alerts, club }: Props) {
             showInfo={false}
           />
           <Text style={{ fontSize: 12 }}>{Math.round(row.life_used_percent)}%</Text>
-        </Space>
+        </Flex>
       ),
     },
     {

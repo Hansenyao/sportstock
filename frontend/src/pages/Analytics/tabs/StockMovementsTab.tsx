@@ -120,8 +120,8 @@ export default function StockMovementsTab({ movements, recentMovements }: Props)
                   <YAxis type="category" dataKey="type" tick={{ fontSize: 13 }} width={80} />
                   <Tooltip />
                   <Bar dataKey="units" radius={[0, 4, 4, 0]} name="Units">
-                    {chartData.map((entry, i) => (
-                      <Cell key={i} fill={MOVEMENT_COLOR[entry.rawType] ?? '#8c8c8c'} />
+                    {chartData.map((entry) => (
+                      <Cell key={entry.rawType} fill={MOVEMENT_COLOR[entry.rawType] ?? '#8c8c8c'} />
                     ))}
                   </Bar>
                 </BarChart>

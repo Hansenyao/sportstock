@@ -283,11 +283,12 @@ export async function updateLoan(
   clubId: string,
   userId: string,
   role: string,
-  { items, due_date, reason, coach_id }: {
+  { items, due_date, reason, coach_id, team_id }: {
     items?: LoanItemInput[];
     due_date?: string;
     reason?: string;
     coach_id?: string;
+    team_id?: string | null;
   }
 ): Promise<Record<string, unknown>> {
   const { rows: existing } = await db.query<Record<string, unknown>>(
@@ -322,6 +323,22 @@ export async function updateLoan(
       );
       if (!rows.length) throw new AppError('Borrower not found in this club', 404);
       updates.push(`coach_id = $${params.push(coach_id)}`);
+    }
+
+    if (team_id !== undefined) {
+      if (team_id === null) {
+        updates.push(`team_id = $${params.push(null)}`);
+      } else {
+        const effectiveCoachId = coach_id ?? String(loan.coach_id);
+        const { rows: teamRows } = await client.query<{ id: string }>(
+          `SELECT t.id FROM teams t
+           JOIN team_members tm ON tm.team_id = t.id
+           WHERE t.id = $1 AND t.club_id = $2 AND tm.user_id = $3`,
+          [team_id, clubId, effectiveCoachId]
+        );
+        if (!teamRows.length) throw new AppError('Coach is not a member of this team', 400);
+        updates.push(`team_id = $${params.push(team_id)}`);
+      }
     }
 
     if (updates.length) {

@@ -83,6 +83,7 @@ export interface UpdateLoanPayload {
   due_date?: string;
   reason?: string;
   coach_id?: string;
+  team_id?: string | null;
 }
 
 export interface ReturnItemPayload {

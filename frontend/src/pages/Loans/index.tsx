@@ -107,6 +107,7 @@ export default function LoansPage() {
   // Teams for the coach being selected in create/edit form
   const [createCoachTeams, setCreateCoachTeams] = useState<UserTeamMembership[]>([]);
   const [createCoachTeamsLoading, setCreateCoachTeamsLoading] = useState(false);
+  const [editCoachTeams, setEditCoachTeams] = useState<UserTeamMembership[]>([]);
 
   // Cart & create drawer state
   const [cart, setCart]             = useState<CartItem[]>(loadCart);
@@ -389,6 +390,7 @@ export default function LoansPage() {
       due_date: dayjs(loan.due_date),
       reason:   loan.reason ?? undefined,
       coach_id: loan.coach_id,
+      team_id:  loan.team_id ?? undefined,
     });
     setEditCart(loan.items.map(item => ({
       asset_type_id: item.asset_type_id,
@@ -400,6 +402,16 @@ export default function LoansPage() {
       available_quantity: 9999,
       quantity: item.quantity,
     })));
+    // Load teams for this loan's coach
+    if (isCoach) {
+      setEditCoachTeams(createCoachTeams);
+    } else if (loan.coach_id) {
+      getUser(loan.coach_id)
+        .then(r => setEditCoachTeams(r.data.teams ?? []))
+        .catch(() => setEditCoachTeams([]));
+    } else {
+      setEditCoachTeams([]);
+    }
     setEditingLoan(loan);
     setEditOpen(true);
   }
@@ -429,6 +441,7 @@ export default function LoansPage() {
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
+        team_id:  (values.team_id as string | undefined) ?? null,
       });
       message.success('Loan updated');
       setEditOpen(false);
@@ -1109,6 +1122,22 @@ export default function LoansPage() {
                     filterOption={(input, option) =>
                       String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                     options={coaches.map(c => ({ value: c.id, label: c.name }))}
+                  />
+                </Form.Item>
+              )}
+              {editCoachTeams.length > 0 && (
+                <Form.Item
+                  name="team_id"
+                  label="Team"
+                  rules={editCoachTeams.length > 1 ? [{ required: true, message: 'Please select a team' }] : []}
+                >
+                  <Select
+                    placeholder="Select team"
+                    disabled={editCoachTeams.length === 1}
+                    options={editCoachTeams.map(t => ({
+                      value: t.team_id,
+                      label: `${t.team_name} (${t.age_group} · ${t.gender})`,
+                    }))}
                   />
                 </Form.Item>
               )}

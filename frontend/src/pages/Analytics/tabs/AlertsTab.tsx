@@ -145,7 +145,7 @@ export default function AlertsTab({ alerts, club }: Props) {
           </Space>
         }
         extra={
-          <Link onClick={() => navigate('/dashboard/club')}>
+          <Link onClick={() => navigate('/dashboard/settings')}>
             <SettingOutlined /> Threshold: {thresholdLabel} · Edit in Settings
           </Link>
         }
@@ -173,7 +173,7 @@ export default function AlertsTab({ alerts, club }: Props) {
           </Space>
         }
         extra={
-          <Link onClick={() => navigate('/dashboard/club')}>
+          <Link onClick={() => navigate('/dashboard/settings')}>
             <SettingOutlined /> Club default threshold: {club.low_stock_threshold} · Edit in Settings
           </Link>
         }

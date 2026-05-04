@@ -5,7 +5,7 @@ import LoginPage from '../pages/Login';
 import RegisterPage from '../pages/Register';
 import DashboardLayout from '../layouts/DashboardLayout';
 import DashboardPage from '../pages/Dashboard';
-import ClubProfilePage from '../pages/ClubProfile';
+import SettingsPage from '../pages/Settings';
 import UsersPage from '../pages/Users';
 import TeamsPage from '../pages/Teams';
 import AssetNamesPage from '../pages/AssetNames';
@@ -39,7 +39,7 @@ export default function AppRouter() {
       <Route element={<RequireAuth />}>
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard"             element={<DashboardPage />} />
-          <Route path="/dashboard/club"        element={<ClubProfilePage />} />
+          <Route path="/dashboard/settings"    element={<SettingsPage />} />
           <Route path="/dashboard/asset-names" element={<AssetNamesPage />} />
           <Route path="/dashboard/assets"      element={<AssetsPage />} />
           <Route path="/dashboard/loans"       element={<LoansPage />} />

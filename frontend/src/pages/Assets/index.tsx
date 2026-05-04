@@ -15,7 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   listAssets, createAsset, updateAsset, deleteAsset,
   listCategories, uploadAssetImage,
-  addBatch,
+  addBatch, updateBatch,
   type AssetType, type AssetBatch, type AssetStatus, type Category, type AssetFilters,
 } from '../../api/assets';
 import { listAssetNames, type AssetName } from '../../api/asset-names';
@@ -67,6 +67,13 @@ export default function AssetsPage() {
   const [saving, setSaving]         = useState(false);
   const [typeForm]  = Form.useForm();
   const [batchForm] = Form.useForm();
+  const [editBatchForm] = Form.useForm();
+
+  // Batch edit
+  const [editBatchOpen, setEditBatchOpen]     = useState(false);
+  const [editingBatch, setEditingBatch]       = useState<AssetBatch | null>(null);
+  const [editingBatchTypeId, setEditingBatchTypeId] = useState<string | null>(null);
+  const [editBatchSaving, setEditBatchSaving] = useState(false);
 
   // Image
   const [imageFile, setImageFile]       = useState<File | null>(null);
@@ -147,6 +154,46 @@ export default function AssetsPage() {
     setTargetTypeId(type.id);
     setModalMode('addBatch');
     setModalOpen(true);
+  }
+
+  function openEditBatch(type: AssetType, batch: AssetBatch) {
+    editBatchForm.setFieldsValue({
+      purchase_date:     batch.purchase_date ? dayjs(batch.purchase_date) : null,
+      purchase_price:    batch.purchase_price ?? null,
+      useful_life_years: batch.useful_life_years ?? null,
+      notes:             batch.notes ?? '',
+    });
+    setEditingBatch(batch);
+    setEditingBatchTypeId(type.id);
+    setEditBatchOpen(true);
+  }
+
+  async function handleEditBatch(values: {
+    purchase_date?: dayjs.Dayjs | null;
+    purchase_price?: number | null;
+    useful_life_years?: number | null;
+    notes?: string;
+  }) {
+    if (!editingBatch || !editingBatchTypeId) return;
+    setEditBatchSaving(true);
+    try {
+      await updateBatch(editingBatchTypeId, editingBatch.id, {
+        purchase_date:     values.purchase_date
+          ? (values.purchase_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
+        purchase_price:    values.purchase_price ?? null,
+        useful_life_years: values.useful_life_years ?? null,
+        notes:             values.notes || null,
+      });
+      message.success('Batch updated');
+      setEditBatchOpen(false);
+      fetchAssets();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? 'Failed to update batch';
+      message.error(msg);
+    } finally {
+      setEditBatchSaving(false);
+    }
   }
 
   // ── Modal submit ──────────────────────────────────────────────────────────────
@@ -315,6 +362,17 @@ export default function AssetsPage() {
           </Tag>
         ),
       },
+      ...(canEdit ? [{
+        title: '',
+        key: 'batchActions',
+        width: 60,
+        render: (_: unknown, b: AssetBatch) => (
+          <Tooltip title="Edit Batch">
+            <Button type="text" size="small" icon={<EditOutlined />}
+              onClick={() => openEditBatch(type, b)} />
+          </Tooltip>
+        ),
+      }] : []),
     ];
 
     return (
@@ -464,7 +522,8 @@ export default function AssetsPage() {
 
       <Row gutter={16}>
         <Col span={8}>
-          <Form.Item name="brand" label="Brand">
+          <Form.Item name="brand" label="Brand"
+            rules={[{ required: true, message: 'Brand is required' }]}>
             <Input placeholder="e.g. Nike" />
           </Form.Item>
         </Col>
@@ -474,7 +533,8 @@ export default function AssetsPage() {
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item name="size" label="Size">
+          <Form.Item name="size" label="Size"
+            rules={[{ required: true, message: 'Size is required' }]}>
             <Input placeholder="e.g. Size 5" />
           </Form.Item>
         </Col>
@@ -523,19 +583,22 @@ export default function AssetsPage() {
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="purchase_date" label="Purchase Date">
+          <Form.Item name="purchase_date" label="Purchase Date"
+            rules={[{ required: true, message: 'Purchase date is required' }]}>
             <DatePicker style={{ width: '100%' }} />
           </Form.Item>
         </Col>
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item name="purchase_price" label="Purchase Price ($)">
+          <Form.Item name="purchase_price" label="Purchase Price ($)"
+            rules={[{ required: true, message: 'Purchase price is required' }]}>
             <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="0.00" />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="useful_life_years" label="Useful Life (years)">
+          <Form.Item name="useful_life_years" label="Useful Life (years)"
+            rules={[{ required: true, message: 'Useful life is required' }]}>
             <InputNumber min={1} style={{ width: '100%' }} placeholder="e.g. 5" />
           </Form.Item>
         </Col>
@@ -635,6 +698,51 @@ export default function AssetsPage() {
             {submitLabel}
           </Button>
         </Flex>
+      </Modal>
+
+      {/* ── Edit Batch Modal ──────────────────────────────────────────────────── */}
+      <Modal
+        open={editBatchOpen}
+        title="Edit Batch"
+        onCancel={() => setEditBatchOpen(false)}
+        footer={null}
+        destroyOnClose
+        width={480}
+      >
+        <Form form={editBatchForm} layout="vertical" onFinish={handleEditBatch} style={{ marginTop: 16 }}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="purchase_date" label="Purchase Date"
+                rules={[{ required: true, message: 'Purchase date is required' }]}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="purchase_price" label="Purchase Price ($)"
+                rules={[{ required: true, message: 'Purchase price is required' }]}>
+                <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="0.00" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="useful_life_years" label="Useful Life (years)"
+                rules={[{ required: true, message: 'Useful life is required' }]}>
+                <InputNumber min={1} style={{ width: '100%' }} placeholder="e.g. 5" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="notes" label="Notes (optional)">
+            <TextArea rows={2} />
+          </Form.Item>
+          <Flex gap={8} justify="flex-end">
+            <Button onClick={() => setEditBatchOpen(false)}>Cancel</Button>
+            <Button type="primary" htmlType="submit" loading={editBatchSaving}
+              icon={<EditOutlined />}>
+              Save Changes
+            </Button>
+          </Flex>
+        </Form>
       </Modal>
 
       {/* ── Write-off Modal ────────────────────────────────────────────────────── */}

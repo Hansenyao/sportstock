@@ -183,7 +183,7 @@ export async function getLoanUsage(
               ) AS overdue_loans
        FROM teams t
        LEFT JOIN loans l ON l.team_id = t.id AND l.club_id = $1
-       WHERE t.id = $2
+       WHERE t.id = $2 AND t.club_id = $1
        GROUP BY t.id, t.name, t.age_group, t.gender`,
       [clubId, team_id]
     );

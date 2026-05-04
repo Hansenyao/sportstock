@@ -21,7 +21,10 @@ export const getDepreciation: RequestHandler = async (req, res, next) => {
 
 export const getLoanUsage: RequestHandler = async (req, res, next) => {
   try {
-    const data = await reportService.getLoanUsage(req.user.club_id as string, req.query);
+    const team_id   = typeof req.query.team_id   === 'string' ? req.query.team_id   : undefined;
+    const from_date = typeof req.query.from_date  === 'string' ? req.query.from_date  : undefined;
+    const to_date   = typeof req.query.to_date    === 'string' ? req.query.to_date    : undefined;
+    const data = await reportService.getLoanUsage(req.user.club_id as string, { team_id, from_date, to_date });
     res.json(data);
   } catch (err) {
     next(err);

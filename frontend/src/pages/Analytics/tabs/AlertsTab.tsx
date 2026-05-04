@@ -63,7 +63,7 @@ export default function AlertsTab({ alerts, club }: Props) {
             size="small"
             showInfo={false}
           />
-          <Text style={{ fontSize: 12 }}>{row.life_used_percent}%</Text>
+          <Text style={{ fontSize: 12 }}>{Math.round(row.life_used_percent)}%</Text>
         </Space>
       ),
     },

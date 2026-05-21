@@ -320,3 +320,42 @@ describe('GET /api/v1/admin/clubs/:id/loans', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 });
+
+// ── Analytics with club_id filter ─────────────────────────────────────────────
+
+describe('GET /api/v1/admin/analytics/* with ?club_id filter', () => {
+  it('overview scoped to club returns club-level keys', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/analytics/overview')
+      .query({ club_id: clubId })
+      .set(authHeader(superAdminId));
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('user_count');
+    expect(res.body).toHaveProperty('asset_count');
+    expect(res.body).toHaveProperty('active_loans');
+    expect(res.body).toHaveProperty('overdue_loans');
+    expect(res.body).toHaveProperty('asset_by_status');
+    expect(res.body).toHaveProperty('total_asset_value');
+    expect(res.body).not.toHaveProperty('total_clubs');
+  });
+
+  it('loans scoped to club returns monthly_trend and top_assets', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/analytics/loans')
+      .query({ club_id: clubId })
+      .set(authHeader(superAdminId));
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.monthly_trend)).toBe(true);
+    expect(Array.isArray(res.body.top_assets)).toBe(true);
+  });
+
+  it('assets scoped to club returns by_status and by_category', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/analytics/assets')
+      .query({ club_id: clubId })
+      .set(authHeader(superAdminId));
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.by_status)).toBe(true);
+    expect(Array.isArray(res.body.by_category)).toBe(true);
+  });
+});

@@ -21,7 +21,7 @@ export default function UsersTab({ clubId }: { clubId: string }) {
     setLoading(true);
     try {
       const res = await listClubUsers(clubId, { page: p, limit: 20 });
-      setData(res.data as User[]);
+      setData(res.data as unknown as User[]);
       setTotal(res.total);
     } catch { message.error('Failed to load users'); }
     finally { setLoading(false); }

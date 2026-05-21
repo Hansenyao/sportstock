@@ -25,7 +25,7 @@ export default function LoansTab({ clubId }: { clubId: string }) {
     setLoading(true);
     try {
       const res = await listClubLoans(clubId, { page: p, limit: 20, status: s });
-      setData(res.data as Loan[]);
+      setData(res.data as unknown as Loan[]);
       setTotal(res.total);
     } catch { message.error('Failed to load loans'); }
     finally { setLoading(false); }

@@ -125,21 +125,34 @@ export default function AdminAnalyticsPage() {
     </div>
   );
 
-  const growthTab = (
-    <Card title={<span style={{ color: '#aaa' }}>Club & User Growth (last 12 months)</span>}
-          style={{ background: '#1a1a1a', border: '1px solid #252525' }}>
-      <ResponsiveContainer width="100%" height={260}>
-        <LineChart>
-          <XAxis dataKey="month" tick={{ fill: '#555', fontSize: 11 }} />
-          <YAxis tick={{ fill: '#555', fontSize: 11 }} />
-          <Tooltip />
-          <Legend />
-          <Line data={(growth?.clubs as object[]) ?? []} type="monotone" dataKey="new_clubs" stroke="#1668dc" name="New Clubs" dot={false} />
-          <Line data={(growth?.users as object[]) ?? []} type="monotone" dataKey="new_users" stroke="#52c41a" name="New Users" dot={false} />
-        </LineChart>
-      </ResponsiveContainer>
-    </Card>
-  );
+  const growthTab = (() => {
+    const clubsArr = (growth?.clubs as { month: string; new_clubs: number }[]) ?? [];
+    const usersArr = (growth?.users as { month: string; new_users: number }[]) ?? [];
+    const mergedMap = new Map<string, { month: string; new_clubs: number; new_users: number }>();
+    clubsArr.forEach(r => mergedMap.set(r.month, { month: r.month, new_clubs: r.new_clubs, new_users: 0 }));
+    usersArr.forEach(r => {
+      const existing = mergedMap.get(r.month);
+      if (existing) existing.new_users = r.new_users;
+      else mergedMap.set(r.month, { month: r.month, new_clubs: 0, new_users: r.new_users });
+    });
+    const merged = Array.from(mergedMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+
+    return (
+      <Card title={<span style={{ color: '#aaa' }}>Club & User Growth (last 12 months)</span>}
+            style={{ background: '#1a1a1a', border: '1px solid #252525' }}>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={merged}>
+            <XAxis dataKey="month" tick={{ fill: '#555', fontSize: 11 }} />
+            <YAxis tick={{ fill: '#555', fontSize: 11 }} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="new_clubs" stroke="#1668dc" name="New Clubs" dot={false} />
+            <Line type="monotone" dataKey="new_users" stroke="#52c41a" name="New Users" dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+    );
+  })();
 
   return (
     <div>

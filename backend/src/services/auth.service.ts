@@ -132,10 +132,16 @@ export async function login(
   password: string
 ): Promise<{ token: string; user: Record<string, unknown> }> {
   const { rows } = await db.query<
-    AuthUser & { password_hash: string; email_verified: boolean; club_name: string | null }
+    AuthUser & {
+      password_hash: string;
+      email_verified: boolean;
+      club_name: string | null;
+      club_is_active: boolean | null;
+    }
   >(
     `SELECT u.id, u.club_id, u.name, u.email, u.role, u.is_active,
-            u.password_hash, u.email_verified, c.name AS club_name
+            u.password_hash, u.email_verified,
+            c.name AS club_name, c.is_active AS club_is_active
      FROM users u
      LEFT JOIN clubs c ON c.id = u.club_id
      WHERE u.email = $1`,
@@ -150,6 +156,8 @@ export async function login(
 
   if (!user.email_verified) throw new AppError('Please verify your email before logging in', 403);
   if (!user.is_active) throw new AppError('Account is deactivated', 403);
+  if (user.club_id && user.club_is_active === false)
+    throw new AppError('This club has been disabled', 403);
 
   const token = signToken(user.id);
   return {

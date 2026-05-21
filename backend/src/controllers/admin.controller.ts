@@ -37,7 +37,11 @@ export const getClubDetail = wrap(async (req, res) => {
 });
 
 export const updateClubStatus = wrap(async (req, res) => {
-  const { is_active } = req.body as { is_active: boolean };
+  const { is_active } = req.body;
+  if (typeof is_active !== 'boolean') {
+    res.status(400).json({ statusCode: 400, error: 'Bad Request', message: 'is_active must be a boolean' });
+    return;
+  }
   await svc.updateClubStatus(req.params.id, is_active);
   res.json({ message: 'Club status updated' });
 });
@@ -54,7 +58,11 @@ export const listClubUsers = wrap(async (req, res) => {
 });
 
 export const updateUserStatus = wrap(async (req, res) => {
-  const { is_active } = req.body as { is_active: boolean };
+  const { is_active } = req.body;
+  if (typeof is_active !== 'boolean') {
+    res.status(400).json({ statusCode: 400, error: 'Bad Request', message: 'is_active must be a boolean' });
+    return;
+  }
   await svc.updateUserStatus(req.params.id, req.params.uid, is_active);
   res.json({ message: 'User status updated' });
 });
@@ -71,6 +79,11 @@ export const listClubAssets = wrap(async (req, res) => {
 });
 
 export const retireAsset = wrap(async (req, res) => {
+  const { status } = req.body as { status?: string };
+  if (status !== 'retired') {
+    res.status(400).json({ statusCode: 400, error: 'Bad Request', message: 'status must be "retired"' });
+    return;
+  }
   await svc.retireAsset(req.params.id, req.params.aid);
   res.json({ message: 'Asset retired' });
 });

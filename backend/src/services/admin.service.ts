@@ -395,6 +395,7 @@ export async function listClubAssets(
       at2.model,
       at2.size,
       at2.image_url,
+      at2.is_active,
       at2.created_at,
       COALESCE(SUM(ab.total_quantity), 0)::int      AS total_quantity,
       COALESCE(SUM(ab.available_quantity), 0)::int  AS available_quantity,
@@ -428,7 +429,7 @@ export async function listClubAssets(
     db.query<Record<string, unknown>>(
       `${typeSelect}
        WHERE ${where}
-       GROUP BY at2.id, an.name, an.category_id, c.name
+       GROUP BY at2.id, at2.is_active, an.name, an.category_id, c.name
        ${having}
        ORDER BY an.name ASC, at2.brand ASC NULLS LAST
        LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,

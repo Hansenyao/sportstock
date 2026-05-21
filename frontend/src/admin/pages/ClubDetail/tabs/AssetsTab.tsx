@@ -38,9 +38,13 @@ export default function AssetsTab({ clubId }: { clubId: string }) {
       content: `Retire all batches of "${asset.name}"? This marks them as unavailable.`,
       okText: 'Retire',
       onOk: async () => {
-        await retireAsset(clubId, asset.id);
-        message.success('Asset retired');
-        fetch(page);
+        try {
+          await retireAsset(clubId, asset.id);
+          message.success('Asset retired');
+          fetch(page);
+        } catch {
+          message.error('Failed to retire asset');
+        }
       },
     });
   };
@@ -62,9 +66,13 @@ export default function AssetsTab({ clubId }: { clubId: string }) {
       okText: 'Delete',
       okButtonProps: { danger: true },
       onOk: async () => {
-        await deleteAsset(clubId, asset.id);
-        message.success('Asset deleted');
-        fetch(page);
+        try {
+          await deleteAsset(clubId, asset.id);
+          message.success('Asset deleted');
+          fetch(page);
+        } catch {
+          message.error('Failed to delete asset');
+        }
       },
     });
   };

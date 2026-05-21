@@ -36,9 +36,13 @@ export default function UsersTab({ clubId }: { clubId: string }) {
       content: `${action.charAt(0).toUpperCase() + action.slice(1)} account for ${user.email}?`,
       okButtonProps: { danger: user.is_active },
       onOk: async () => {
-        await updateUserStatus(clubId, user.id, !user.is_active);
-        message.success('User status updated');
-        fetch(page);
+        try {
+          await updateUserStatus(clubId, user.id, !user.is_active);
+          message.success('User status updated');
+          fetch(page);
+        } catch {
+          message.error(`Failed to ${action} user`);
+        }
       },
     });
   };
@@ -48,19 +52,23 @@ export default function UsersTab({ clubId }: { clubId: string }) {
       title: 'Reset Password',
       content: `Generate a temporary password for ${user.email}?`,
       onOk: async () => {
-        const { temp_password } = await resetUserPassword(clubId, user.id);
-        modal.info({
-          title: 'Temporary Password',
-          content: (
-            <div>
-              <Text>Share this password with the user:</Text>
-              <br />
-              <Text code copyable style={{ fontSize: 16, marginTop: 8, display: 'block' }}>
-                {temp_password}
-              </Text>
-            </div>
-          ),
-        });
+        try {
+          const { temp_password } = await resetUserPassword(clubId, user.id);
+          modal.info({
+            title: 'Temporary Password',
+            content: (
+              <div>
+                <Text>Share this password with the user:</Text>
+                <br />
+                <Text code copyable style={{ fontSize: 16, marginTop: 8, display: 'block' }}>
+                  {temp_password}
+                </Text>
+              </div>
+            ),
+          });
+        } catch {
+          message.error('Failed to reset password');
+        }
       },
     });
   };

@@ -1,4 +1,5 @@
 // backend/src/services/admin.service.ts
+import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import * as db from '../db';
 import AppError from '../utils/AppError';
@@ -8,7 +9,7 @@ import type { PaginatedResult } from '../types';
 
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return Array.from(randomBytes(12), b => chars[b % chars.length]).join('');
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -222,7 +223,13 @@ export async function getClubDetail(clubId: string): Promise<ClubDetail> {
             (SELECT COUNT(*)::int           FROM loans l       WHERE l.club_id = c.id AND l.status = 'checked_out') AS active_loan_count,
             (SELECT COUNT(*)::int           FROM loans l       WHERE l.club_id = c.id AND l.status = 'checked_out' AND l.due_date < CURRENT_DATE) AS overdue_loan_count
      FROM clubs c
-     LEFT JOIN users u ON u.club_id = c.id AND u.role = 'club_admin'
+     LEFT JOIN LATERAL (
+       SELECT id, name, email, is_active, email_verified
+       FROM users
+       WHERE club_id = c.id AND role = 'club_admin'
+       ORDER BY created_at ASC
+       LIMIT 1
+     ) u ON true
      WHERE c.id = $1`,
     [clubId]
   );
@@ -342,6 +349,15 @@ export async function retireAsset(clubId: string, assetTypeId: string): Promise<
 }
 
 export async function deleteAsset(clubId: string, assetTypeId: string): Promise<void> {
+  const { rows: checkRows } = await db.query<{ count: string }>(
+    `SELECT COUNT(*) FROM loan_items li
+     JOIN loans l ON l.id = li.loan_id
+     WHERE li.asset_type_id = $1 AND l.status NOT IN ('returned', 'rejected')`,
+    [assetTypeId]
+  );
+  if (parseInt(checkRows[0].count) > 0) {
+    throw new AppError('Cannot delete: asset has active or pending loans', 409);
+  }
   const { rowCount } = await db.query(
     `DELETE FROM asset_types WHERE id = $1 AND club_id = $2`,
     [assetTypeId, clubId]

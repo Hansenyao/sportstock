@@ -828,7 +828,14 @@ INSERT INTO asset_categories (club_id, name, is_system) VALUES
     (NULL, 'Facility Equipment', true),
     (NULL, 'Office Supplies',    true);
 
--- NOTE: Default super admin must be created by running:
---   npx ts-node scripts/seed-admin.ts
--- Default credentials: admin@sportstock.com / Admin@SportStock2024
+-- Default super admin account
+-- Credentials: admin@sportstock.com / Admin@SportStock2024
 -- Change the password immediately after first login.
+INSERT INTO users (email, password_hash, name, role, email_verified)
+VALUES (
+    'admin@sportstock.com',
+    '$2a$10$DXQ9iH3NjQJr30j5ry.Tnuj.L9D2aiCVs911TH3Lalgw2WVsqCMR6',
+    'Platform Admin',
+    'super_admin',
+    true
+) ON CONFLICT (email) DO NOTHING;

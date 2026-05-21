@@ -13,6 +13,7 @@ import writeOffsRouter     from './write-offs';
 import inventoryRouter     from './inventory';
 import reportsRouter       from './reports';
 import notificationsRouter from './notifications';
+import adminRouter         from './admin';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.post('/auth/reset-password',      authCtrl.resetPassword);
 // ── All routes below require a valid JWT ─────────────────────
 router.use(authenticate);
 
+router.use('/admin',         adminRouter);
 router.use('/auth',          authRouter);
 router.use('/clubs',         clubsRouter);
 router.use('/users',         usersRouter);

@@ -257,6 +257,30 @@ describe('POST /api/v1/auth/forgot-password + reset-password', () => {
   });
 });
 
+describe('POST /api/v1/auth/login — disabled club', () => {
+  const disabledEmail = `${PREFIX}disabled@test.com`;
+  let disabledClubId: string;
+
+  beforeAll(async () => {
+    disabledClubId = await createClub('Auth Disabled Club');
+    await createUser(disabledEmail, disabledClubId, 'coach');
+    await query('UPDATE clubs SET is_active = false WHERE id = $1', [disabledClubId]);
+  });
+
+  afterAll(async () => {
+    await deleteClub(disabledClubId);
+    await deleteUsers([disabledEmail]);
+  });
+
+  it('returns 403 when the user belongs to a disabled club', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: disabledEmail, password: TEST_PASSWORD });
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/disabled/i);
+  });
+});
+
 describe('PUT /api/v1/auth/password', () => {
   it('changes password when current password is correct', async () => {
     const res = await request(app)

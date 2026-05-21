@@ -277,17 +277,38 @@ describe('GET /api/v1/admin/clubs/:id/assets', () => {
 });
 
 describe('PATCH /api/v1/admin/clubs/:id/assets/:aid/status', () => {
-  it('retires all batches of an asset type', async () => {
+  it('disables an asset type (sets is_active = false)', async () => {
     const res = await request(app)
       .patch(`/api/v1/admin/clubs/${clubId}/assets/${assetTypeId}/status`)
       .set(authHeader(superAdminId))
-      .send({ status: 'retired' });
+      .send({ is_active: false });
     expect(res.status).toBe(200);
 
-    const { rows } = await query<{ status: string }>(
-      'SELECT DISTINCT status FROM asset_batches WHERE asset_type_id = $1', [assetTypeId]
+    const { rows } = await query<{ is_active: boolean }>(
+      'SELECT is_active FROM asset_types WHERE id = $1', [assetTypeId]
     );
-    expect(rows.every(r => r.status === 'retired')).toBe(true);
+    expect(rows[0].is_active).toBe(false);
+  });
+
+  it('re-enables an asset type (sets is_active = true)', async () => {
+    const res = await request(app)
+      .patch(`/api/v1/admin/clubs/${clubId}/assets/${assetTypeId}/status`)
+      .set(authHeader(superAdminId))
+      .send({ is_active: true });
+    expect(res.status).toBe(200);
+
+    const { rows } = await query<{ is_active: boolean }>(
+      'SELECT is_active FROM asset_types WHERE id = $1', [assetTypeId]
+    );
+    expect(rows[0].is_active).toBe(true);
+  });
+
+  it('returns 400 if is_active is not boolean', async () => {
+    const res = await request(app)
+      .patch(`/api/v1/admin/clubs/${clubId}/assets/${assetTypeId}/status`)
+      .set(authHeader(superAdminId))
+      .send({ is_active: 'yes' });
+    expect(res.status).toBe(400);
   });
 });
 

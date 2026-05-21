@@ -117,11 +117,13 @@ export const updateUserStatus = (clubId: string, userId: string, is_active: bool
 export const resetUserPassword = (clubId: string, userId: string) =>
   adminApi.post<{ temp_password: string }>(`/clubs/${clubId}/users/${userId}/reset-password`).then(r => r.data);
 
-export const listClubAssets = (clubId: string, params?: { page?: number; limit?: number }) =>
-  adminApi.get<Paginated<Record<string, unknown>>>(`/clubs/${clubId}/assets`, { params }).then(r => r.data);
+export const listClubAssets = (
+  clubId: string,
+  params?: { page?: number; limit?: number; search?: string; status?: string }
+) => adminApi.get<Paginated<Record<string, unknown>>>(`/clubs/${clubId}/assets`, { params }).then(r => r.data);
 
-export const retireAsset = (clubId: string, assetTypeId: string) =>
-  adminApi.patch(`/clubs/${clubId}/assets/${assetTypeId}/status`, { status: 'retired' });
+export const updateAssetStatus = (clubId: string, assetTypeId: string, is_active: boolean) =>
+  adminApi.patch(`/clubs/${clubId}/assets/${assetTypeId}/status`, { is_active });
 
 export const deleteAsset = (clubId: string, assetTypeId: string) =>
   adminApi.delete(`/clubs/${clubId}/assets/${assetTypeId}`);

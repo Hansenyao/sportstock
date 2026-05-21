@@ -367,39 +367,96 @@ export async function resetUserPassword(clubId: string, userId: string): Promise
 // ── Asset management ──────────────────────────────────────────────────────────
 
 export async function listClubAssets(
-  clubId: string, page: number, limit: number
+  clubId: string, page: number, limit: number,
+  search?: string, status?: string
 ): Promise<PaginatedResult<Record<string, unknown>>> {
   const offset = (page - 1) * limit;
-  const { rows: countRows } = await db.query<{ count: string }>(
-    `SELECT COUNT(*) FROM asset_types WHERE club_id = $1`, [clubId]
-  );
-  const { rows } = await db.query<Record<string, unknown>>(
-    `SELECT at2.id, an.name, at2.brand, at2.model, at2.size,
-            COALESCE(SUM(ab.total_quantity), 0)::int       AS total_quantity,
-            COALESCE(SUM(ab.available_quantity), 0)::int   AS available_quantity,
-            CASE
-              WHEN COALESCE(SUM(ab.total_quantity), 0) = 0    THEN 'retired'
-              WHEN COALESCE(SUM(ab.available_quantity), 0) = 0 THEN 'on_loan'
-              ELSE 'available'
-            END AS status,
-            at2.created_at
-     FROM asset_types at2
-     JOIN asset_names an ON an.id = at2.asset_name_id
-     LEFT JOIN asset_batches ab ON ab.asset_type_id = at2.id
-     WHERE at2.club_id = $1
-     GROUP BY at2.id, an.name ORDER BY at2.created_at DESC
-     LIMIT $2 OFFSET $3`,
-    [clubId, limit, offset]
-  );
+  const conditions = ['at2.club_id = $1'];
+  const params: unknown[] = [clubId];
+
+  if (search) conditions.push(`an.name ILIKE $${params.push('%' + search + '%')}`);
+
+  const where = conditions.join(' AND ');
+  const having = status
+    ? `HAVING CASE
+         WHEN COUNT(ab.id) = 0 OR COALESCE(SUM(ab.total_quantity),0) = 0 THEN 'retired'
+         WHEN COALESCE(SUM(ab.available_quantity),0) = 0 THEN 'on_loan'
+         ELSE 'available'
+       END = $${params.push(status)}`
+    : '';
+
+  const typeSelect = `
+    SELECT
+      at2.id,
+      an.name,
+      an.category_id,
+      c.name                                        AS category_name,
+      at2.brand,
+      at2.model,
+      at2.size,
+      at2.image_url,
+      at2.created_at,
+      COALESCE(SUM(ab.total_quantity), 0)::int      AS total_quantity,
+      COALESCE(SUM(ab.available_quantity), 0)::int  AS available_quantity,
+      COUNT(ab.id)::int                             AS batch_count,
+      CASE
+        WHEN COUNT(ab.id) = 0                              THEN 'retired'
+        WHEN COALESCE(SUM(ab.total_quantity), 0) = 0       THEN 'retired'
+        WHEN COALESCE(SUM(ab.available_quantity), 0) = 0   THEN 'on_loan'
+        ELSE 'available'
+      END                                           AS status,
+      COALESCE(
+        JSON_AGG(
+          JSON_BUILD_OBJECT(
+            'id',                 ab.id,
+            'purchase_date',      ab.purchase_date,
+            'purchase_price',     ab.purchase_price,
+            'total_quantity',     ab.total_quantity,
+            'available_quantity', ab.available_quantity,
+            'status',             ab.status
+          ) ORDER BY ab.purchase_date ASC NULLS LAST, ab.created_at ASC
+        ) FILTER (WHERE ab.id IS NOT NULL),
+        '[]'
+      )                                             AS batches
+    FROM asset_types at2
+    JOIN asset_names an ON an.id = at2.asset_name_id
+    LEFT JOIN asset_categories c  ON c.id = an.category_id
+    LEFT JOIN asset_batches ab ON ab.asset_type_id = at2.id
+  `;
+
+  const [{ rows }, { rows: countRows }] = await Promise.all([
+    db.query<Record<string, unknown>>(
+      `${typeSelect}
+       WHERE ${where}
+       GROUP BY at2.id, an.name, an.category_id, c.name
+       ${having}
+       ORDER BY an.name ASC, at2.brand ASC NULLS LAST
+       LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
+      params
+    ),
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) FROM (
+         SELECT at2.id
+         FROM asset_types at2
+         JOIN asset_names an ON an.id = at2.asset_name_id
+         LEFT JOIN asset_batches ab ON ab.asset_type_id = at2.id
+         WHERE ${where}
+         GROUP BY at2.id
+         ${having}
+       ) sub`,
+      params.slice(0, -2)
+    ),
+  ]);
+
   return { data: rows, total: Number(countRows[0].count), page, limit };
 }
 
-export async function retireAsset(clubId: string, assetTypeId: string): Promise<void> {
+export async function updateAssetActiveStatus(
+  clubId: string, assetTypeId: string, isActive: boolean
+): Promise<void> {
   const { rowCount } = await db.query(
-    `UPDATE asset_batches SET status = 'retired'
-     WHERE asset_type_id = $1
-       AND asset_type_id IN (SELECT id FROM asset_types WHERE club_id = $2)`,
-    [assetTypeId, clubId]
+    `UPDATE asset_types SET is_active = $1 WHERE id = $2 AND club_id = $3`,
+    [isActive, assetTypeId, clubId]
   );
   if (!rowCount) throw new AppError('Asset not found in this club', 404);
 }

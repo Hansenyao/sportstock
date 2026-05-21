@@ -76,19 +76,21 @@ export const resetUserPassword = wrap(async (req, res) => {
 });
 
 export const listClubAssets = wrap(async (req, res) => {
-  const page  = Math.max(1, Number(req.query.page)  || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
-  res.json(await svc.listClubAssets(req.params.id, page, limit));
+  const page   = Math.max(1, Number(req.query.page)  || 1);
+  const limit  = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  res.json(await svc.listClubAssets(req.params.id, page, limit, search, status));
 });
 
-export const retireAsset = wrap(async (req, res) => {
-  const { status } = req.body as { status?: string };
-  if (status !== 'retired') {
-    res.status(400).json({ statusCode: 400, error: 'Bad Request', message: 'status must be "retired"' });
+export const updateAssetStatus = wrap(async (req, res) => {
+  const { is_active } = req.body;
+  if (typeof is_active !== 'boolean') {
+    res.status(400).json({ statusCode: 400, error: 'Bad Request', message: 'is_active must be a boolean' });
     return;
   }
-  await svc.retireAsset(req.params.id, req.params.aid);
-  res.json({ message: 'Asset retired' });
+  await svc.updateAssetActiveStatus(req.params.id, req.params.aid, is_active);
+  res.json({ message: `Asset ${is_active ? 'enabled' : 'disabled'}` });
 });
 
 export const deleteAsset = wrap(async (req, res) => {

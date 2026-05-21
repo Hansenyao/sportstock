@@ -23,7 +23,7 @@ router.patch('/clubs/:id/users/:uid/status',              ctrl.updateUserStatus)
 router.post('/clubs/:id/users/:uid/reset-password',       ctrl.resetUserPassword);
 
 router.get('/clubs/:id/assets',                           ctrl.listClubAssets);
-router.patch('/clubs/:id/assets/:aid/status',             ctrl.retireAsset);
+router.patch('/clubs/:id/assets/:aid/status',             ctrl.updateAssetStatus);
 router.delete('/clubs/:id/assets/:aid',                   ctrl.deleteAsset);
 
 router.get('/clubs/:id/loans',                            ctrl.listClubLoans);

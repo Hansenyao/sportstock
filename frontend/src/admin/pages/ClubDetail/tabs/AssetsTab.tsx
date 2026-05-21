@@ -23,7 +23,7 @@ export default function AssetsTab({ clubId }: { clubId: string }) {
     setLoading(true);
     try {
       const res = await listClubAssets(clubId, { page: p, limit: 20 });
-      setData(res.data as Asset[]);
+      setData(res.data as unknown as Asset[]);
       setTotal(res.total);
     } catch { message.error('Failed to load assets'); }
     finally { setLoading(false); }

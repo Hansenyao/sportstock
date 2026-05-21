@@ -88,7 +88,45 @@ export async function getPlatformStats(): Promise<PlatformStats> {
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
 
-export async function getAnalyticsOverview(): Promise<Record<string, unknown>> {
+export async function getAnalyticsOverview(clubId?: string): Promise<Record<string, unknown>> {
+  if (clubId) {
+    const { rows: statRows } = await db.query<{
+      user_count: string; asset_count: string; active_loans: string; overdue_loans: string;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::int         FROM users       WHERE club_id = $1 AND role != 'super_admin')                                              AS user_count,
+         (SELECT COALESCE(SUM(ab.total_quantity),0)::int FROM asset_batches ab JOIN asset_types at2 ON at2.id = ab.asset_type_id WHERE at2.club_id = $1) AS asset_count,
+         (SELECT COUNT(*)::int         FROM loans       WHERE club_id = $1 AND status = 'checked_out')                                              AS active_loans,
+         (SELECT COUNT(*)::int         FROM loans       WHERE club_id = $1 AND status = 'checked_out' AND due_date < CURRENT_DATE)                  AS overdue_loans`,
+      [clubId]
+    );
+    const { rows: statusRows } = await db.query<{ status: string; total: string }>(
+      `SELECT ab.status, COALESCE(SUM(ab.total_quantity), 0)::int AS total
+       FROM asset_batches ab
+       JOIN asset_types at2 ON at2.id = ab.asset_type_id
+       WHERE at2.club_id = $1
+       GROUP BY ab.status`,
+      [clubId]
+    );
+    const { rows: valueRows } = await db.query<{ total_value: string }>(
+      `SELECT COALESCE(SUM(ab.purchase_price * ab.total_quantity), 0) AS total_value
+       FROM asset_batches ab
+       JOIN asset_types at2 ON at2.id = ab.asset_type_id
+       WHERE at2.club_id = $1`,
+      [clubId]
+    );
+    const r = statRows[0];
+    return {
+      user_count:        Number(r.user_count),
+      asset_count:       Number(r.asset_count),
+      active_loans:      Number(r.active_loans),
+      overdue_loans:     Number(r.overdue_loans),
+      asset_by_status:   statusRows.map(s => ({ status: s.status, total: Number(s.total) })),
+      total_asset_value: Number(valueRows[0].total_value),
+    };
+  }
+
+  // platform-wide (original behaviour)
   const stats = await getPlatformStats();
   const { rows: statusRows } = await db.query<{ status: string; total: string }>(
     `SELECT status, COALESCE(SUM(total_quantity), 0)::int AS total FROM asset_batches GROUP BY status`
@@ -98,25 +136,33 @@ export async function getAnalyticsOverview(): Promise<Record<string, unknown>> {
   );
   return {
     ...stats,
-    asset_by_status: statusRows.map(r => ({ status: r.status, total: Number(r.total) })),
+    asset_by_status:   statusRows.map(r => ({ status: r.status, total: Number(r.total) })),
     total_asset_value: Number(valueRows[0].total_value),
   };
 }
 
-export async function getAnalyticsLoans(): Promise<Record<string, unknown>> {
+export async function getAnalyticsLoans(clubId?: string): Promise<Record<string, unknown>> {
+  const clubFilter      = clubId ? 'AND l.club_id = $2'   : '';
+  const clubFilterAsset = clubId ? 'AND at2.club_id = $1' : '';
+  const trendParams: unknown[] = clubId ? [12, clubId] : [12];
+  const topParams: unknown[]   = clubId ? [clubId]     : [];
+
   const { rows: trendRows } = await db.query<{ month: string; loan_count: string }>(
     `SELECT TO_CHAR(DATE_TRUNC('month', l.created_at), 'YYYY-MM') AS month,
             COUNT(DISTINCT l.id)::int AS loan_count
      FROM loans l
-     WHERE l.created_at >= NOW() - INTERVAL '12 months'
-     GROUP BY 1 ORDER BY 1`
+     WHERE l.created_at >= NOW() - INTERVAL '1 month' * $1 ${clubFilter}
+     GROUP BY 1 ORDER BY 1`,
+    trendParams
   );
   const { rows: topRows } = await db.query<{ asset_name: string; loan_count: string }>(
     `SELECT an.name AS asset_name, COUNT(li.id)::int AS loan_count
      FROM loan_items li
      JOIN asset_types at2 ON at2.id = li.asset_type_id
      JOIN asset_names an  ON an.id  = at2.asset_name_id
-     GROUP BY an.name ORDER BY loan_count DESC LIMIT 10`
+     WHERE 1=1 ${clubFilterAsset}
+     GROUP BY an.name ORDER BY loan_count DESC LIMIT 10`,
+    topParams
   );
   return {
     monthly_trend: trendRows.map(r => ({ month: r.month, loan_count: Number(r.loan_count) })),
@@ -124,15 +170,23 @@ export async function getAnalyticsLoans(): Promise<Record<string, unknown>> {
   };
 }
 
-export async function getAnalyticsAssets(): Promise<Record<string, unknown>> {
+export async function getAnalyticsAssets(clubId?: string): Promise<Record<string, unknown>> {
+  const joinClub  = clubId ? 'JOIN asset_types at2 ON at2.id = ab.asset_type_id' : '';
+  const whereClub = clubId ? 'WHERE at2.club_id = $1'                            : '';
+  const params    = clubId ? [clubId]                                             : [];
+
   const { rows: statusRows } = await db.query<{
     status: string; batch_count: string; total_qty: string; total_value: string;
   }>(
-    `SELECT status,
+    `SELECT ab.status,
             COUNT(*)::int                                           AS batch_count,
-            COALESCE(SUM(total_quantity), 0)::int                   AS total_qty,
-            COALESCE(SUM(purchase_price * total_quantity), 0)       AS total_value
-     FROM asset_batches GROUP BY status`
+            COALESCE(SUM(ab.total_quantity), 0)::int               AS total_qty,
+            COALESCE(SUM(ab.purchase_price * ab.total_quantity), 0) AS total_value
+     FROM asset_batches ab
+     ${joinClub}
+     ${whereClub}
+     GROUP BY ab.status`,
+    params
   );
   const { rows: catRows } = await db.query<{
     category: string; type_count: string; total_qty: string; total_value: string;
@@ -145,11 +199,13 @@ export async function getAnalyticsAssets(): Promise<Record<string, unknown>> {
      JOIN asset_types at2 ON at2.id = ab.asset_type_id
      JOIN asset_names an  ON an.id  = at2.asset_name_id
      LEFT JOIN asset_categories ac ON ac.id = an.category_id
-     GROUP BY ac.name ORDER BY total_qty DESC`
+     ${clubId ? 'WHERE at2.club_id = $1' : ''}
+     GROUP BY ac.name ORDER BY total_qty DESC`,
+    params
   );
   return {
-    by_status:   statusRows.map(r => ({ status: r.status, batch_count: Number(r.batch_count), total_qty: Number(r.total_qty), total_value: Number(r.total_value) })),
-    by_category: catRows.map(r =>    ({ category: r.category, type_count: Number(r.type_count), total_qty: Number(r.total_qty), total_value: Number(r.total_value) })),
+    by_status:   statusRows.map(r => ({ status: r.status,   batch_count: Number(r.batch_count), total_qty: Number(r.total_qty), total_value: Number(r.total_value) })),
+    by_category: catRows.map(r =>   ({ category: r.category, type_count: Number(r.type_count),  total_qty: Number(r.total_qty), total_value: Number(r.total_value) })),
   };
 }
 

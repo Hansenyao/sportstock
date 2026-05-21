@@ -12,14 +12,17 @@ export const getPlatformStats = wrap(async (_req, res) => {
   res.json(await svc.getPlatformStats());
 });
 
-export const getAnalyticsOverview = wrap(async (_req, res) => {
-  res.json(await svc.getAnalyticsOverview());
+export const getAnalyticsOverview = wrap(async (req, res) => {
+  const clubId = typeof req.query.club_id === 'string' ? req.query.club_id : undefined;
+  res.json(await svc.getAnalyticsOverview(clubId));
 });
-export const getAnalyticsLoans = wrap(async (_req, res) => {
-  res.json(await svc.getAnalyticsLoans());
+export const getAnalyticsLoans = wrap(async (req, res) => {
+  const clubId = typeof req.query.club_id === 'string' ? req.query.club_id : undefined;
+  res.json(await svc.getAnalyticsLoans(clubId));
 });
-export const getAnalyticsAssets = wrap(async (_req, res) => {
-  res.json(await svc.getAnalyticsAssets());
+export const getAnalyticsAssets = wrap(async (req, res) => {
+  const clubId = typeof req.query.club_id === 'string' ? req.query.club_id : undefined;
+  res.json(await svc.getAnalyticsAssets(clubId));
 });
 export const getAnalyticsGrowth = wrap(async (_req, res) => {
   res.json(await svc.getAnalyticsGrowth());

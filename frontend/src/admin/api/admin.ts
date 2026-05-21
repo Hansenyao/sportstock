@@ -84,14 +84,14 @@ export interface Paginated<T> {
 export const getStats = () =>
   adminApi.get<PlatformStats>('/stats').then(r => r.data);
 
-export const getAnalyticsOverview = () =>
-  adminApi.get<Record<string, unknown>>('/analytics/overview').then(r => r.data);
+export const getAnalyticsOverview = (clubId?: string) =>
+  adminApi.get<Record<string, unknown>>('/analytics/overview', { params: clubId ? { club_id: clubId } : undefined }).then(r => r.data);
 
-export const getAnalyticsLoans = () =>
-  adminApi.get<Record<string, unknown>>('/analytics/loans').then(r => r.data);
+export const getAnalyticsLoans = (clubId?: string) =>
+  adminApi.get<Record<string, unknown>>('/analytics/loans', { params: clubId ? { club_id: clubId } : undefined }).then(r => r.data);
 
-export const getAnalyticsAssets = () =>
-  adminApi.get<Record<string, unknown>>('/analytics/assets').then(r => r.data);
+export const getAnalyticsAssets = (clubId?: string) =>
+  adminApi.get<Record<string, unknown>>('/analytics/assets', { params: clubId ? { club_id: clubId } : undefined }).then(r => r.data);
 
 export const getAnalyticsGrowth = () =>
   adminApi.get<Record<string, unknown>>('/analytics/growth').then(r => r.data);

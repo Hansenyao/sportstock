@@ -1,5 +1,8 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { ConfigProvider, theme as antTheme } from 'antd';
 import { useAuth } from '../contexts/AuthContext';
+import { AdminAuthProvider } from '../admin/contexts/AdminAuthContext';
+import AdminRouter from '../admin/router';
 import HomePage from '../pages/Home';
 import LoginPage from '../pages/Login';
 import RegisterPage from '../pages/Register';
@@ -49,6 +52,17 @@ export default function AppRouter() {
           <Route path="/dashboard/teams"       element={<TeamsPage />} />
         </Route>
       </Route>
+
+      <Route
+        path="/admin/*"
+        element={
+          <ConfigProvider theme={{ algorithm: antTheme.darkAlgorithm }}>
+            <AdminAuthProvider>
+              <AdminRouter />
+            </AdminAuthProvider>
+          </ConfigProvider>
+        }
+      />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

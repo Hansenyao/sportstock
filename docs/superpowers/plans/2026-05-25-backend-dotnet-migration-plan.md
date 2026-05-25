@@ -40,21 +40,29 @@ Before Phase 0 starts:
 ### 0.2 EF Core Power Tools reverse-engineer
 
 - [ ] Run **EF Core Power Tools → Reverse Engineer** against the dev PostgreSQL.
-- [ ] Configure:
-  - Use Fluent API (no Data Annotations)
-  - One entity per file
-  - DbContext: `SportStockDbContext` in namespace `SportStock.Api.Data`
-  - Entities namespace: `SportStock.Api.Data.Entities`
-  - Configurations namespace: `SportStock.Api.Data.Configurations`
-  - Output folder: `src/SportStock.Api/Data/`
-- [ ] Save `efpt.config.json` to `backend-dotnet/` root and commit.
+- [ ] Configure (matches the current Power Tools UI; verify each):
+  - `Context name` = `SportStockDbContext`
+  - `Namespace` = `SportStock.Api` (**no leading whitespace** — Power Tools silently camelCases the first identifier if you paste a value with a leading space)
+  - `EntityTypes path` = `Data\Entities`
+  - `DbContext path` = `Data`
+  - ✅ Pluralize or singularize generated object names
+  - ❌ Use DataAnnotations
+  - ❌ Customize code using templates (avoid T4 template files cluttering the project)
+  - ✅ **Use nullable reference types** (critical — project has `<Nullable>enable</Nullable>`)
+  - ✅ Map DateOnly and TimeOnly
+  - ❌ Split DbContext into Configuration classes (marked Obsolete by Power Tools — Fluent config now goes inline in `OnModelCreating`; therefore no `Data/Configurations/` subfolder is generated)
+- [ ] `efpt.config.json` is saved by Power Tools to the project root (`backend-dotnet/src/SportStock.Api/efpt.config.json`). Commit it.
 - [ ] Audit generated entities:
-  - Confirm `NUMERIC(10,2)` columns are `decimal` (never `double`).
+  - Confirm `NUMERIC` columns are `decimal` (never `double`).
   - Confirm `DATE` columns are `DateOnly`.
   - Confirm `TIMESTAMPTZ` columns are `DateTime` (not `DateTimeOffset`).
   - Confirm UUIDs are `Guid`.
-- [ ] Add `Data/StoredProcedures.cs` with extension methods for all SPs identified in `backend/db-init.sql` (`approve_loan`, `reject_loan`, `checkout_loan`, `retire_batch`, `complete_maintenance`, `get_asset_depreciation`, plus any others found).
-- [ ] Declare table-valued function result types (e.g., `AssetDepreciationRow`) as keyless entities in `SportStockDbContext.OnModelCreating`.
+  - **Audit for PG enum columns silently dropped by Power Tools** — see spec § 5.3. For each affected column (`users.role`, `asset_batches.status`, `loans.status`, `write_off_orders.source`, `stock_movements.type`, `notifications.type`):
+    - [ ] Add a C# enum under `Data/Enums/`
+    - [ ] Add the property via a partial class under `Data/Entities/Extensions/`
+    - [ ] Add Fluent column-name config in `Data/SportStockDbContext.Partial.cs` (`partial void OnModelCreatingPartial(ModelBuilder)`)
+- [ ] Add `Data/Entities/AssetDepreciationRow.cs` — keyless result type for `get_asset_depreciation(batch_id)`. Register in `OnModelCreatingPartial` via `modelBuilder.Entity<AssetDepreciationRow>().HasNoKey().ToView(null);`.
+- [ ] Add `Data/StoredProcedures.cs` with extension methods for all 5 procedures (`approve_loan`, `reject_loan`, `checkout_loan`, `complete_maintenance`, `retire_batch`) plus the 1 function (`get_asset_depreciation`). Procedures use `ExecuteSqlAsync($"CALL ...")`; functions use `FromSql($"SELECT * FROM ...")`.
 - [ ] Commit: `feat(dotnet): scaffold DbContext via EF Core Power Tools`.
 
 ### 0.3 NuGet packages
@@ -112,7 +120,16 @@ Add to `SportStock.Api.Tests.csproj`:
 Compose root in `Program.cs` (ordered):
 - [ ] Serilog bootstrap (read config + Console sink + JSON formatter + `WithCorrelationId` enricher).
 - [ ] Service registrations:
-  - `AddDbContextPool<SportStockDbContext>(opt => opt.UseNpgsql(...))`
+  - Build `NpgsqlDataSource` once via `NpgsqlDataSourceBuilder(connectionString)`, register each PG enum with a snake_case translator (mirrors `Data/Enums/*` ↔ PG enum types — see spec § 5.3), then call `.Build()`:
+    ```csharp
+    dataSourceBuilder.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
+    dataSourceBuilder.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
+    dataSourceBuilder.MapEnum<LoanStatus>("loan_status", new NpgsqlSnakeCaseNameTranslator());
+    dataSourceBuilder.MapEnum<WriteOffSource>("write_off_source", new NpgsqlSnakeCaseNameTranslator());
+    dataSourceBuilder.MapEnum<StockMovementType>("stock_movement_type", new NpgsqlSnakeCaseNameTranslator());
+    dataSourceBuilder.MapEnum<NotificationType>("notification_type", new NpgsqlSnakeCaseNameTranslator());
+    ```
+  - `AddDbContextPool<SportStockDbContext>(opt => opt.UseNpgsql(dataSource))`
   - `AddHttpContextAccessor()`
   - `AddScoped<ICurrentUser, CurrentUser>()`
   - `AddScoped<ISupabaseStorage, SupabaseStorageClient>()`
@@ -123,7 +140,7 @@ Compose root in `Program.cs` (ordered):
   - `AddAuthentication("Bearer").AddJwtBearer(opt => { ...HS256, ClockSkew=0... })`
   - `AddAuthorization()`
   - `AddControllers()`
-  - `ConfigureHttpJsonOptions(...)` (snake_case, DateOnly converter, no null omission)
+  - `ConfigureHttpJsonOptions(...)` — snake_case property/dictionary policies, `DateOnlyJsonConverter`, `JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower)` (so `LoanStatus.CheckedOut` → `"checked_out"`), `DefaultIgnoreCondition = Never`
   - `ConfigureApiBehaviorOptions(opt => opt.InvalidModelStateResponseFactory = ...)` (reshape 400 to JSON shape)
   - `Configure<KestrelServerOptions>(opt => opt.Limits.MaxRequestBodySize = 1_048_576)`
   - `AddCors(...)` (mirror current settings)

@@ -66,11 +66,13 @@ backend-dotnet/
 │       ├── Controllers/                  # 14 controllers, 1:1 with backend/src/controllers/
 │       ├── Services/                     # 14 services, 1:1 with backend/src/services/
 │       ├── Data/
-│       │   ├── SportStockDbContext.cs    # Power Tools-generated
-│       │   ├── Entities/                 # Power Tools-generated, do NOT hand-edit
-│       │   │   └── Extensions/           # partial classes for computed properties / domain methods
-│       │   ├── Configurations/           # Power Tools-generated IEntityTypeConfiguration<T>
-│       │   └── StoredProcedures.cs       # DbContext extension methods for SP calls
+│       │   ├── SportStockDbContext.cs           # Power Tools-generated
+│       │   ├── SportStockDbContext.Partial.cs   # hand-written: OnModelCreatingPartial for missed columns
+│       │   ├── Entities/                        # Power Tools-generated, do NOT hand-edit
+│       │   │   ├── AssetDepreciationRow.cs      # hand-written keyless result type
+│       │   │   └── Extensions/                  # partial classes: PG enum columns + domain methods
+│       │   ├── Enums/                           # hand-written C# enums mirroring PG enum types
+│       │   └── StoredProcedures.cs              # DbContext extension methods for SP / function calls
 │       ├── Dtos/                         # grouped by resource; Validator co-located with DTO
 │       │   ├── Auth/
 │       │   │   ├── LoginRequest.cs
@@ -145,15 +147,37 @@ backend-dotnet/
 |------------|-----|-------|
 | `UUID` | `Guid` | |
 | `VARCHAR / TEXT` | `string` | |
-| `NUMERIC(10,2)` | `decimal` | **Never `double`** — price and depreciation must not be float |
+| `NUMERIC(10,2)` / `NUMERIC(12,2)` | `decimal` | **Never `double`** — price and depreciation must not be float |
 | `DATE` | `DateOnly` | .NET 6+ type, Npgsql 8+ native; JSON serializer emits `"yyyy-MM-dd"` |
 | `TIMESTAMPTZ` | `DateTime` (Kind=Utc) | Matches frontend's `Date.toISOString()` consumption |
-| `JSONB` | `JsonDocument` or strongly-typed via converter | Per field |
+| `JSONB` | `string?` (default Power Tools mapping) or strongly-typed via converter | Default treats as opaque string; raise to `JsonDocument` if a service needs structured access |
 | `BOOLEAN` | `bool` | |
+| **PG enum types** | **C# enum** | See § 5.3 — Power Tools silently drops these columns; we add them via partial classes |
+
+### 5.3 PostgreSQL enum columns (Power Tools gap)
+
+EF Core Power Tools registers `HasPostgresEnum(...)` declarations for each PG enum type but **fails to generate the column property on entity classes**. Six columns in this schema are affected: `users.role`, `asset_batches.status`, `loans.status`, `write_off_orders.source`, `stock_movements.type`, `notifications.type`.
+
+Workaround:
+
+1. Define a C# enum per PG enum under `Data/Enums/`. Member names use PascalCase (e.g., `LoanStatus.CheckedOut` for PG `'checked_out'`).
+2. Add the missing property to a partial entity class under `Data/Entities/Extensions/<EntityName>.cs`. **Never edit the auto-generated `Data/Entities/<EntityName>.cs`** — it is rebuilt on every Reverse Engineer refresh.
+3. Add Fluent column-name configuration in `Data/SportStockDbContext.Partial.cs` (which implements `OnModelCreatingPartial(ModelBuilder)`).
+4. In `Program.cs` (Phase 0.7), register each PG enum at the data source level with `NpgsqlSnakeCaseNameTranslator()` so PascalCase ↔ snake_case translation happens automatically:
+
+   ```csharp
+   dataSourceBuilder.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
+   dataSourceBuilder.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
+   // ... 6 calls total
+   ```
+
+5. Wire `JsonStringEnumConverter` with `JsonNamingPolicy.SnakeCaseLower` at the API JSON boundary (§ 7.3) so responses emit `"checked_out"` rather than `"CheckedOut"` or numeric ordinals — matching current Node output.
+
+### 5.4 Stored procedure calling convention
 
 ### 5.3 Stored procedure calling convention
 
-All stored procedures (`approve_loan`, `reject_loan`, `checkout_loan`, `retire_batch`, `complete_maintenance`, `get_asset_depreciation`, plus any additional procedures discovered when scaffolding `backend/db-init.sql`) are exposed as **DbContext extension methods** in `Data/StoredProcedures.cs`:
+All stored procedures and functions (5 procedures: `approve_loan`, `reject_loan`, `checkout_loan`, `complete_maintenance`, `retire_batch`; 1 function: `get_asset_depreciation`) are exposed as **DbContext extension methods** in `Data/StoredProcedures.cs`. (Trigger functions like `fn_check_low_stock` and `fn_set_updated_at` are DB-internal and not invoked from .NET.)
 
 ```csharp
 public static class StoredProcedures
@@ -175,7 +199,7 @@ public static class StoredProcedures
 - `ExecuteSqlAsync` and `FromSql` use interpolated strings — parameters are auto-parameterized, no SQL injection.
 - Table-valued function return types (`AssetDepreciationRow`) are declared as keyless entities and registered in `OnModelCreating`.
 
-### 5.4 Multi-tenant query filter
+### 5.5 Multi-tenant query filter
 
 All entities with a `club_id` column register a global query filter that scopes every query to the current user's club:
 
@@ -189,7 +213,7 @@ modelBuilder.Entity<Asset>().HasQueryFilter(a =>
 - Cross-tenant administrative reads use `.IgnoreQueryFilters()` explicitly.
 - This **replaces every `WHERE l.club_id = $1`** in the current codebase; tenant isolation moves from "per-query discipline" to "framework default."
 
-### 5.5 Connection pool
+### 5.6 Connection pool
 
 - Register with `AddDbContextPool<SportStockDbContext>(opt => opt.UseNpgsql(connectionString))`.
 - Pool size defaults to Npgsql's 100 — sufficient for local scope.
@@ -313,9 +337,13 @@ builder.Services.ConfigureHttpJsonOptions(opt =>
     opt.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
     opt.SerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower;
     opt.SerializerOptions.Converters.Add(new DateOnlyJsonConverter());
+    opt.SerializerOptions.Converters.Add(
+        new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
     opt.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.Never;
 });
 ```
+
+The `JsonStringEnumConverter` with `SnakeCaseLower` ensures `LoanStatus.CheckedOut` serializes as `"checked_out"` — matching the current Node implementation's string output and the underlying PG enum value.
 
 - **`snake_case` output** — matches current `pg` + Express behavior; frontend depends on it.
 - DTO fields are `PascalCase` in C# code, transformed at serialization.

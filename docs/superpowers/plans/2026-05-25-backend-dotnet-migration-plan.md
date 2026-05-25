@@ -68,23 +68,25 @@ Before Phase 0 starts:
 ### 0.3 NuGet packages
 
 Add to `SportStock.Api.csproj`:
-- [ ] `Microsoft.AspNetCore.Authentication.JwtBearer` (10.x)
-- [ ] `Microsoft.EntityFrameworkCore.Design` (10.x)
-- [ ] `Npgsql.EntityFrameworkCore.PostgreSQL` (10.x)
-- [ ] `BCrypt.Net-Next` (latest)
-- [ ] `FluentValidation.AspNetCore` (11.x)
+- [ ] `Microsoft.AspNetCore.Authentication.JwtBearer` (10.*)
+- [ ] `Microsoft.EntityFrameworkCore.Design` (10.*)
+- [ ] `Npgsql.EntityFrameworkCore.PostgreSQL` — already added by Power Tools in Phase 0.2
+- [ ] `BCrypt.Net-Next` (latest 4.x)
+- [ ] `FluentValidation` (11.*) — core only; manual style per spec § 7.2
+- [ ] `FluentValidation.DependencyInjectionExtensions` (11.*) — for `AddValidatorsFromAssemblyContaining<Program>()`. **Do NOT add `FluentValidation.AspNetCore`** — we are not using automatic validation
 - [ ] `FirebaseAdmin` (latest)
 - [ ] `CsvHelper` (latest)
-- [ ] `Serilog.AspNetCore` (latest)
-- [ ] `Serilog.Sinks.Console` (latest)
-- [ ] `Serilog.Formatting.Compact` (latest)
+- [ ] `Serilog.AspNetCore` (latest) — Console sink is included transitively
+- [ ] `Serilog.Formatting.Compact` (latest) — for JSON output formatter
 
 Add to `SportStock.Api.Tests.csproj`:
-- [ ] `Microsoft.AspNetCore.Mvc.Testing` (10.x)
+- [ ] `Microsoft.AspNetCore.Mvc.Testing` (10.*)
 - [ ] `Testcontainers.PostgreSql` (latest)
 - [ ] `Respawn` (latest)
-- [ ] `FluentAssertions` (latest)
-- [ ] `Npgsql` (latest)
+- [ ] `FluentAssertions` (**7.\*** — last MIT-licensed version; v8+ moved to commercial)
+- [ ] `Npgsql` (10.*) — for test fixture's raw SQL setup
+- [ ] `Microsoft.EntityFrameworkCore` (10.*) — explicit pin to unify transitive deps (Respawn 7.x pulls EF Core 10.0.4; API uses 10.0.8). Without this pin, the build emits MSB3277 version-conflict warnings.
+- [ ] `Microsoft.EntityFrameworkCore.Relational` (10.*) — same unification reason as above
 
 - [ ] Commit: `feat(dotnet): add NuGet dependencies`.
 

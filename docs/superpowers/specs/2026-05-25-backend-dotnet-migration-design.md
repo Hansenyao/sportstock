@@ -61,8 +61,8 @@ backend-dotnet/
 │   └── SportStock.Api/
 │       ├── SportStock.Api.csproj         # net10.0, SDK-style
 │       ├── Program.cs                    # composition root
-│       ├── appsettings.json              # defaults, no secrets
-│       ├── appsettings.Development.json  # local dev overrides (gitignored)
+│       ├── appsettings.json              # defaults, no secrets, committed
+│       ├── appsettings.Development.json  # dev env overrides (logging level etc.), committed; no secrets
 │       ├── Controllers/                  # 14 controllers, 1:1 with backend/src/controllers/
 │       ├── Services/                     # 14 services, 1:1 with backend/src/services/
 │       ├── Data/
@@ -406,7 +406,7 @@ This is added as part of the migration; the current Node backend has no equivale
 
 ## 9. Configuration
 
-Three-tier ASP.NET Core fallback: `appsettings.json` → `appsettings.{Environment}.json` → environment variables → User Secrets (dev only).
+Four-tier ASP.NET Core fallback: `appsettings.json` → `appsettings.{Environment}.json` → environment variables (`__` for nested keys, e.g. `Supabase__ServiceRoleKey`) → User Secrets (dev only). **Both `appsettings.json` and `appsettings.Development.json` are committed and must contain no secrets.** Real values are sourced from User Secrets locally (`dotnet user-secrets set`) or environment variables in deployment.
 
 Strongly-typed options with startup validation:
 

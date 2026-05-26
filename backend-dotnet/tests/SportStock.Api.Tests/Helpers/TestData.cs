@@ -58,26 +58,52 @@ internal static class TestData
         return user.Id;
     }
 
-    // Reset rows touched by AuthTests so the test class can run repeatedly
-    // without manual DB cleanup between sessions. Runs in InitializeAsync.
+    // Reset rows touched by a test class so it can run repeatedly without
+    // manual DB cleanup between sessions. Runs in InitializeAsync.
+    //
+    // Order matters because of FK directions in db-init.sql:
+    //   - clubs.id is referenced ON DELETE CASCADE from users, loans,
+    //     write_off_orders, asset_categories, asset_names, asset_types.
+    //   - asset_types.id is referenced ON DELETE RESTRICT from loan_items
+    //     AND write_off_orders. So cascading "delete clubs" tries to delete
+    //     asset_types, which fails if any active loan_item/write_off_order
+    //     points to them.
+    //   - loans.coach_id → users.id is also RESTRICT, blocking user delete.
+    //
+    // Strategy:
+    //   1. Email verifications — independent string FK, drop by prefix.
+    //   2. Write-off orders — must die before asset_types can be cascaded.
+    //   3. Loans — cascades loan_items via loans.id ON DELETE CASCADE.
+    //   4. Clubs — cascades the rest (users, asset catalog, teams, ...).
+    //   5. Defensive user sweep — picks up super_admin / orphaned rows.
     public static async Task ResetAuthAsync(SportStockDbContext db, string emailPrefix, string clubNamePrefix)
     {
-        // Order matters — children before parents.
-        var emails = await db.Users.IgnoreQueryFilters()
-            .Where(u => u.Email.StartsWith(emailPrefix))
-            .Select(u => u.Email)
+        await db.EmailVerifications
+            .Where(v => v.Email.StartsWith(emailPrefix))
+            .ExecuteDeleteAsync();
+
+        var clubIds = await db.Clubs.IgnoreQueryFilters()
+            .Where(c => c.Name.StartsWith(clubNamePrefix))
+            .Select(c => c.Id)
             .ToListAsync();
 
-        await db.EmailVerifications
-            .Where(v => emails.Contains(v.Email))
-            .ExecuteDeleteAsync();
+        if (clubIds.Count > 0)
+        {
+            await db.WriteOffOrders.IgnoreQueryFilters()
+                .Where(w => clubIds.Contains(w.ClubId))
+                .ExecuteDeleteAsync();
+
+            await db.Loans.IgnoreQueryFilters()
+                .Where(l => clubIds.Contains(l.ClubId))
+                .ExecuteDeleteAsync();
+
+            await db.Clubs.IgnoreQueryFilters()
+                .Where(c => clubIds.Contains(c.Id))
+                .ExecuteDeleteAsync();
+        }
 
         await db.Users.IgnoreQueryFilters()
             .Where(u => u.Email.StartsWith(emailPrefix))
-            .ExecuteDeleteAsync();
-
-        await db.Clubs.IgnoreQueryFilters()
-            .Where(c => c.Name.StartsWith(clubNamePrefix))
             .ExecuteDeleteAsync();
     }
 

@@ -48,6 +48,21 @@ public partial class SportStockDbContext
             .Property(n => n.Type).HasColumnName("type").HasColumnType("notification_type");
 
         // Keyless result row for the get_asset_depreciation(batch_id) function.
-        modelBuilder.Entity<AssetDepreciationRow>().HasNoKey().ToView(null);
+        // FromSql binds reader columns by name, so the snake_case PG columns
+        // returned by the function must be wired to the PascalCase CLR
+        // properties — without these explicit mappings, EF Core throws
+        // "The required column 'AccumulatedDepreciation' was not present".
+        modelBuilder.Entity<AssetDepreciationRow>(b =>
+        {
+            b.HasNoKey();
+            b.ToView(null);
+            b.Property(x => x.BatchId).HasColumnName("batch_id");
+            b.Property(x => x.AssetTypeId).HasColumnName("asset_type_id");
+            b.Property(x => x.PurchasePrice).HasColumnName("purchase_price");
+            b.Property(x => x.AnnualDepreciation).HasColumnName("annual_depreciation");
+            b.Property(x => x.YearsElapsed).HasColumnName("years_elapsed");
+            b.Property(x => x.AccumulatedDepreciation).HasColumnName("accumulated_depreciation");
+            b.Property(x => x.NetBookValue).HasColumnName("net_book_value");
+        });
     }
 }

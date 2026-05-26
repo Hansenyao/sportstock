@@ -63,19 +63,24 @@ internal static class TestData
     //
     // Order matters because of FK directions in db-init.sql:
     //   - clubs.id is referenced ON DELETE CASCADE from users, loans,
-    //     write_off_orders, asset_categories, asset_names, asset_types.
-    //   - asset_types.id is referenced ON DELETE RESTRICT from loan_items
-    //     AND write_off_orders. So cascading "delete clubs" tries to delete
-    //     asset_types, which fails if any active loan_item/write_off_order
-    //     points to them.
+    //     write_off_orders, stocktake_sessions, asset_categories,
+    //     asset_names, asset_types.
+    //   - asset_types.id is referenced ON DELETE RESTRICT from loan_items,
+    //     write_off_orders, AND stocktake_items. So cascading "delete clubs"
+    //     tries to delete asset_types, which fails if any of those still
+    //     point to them.
     //   - loans.coach_id → users.id is also RESTRICT, blocking user delete.
     //
-    // Strategy:
+    // Strategy (every child of clubs that holds a RESTRICT pointer to
+    // asset_types or users must die explicitly first):
     //   1. Email verifications — independent string FK, drop by prefix.
-    //   2. Write-off orders — must die before asset_types can be cascaded.
-    //   3. Loans — cascades loan_items via loans.id ON DELETE CASCADE.
-    //   4. Clubs — cascades the rest (users, asset catalog, teams, ...).
-    //   5. Defensive user sweep — picks up super_admin / orphaned rows.
+    //   2. Write-off orders — RESTRICT on asset_types.
+    //   3. Stocktake sessions — cascades stocktake_items (which RESTRICT
+    //      asset_types).
+    //   4. Loans — cascades loan_items (RESTRICT asset_types) and contain
+    //      RESTRICT pointer to users.
+    //   5. Clubs — cascades the rest (users, asset catalog, teams, ...).
+    //   6. Defensive user sweep — picks up super_admin / orphaned rows.
     public static async Task ResetAuthAsync(SportStockDbContext db, string emailPrefix, string clubNamePrefix)
     {
         await db.EmailVerifications
@@ -91,6 +96,10 @@ internal static class TestData
         {
             await db.WriteOffOrders.IgnoreQueryFilters()
                 .Where(w => clubIds.Contains(w.ClubId))
+                .ExecuteDeleteAsync();
+
+            await db.StocktakeSessions.IgnoreQueryFilters()
+                .Where(s => clubIds.Contains(s.ClubId))
                 .ExecuteDeleteAsync();
 
             await db.Loans.IgnoreQueryFilters()

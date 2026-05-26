@@ -178,7 +178,7 @@ Log.Logger = new LoggerConfiguration()
     builder.Services.AddScoped<SportStock.Api.Services.IAssetService, SportStock.Api.Services.AssetService>();
     builder.Services.AddScoped<SportStock.Api.Services.IInventoryService, SportStock.Api.Services.InventoryService>();
     builder.Services.AddScoped<SportStock.Api.Services.ILoanService, SportStock.Api.Services.LoanService>();
-    builder.Services.AddScoped<SportStock.Api.Services.INotificationService, SportStock.Api.Services.NoopNotificationService>();
+    builder.Services.AddScoped<SportStock.Api.Services.INotificationService, SportStock.Api.Services.NotificationService>();
     builder.Services.AddScoped<SportStock.Api.Services.IWriteOffService, SportStock.Api.Services.WriteOffService>();
     builder.Services.AddScoped<SportStock.Api.Services.IReportService, SportStock.Api.Services.ReportService>();
 

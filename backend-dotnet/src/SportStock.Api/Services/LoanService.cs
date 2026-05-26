@@ -251,7 +251,7 @@ internal sealed class LoanService(
 
         await tx.CommitAsync(ct);
 
-        _ = notifications.NotifyClubRolesAsync(
+        await notifications.NotifyClubRolesAsync(
             clubId,
             new[] { UserRole.AssetManager, UserRole.ClubAdmin },
             NotificationType.LoanRequest,
@@ -384,7 +384,7 @@ internal sealed class LoanService(
 
         DetachLoan(loanId);
         var loan = await GetAsync(loanId, clubId, approverId, UserRole.ClubAdmin, ct);
-        _ = notifications.NotifyUserAsync(
+        await notifications.NotifyUserAsync(
             clubId, loan.CoachId,
             NotificationType.LoanApproved,
             "Loan Request Approved",
@@ -411,7 +411,7 @@ internal sealed class LoanService(
         var body = reason is not null
             ? $"Your loan request was rejected: {reason}"
             : "Your loan request was rejected.";
-        _ = notifications.NotifyUserAsync(
+        await notifications.NotifyUserAsync(
             clubId, loan.CoachId, NotificationType.LoanRejected,
             "Loan Request Rejected", body, new { loan_id = loan.Id }, ct);
         return loan;
@@ -636,7 +636,7 @@ internal sealed class LoanService(
 
         await tx.CommitAsync(ct);
 
-        _ = notifications.NotifyUserAsync(
+        await notifications.NotifyUserAsync(
             clubId, loan.CoachId, NotificationType.ReturnInitiated,
             "Return Confirmed", "Your loan return has been confirmed.",
             new { loan_id = loanId }, ct);

@@ -5,7 +5,7 @@
 | **Spec** | [`docs/superpowers/specs/2026-05-25-backend-dotnet-migration-design.md`](../specs/2026-05-25-backend-dotnet-migration-design.md) |
 | **Date** | 2026-05-25 |
 | **Estimated effort** | ~12 working days, single developer, full-time |
-| **Branch strategy** | One branch per phase: `dotnet/phase-0-chassis`, `dotnet/phase-1-auth`, … merged to `backend-dotnet` integration branch. `backend-dotnet` merged to `main` only after Final phase. |
+| **Branch** | All Phase work commits directly to `backend-dotnet`. Merge `backend-dotnet` to `main` only after the Final phase. No per-phase branches or tags. |
 
 ---
 
@@ -175,7 +175,7 @@ Compose root in `Program.cs` (ordered):
 - [ ] `dotnet test` — green (just the `/health` test).
 - [ ] Open `SportStock.sln` in VS 2026, Build Solution — succeeds with no warnings.
 - [ ] `dotnet run --project src/SportStock.Api/` boots; `curl http://localhost:3000/health` returns expected JSON.
-- [ ] Tag commit: `dotnet-phase-0-complete`.
+- [ ] Phase 0 complete: 8 commits on `backend-dotnet`, build 0/0, `/health` smoke test green.
 
 ---
 
@@ -253,7 +253,7 @@ Port `backend/tests/auth.test.ts` 1:1:
 - [ ] `dotnet test` all green (AuthTests + HealthEndpointTests).
 - [ ] VS 2026 build solution green.
 - [ ] Postman parity check passed.
-- [ ] Tag commit: `dotnet-phase-1-complete`.
+- [ ] Phase 1 complete: AuthTests green, Postman parity passed.
 
 ---
 
@@ -479,7 +479,6 @@ Diff each response body (excluding timestamps and IDs that are generated indepen
 
 ### Final.5 Branch finalization
 
-- [ ] Merge `dotnet/phase-12` into `backend-dotnet` integration branch.
 - [ ] Open PR `backend-dotnet → main`.
 - [ ] **Do not delete `backend/`** in this PR. Deletion is a separate PR after Azure deployment is stable (see Out of Scope in spec § 14).
 
@@ -495,7 +494,6 @@ Reproduced for convenience; do not deviate without spec amendment.
 4. Every endpoint of the phase tested against new backend via Postman/Bruno; response body matches current Node backend byte-for-byte (timestamps and independently-generated IDs excluded).
 5. `ICurrentUser` is the only source of identity in phase code — no controller / service / validator reads `HttpContext` directly.
 6. Service files crossing ~400 lines extract a Repository (exceptions justified in commit message).
-7. Commit tagged `dotnet-phase-N-complete` (lightweight tag, local only — pushed to remote at `backend-dotnet` integration merge).
 
 ---
 

@@ -154,6 +154,9 @@ Log.Logger = new LoggerConfiguration()
     // ── FluentValidation (manual style, no auto-integration) ─────────────────
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
+    // ── Application services ─────────────────────────────────────────────────
+    builder.Services.AddScoped<SportStock.Api.Services.IAuthService, SportStock.Api.Services.AuthService>();
+
     // ── JWT Bearer authentication ────────────────────────────────────────────
     // Same lazy-binding pattern as the DataSource: configure JwtBearerOptions
     // from IOptions<JwtOptions> at DI resolve time so test overrides applied
@@ -178,13 +181,25 @@ Log.Logger = new LoggerConfiguration()
                 ClockSkew = TimeSpan.Zero,
             };
             // Surface 401/403 through ExceptionHandlingMiddleware so the JSON
-            // shape is consistent with the rest of the API.
+            // shape is consistent with the rest of the API. Distinguish the
+            // two failure modes the Node middleware also distinguishes:
+            //   * "Missing Bearer token"     — no Authorization header
+            //   * "Invalid or expired token" — header present but token bad
+            const string FailedFlag = "jwt_auth_failed";
             opt.Events = new JwtBearerEvents
             {
+                OnAuthenticationFailed = ctx =>
+                {
+                    ctx.HttpContext.Items[FailedFlag] = true;
+                    return Task.CompletedTask;
+                },
                 OnChallenge = ctx =>
                 {
                     ctx.HandleResponse();
-                    throw new AppException("Invalid or expired token", 401);
+                    var hadFailedToken = ctx.HttpContext.Items.ContainsKey(FailedFlag);
+                    throw new AppException(
+                        hadFailedToken ? "Invalid or expired token" : "Missing Bearer token",
+                        401);
                 },
             };
         });

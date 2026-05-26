@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SportStock.Api.Data;
 using SportStock.Api.Integrations;
 
 namespace SportStock.Api.Tests.Helpers;
@@ -63,5 +64,28 @@ public sealed class SportStockWebApplicationFactory : WebApplicationFactory<Prog
             services.RemoveAll<ISupabaseStorage>();
             services.AddSingleton<ISupabaseStorage, InMemorySupabaseStorage>();
         });
+    }
+
+    // Convenience helper: open a scope and hand the test a fresh DbContext.
+    // Use this for seeding fixture data and for read-back assertions.
+    public async Task<T> WithDbContextAsync<T>(Func<SportStockDbContext, Task<T>> work)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SportStockDbContext>();
+        return await work(db);
+    }
+
+    public async Task WithDbContextAsync(Func<SportStockDbContext, Task> work)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SportStockDbContext>();
+        await work(db);
+    }
+
+    // Generic spy resolver for tests that need to assert on captured calls.
+    public T GetSpy<T>() where T : class
+    {
+        using var scope = Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<T>();
     }
 }

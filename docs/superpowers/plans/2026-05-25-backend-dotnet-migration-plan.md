@@ -263,11 +263,11 @@ Port `backend/tests/auth.test.ts` 1:1:
 
 ## Phase 2 — Clubs ｜ ~0.3 days
 
-**Endpoints:** `GET /api/v1/clubs/me`, `PUT /api/v1/clubs/me`, `POST /api/v1/clubs/me/logo`.
+**Endpoints:** `GET /api/v1/clubs/me`, `PUT /api/v1/clubs/me`, **`PUT /api/v1/clubs/me/logo`** (Node uses PUT for logo upload, not POST — plan originally said POST in error).
 
-- [ ] `Dtos/Clubs/UpdateClubRequest.cs` + validator.
-- [ ] `Services/ClubService.cs` — get, update, upload logo (via `ISupabaseStorage`).
-- [ ] `Controllers/ClubsController.cs`.
+- [ ] `Dtos/Clubs/UpdateClubRequest.cs` + validator. Note: `RetirementAlertValue` is typed `object?` (not `int?`) so callers passing `"notanumber"` get the Node-equivalent 422 from the service, not a 400 binding error from System.Text.Json.
+- [ ] `Services/ClubService.cs` — get, update (with COALESCE partial behavior + 422 validation of `retirement_alert_mode` / `_value`), upload logo (via `ISupabaseStorage`).
+- [ ] `Controllers/ClubsController.cs`. `[Authorize]` on all; `[RequireRole(UserRole.ClubAdmin)]` on PUT /me and PUT /me/logo.
 - [ ] `Tests/ClubsTests.cs` — port `backend/tests/clubs.test.ts` 1:1.
 - [ ] Postman parity check for all club endpoints.
 - [ ] DoD checklist (build / test / VS build / parity).

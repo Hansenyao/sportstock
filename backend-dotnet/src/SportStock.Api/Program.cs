@@ -22,11 +22,16 @@ using SportStock.Api.Middleware;
 // ── Serilog bootstrap ────────────────────────────────────────────────────────
 // Two-stage init: minimal logger now (so config-load errors surface as logs)
 // then the full logger after configuration binds.
+//
+// NOTE: do NOT wrap the host build/run in a try/catch. WebApplicationFactory
+// relies on an internal exception thrown by HostFactoryResolver to capture
+// the IHost; swallowing it (even with a re-throw filter) is fragile across
+// .NET versions and breaks integration tests. Let unhandled startup
+// exceptions propagate — the runtime will print them with a stack trace.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
     .CreateBootstrapLogger();
 
-try
 {
     var builder = WebApplication.CreateBuilder(args);
 
@@ -56,22 +61,29 @@ try
         builder.Configuration.GetSection(ResendOptions.SectionName));
 
     // ── PostgreSQL data source (registers PG enums Power Tools missed) ───────
-    var dbConnectionString = builder.Configuration[$"{DbOptions.SectionName}:ConnectionString"]
-        ?? throw new InvalidOperationException("Db:ConnectionString not configured");
-
-    var dataSourceBuilder = new NpgsqlDataSourceBuilder(dbConnectionString);
-    dataSourceBuilder.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<LoanStatus>("loan_status", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<WriteOffSource>("write_off_source", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<StockMovementType>("stock_movement_type", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<NotificationType>("notification_type", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.EnableDynamicJson();
-    var dataSource = dataSourceBuilder.Build();
-
-    builder.Services.AddDbContextPool<SportStockDbContext>(opt =>
+    // Built lazily inside DI so WebApplicationFactory<Program> can inject the
+    // Testcontainers connection string via ConfigureAppConfiguration BEFORE
+    // the DataSource is constructed. Reading builder.Configuration here at
+    // composition time would capture the placeholder value from
+    // appsettings.json instead.
+    builder.Services.AddSingleton<NpgsqlDataSource>(sp =>
     {
-        opt.UseNpgsql(dataSource);
+        var connStr = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DbOptions>>()
+                        .Value.ConnectionString;
+        var dsb = new NpgsqlDataSourceBuilder(connStr);
+        dsb.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<LoanStatus>("loan_status", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<WriteOffSource>("write_off_source", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<StockMovementType>("stock_movement_type", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<NotificationType>("notification_type", new NpgsqlSnakeCaseNameTranslator());
+        dsb.EnableDynamicJson();
+        return dsb.Build();
+    });
+
+    builder.Services.AddDbContextPool<SportStockDbContext>((sp, opt) =>
+    {
+        opt.UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>());
         if (builder.Environment.IsDevelopment())
             opt.EnableSensitiveDataLogging();
     });
@@ -92,63 +104,74 @@ try
     builder.Services.AddSingleton<IFcmClient, FcmClient>();
     builder.Services.AddScoped<IEmailSender, StubEmailSender>();
 
-    // Firebase initialization once at startup. Skip in dev if creds are stubbed
-    // so the dev loop doesn't require real Firebase credentials.
+    // Firebase initialization once at startup. Wrapped in try/catch so dev
+    // and test environments with stub credentials boot cleanly — IFcmClient
+    // calls will fail at runtime if the creds aren't real, but tests replace
+    // the registration with a spy via SportStockWebApplicationFactory.
     var firebaseOpts = builder.Configuration.GetSection(FirebaseOptions.SectionName).Get<FirebaseOptions>();
     if (firebaseOpts is not null
-        && !string.IsNullOrWhiteSpace(firebaseOpts.PrivateKey)
+        && firebaseOpts.PrivateKey.Contains("BEGIN")
         && !string.IsNullOrWhiteSpace(firebaseOpts.ProjectId)
         && !string.IsNullOrWhiteSpace(firebaseOpts.ClientEmail))
     {
-        var pem = firebaseOpts.PrivateKey.Replace("\\n", "\n");
-        var credentialJson = JsonSerializer.Serialize(new
+        try
         {
-            type = "service_account",
-            project_id = firebaseOpts.ProjectId,
-            private_key = pem,
-            client_email = firebaseOpts.ClientEmail,
-            token_uri = "https://oauth2.googleapis.com/token",
-        });
-        using var credentialStream = new MemoryStream(Encoding.UTF8.GetBytes(credentialJson));
-        // GoogleCredential.FromStream is marked obsolete in favor of
-        // CredentialFactory in recent Google.Apis.Auth, but the deprecation
-        // notice is about loading from arbitrary user-supplied JSON. We are
-        // assembling the JSON from typed FirebaseOptions values that already
-        // passed startup validation, so the cited security concern does not
-        // apply. Suppress until the FirebaseAdmin SDK exposes a non-obsolete
-        // constructor path.
+            var pem = firebaseOpts.PrivateKey.Replace("\\n", "\n");
+            var credentialJson = JsonSerializer.Serialize(new
+            {
+                type = "service_account",
+                project_id = firebaseOpts.ProjectId,
+                private_key = pem,
+                client_email = firebaseOpts.ClientEmail,
+                token_uri = "https://oauth2.googleapis.com/token",
+            });
+            using var credentialStream = new MemoryStream(Encoding.UTF8.GetBytes(credentialJson));
+            // GoogleCredential.FromStream is marked obsolete in favor of
+            // CredentialFactory in recent Google.Apis.Auth, but the
+            // deprecation notice is about loading from arbitrary user-supplied
+            // JSON. We are assembling the JSON from typed FirebaseOptions
+            // values that already passed startup validation, so the cited
+            // security concern does not apply.
 #pragma warning disable CS0618
-        var googleCredential = GoogleCredential.FromStream(credentialStream);
+            var googleCredential = GoogleCredential.FromStream(credentialStream);
 #pragma warning restore CS0618
-        FirebaseApp.Create(new AppOptions
+            FirebaseApp.Create(new AppOptions
+            {
+                Credential = googleCredential,
+                ProjectId = firebaseOpts.ProjectId,
+            });
+        }
+        catch (Exception ex)
         {
-            Credential = googleCredential,
-            ProjectId = firebaseOpts.ProjectId,
-        });
+            Log.Warning(ex, "Firebase init failed — FCM disabled for this host.");
+        }
     }
     else
     {
-        Log.Warning("Firebase credentials missing — FCM sends will fail at runtime. " +
-                    "Set Firebase__ProjectId / __ClientEmail / __PrivateKey to enable.");
+        Log.Warning("Firebase credentials missing or stubbed — FCM sends will fail at runtime.");
     }
 
     // ── FluentValidation (manual style, no auto-integration) ─────────────────
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
     // ── JWT Bearer authentication ────────────────────────────────────────────
-    var jwtSecret = builder.Configuration[$"{JwtOptions.SectionName}:Secret"]
-        ?? throw new InvalidOperationException("Jwt:Secret not configured");
-
+    // Same lazy-binding pattern as the DataSource: configure JwtBearerOptions
+    // from IOptions<JwtOptions> at DI resolve time so test overrides applied
+    // via ConfigureAppConfiguration land before SymmetricSecurityKey is built.
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(opt =>
+        .AddJwtBearer();
+
+    builder.Services
+        .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+        .Configure<Microsoft.Extensions.Options.IOptions<JwtOptions>>((opt, jwtOpts) =>
         {
             opt.RequireHttpsMetadata = false;
             opt.SaveToken = false;
             opt.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOpts.Value.Secret)),
                 ValidateIssuer = false,
                 ValidateAudience = false,
                 ValidateLifetime = true,
@@ -243,14 +266,8 @@ try
 
     app.Run();
 }
-catch (Exception ex) when (ex is not HostAbortedException)
-{
-    Log.Fatal(ex, "Host terminated unexpectedly");
-}
-finally
-{
-    Log.CloseAndFlush();
-}
+
+Log.CloseAndFlush();
 
 // Visible to WebApplicationFactory<Program> in the test project.
 public partial class Program { }

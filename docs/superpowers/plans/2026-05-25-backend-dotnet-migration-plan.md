@@ -122,16 +122,20 @@ Add to `SportStock.Api.Tests.csproj`:
 Compose root in `Program.cs` (ordered):
 - [ ] Serilog bootstrap (read config + Console sink + JSON formatter + `WithCorrelationId` enricher).
 - [ ] Service registrations:
-  - Build `NpgsqlDataSource` once via `NpgsqlDataSourceBuilder(connectionString)`, register each PG enum with a snake_case translator (mirrors `Data/Enums/*` ↔ PG enum types — see spec § 5.3), then call `.Build()`:
+  - Build `NpgsqlDataSource` once via `NpgsqlDataSourceBuilder(connectionString)`, register each PG enum with a snake_case translator (mirrors `Data/Enums/*` ↔ PG enum types — see spec § 5.3 three-layer wiring), then call `.Build()`:
     ```csharp
     dataSourceBuilder.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<LoanStatus>("loan_status", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<WriteOffSource>("write_off_source", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<StockMovementType>("stock_movement_type", new NpgsqlSnakeCaseNameTranslator());
-    dataSourceBuilder.MapEnum<NotificationType>("notification_type", new NpgsqlSnakeCaseNameTranslator());
+    // ... one per PG enum (Layer A)
     ```
-  - `AddDbContextPool<SportStockDbContext>(opt => opt.UseNpgsql(dataSource))`
+  - Register `AddDbContextPool<SportStockDbContext>` and **inside the `UseNpgsql` callback also call `npg.MapEnum<T>` for each PG enum (Layer B)** — required in addition to the data-source mapping or EF Core sends `int` for enum parameters:
+    ```csharp
+    opt.UseNpgsql(dataSource, npg =>
+    {
+        npg.MapEnum<UserRole>("user_role", nameTranslator: snake);
+        // ... one per PG enum (Layer B)
+    });
+    ```
+  - Layer C (model builder + `HasColumnType`) is in `SportStockDbContext.Partial.cs` — see spec § 5.3.
   - `AddHttpContextAccessor()`
   - `AddScoped<ICurrentUser, CurrentUser>()`
   - `AddScoped<ISupabaseStorage, SupabaseStorageClient>()`
@@ -161,7 +165,7 @@ Compose root in `Program.cs` (ordered):
 
 ### 0.8 Test harness
 
-- [ ] `Helpers/DbFixture.cs` — Testcontainers PG, runs `backend/db-init.sql` on startup (spec § 11.2).
+- [ ] `Helpers/DbFixture.cs` — dual-mode: if env var `TEST_DATABASE_URL` is set, connect to that Postgres (developer's local instance) and skip the schema replay; otherwise start a `postgres:16` container via Testcontainers and apply `backend/db-init.sql` (spec § 11.2). External mode is convenient on Windows hosts without Docker.
 - [ ] `Helpers/SportStockWebApplicationFactory.cs` — overrides DI to point at the test container's connection string; allows overriding `ICurrentUser` per test.
 - [ ] `Helpers/AuthHelper.cs` — mints test JWTs, seeds test users/clubs.
 - [ ] `Helpers/HttpClientExtensions.cs` — `GetAsAsync<T>`, `PostJsonAsAsync<T>` helpers.

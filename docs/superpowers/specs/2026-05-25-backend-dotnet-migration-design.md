@@ -163,13 +163,32 @@ Workaround:
 1. Define a C# enum per PG enum under `Data/Enums/`. Member names use PascalCase (e.g., `LoanStatus.CheckedOut` for PG `'checked_out'`).
 2. Add the missing property to a partial entity class under `Data/Entities/Extensions/<EntityName>.cs`. **Never edit the auto-generated `Data/Entities/<EntityName>.cs`** — it is rebuilt on every Reverse Engineer refresh.
 3. Add Fluent column-name configuration in `Data/SportStockDbContext.Partial.cs` (which implements `OnModelCreatingPartial(ModelBuilder)`).
-4. In `Program.cs` (Phase 0.7), register each PG enum at the data source level with `NpgsqlSnakeCaseNameTranslator()` so PascalCase ↔ snake_case translation happens automatically:
+4. **Three-layer enum wiring** is required end-to-end. Skipping any one of the three layers reproduces the failure `42804: column "..." is of type ... but expression is of type integer`:
 
-   ```csharp
-   dataSourceBuilder.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
-   dataSourceBuilder.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
-   // ... 6 calls total
-   ```
+   - **Layer A — Npgsql data source** (`Program.cs`, before `dataSource.Build()`): registers the driver-level wire translation. C# enum members ↔ PG enum values via `NpgsqlSnakeCaseNameTranslator`.
+
+     ```csharp
+     dataSourceBuilder.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
+     // ... one call per PG enum
+     ```
+
+   - **Layer B — EF Core Npgsql options** (`Program.cs`, inside `UseNpgsql(ds, npg => {...})`): tells EF Core's type system that the enum is a PG enum so parameter generation uses the right OID. Without this EF Core sends `int`.
+
+     ```csharp
+     opt.UseNpgsql(ds, npg =>
+     {
+         npg.MapEnum<UserRole>("user_role", nameTranslator: snake);
+         // ... one call per PG enum
+     });
+     ```
+
+   - **Layer C — model builder** (`SportStockDbContext.Partial.cs` inside `OnModelCreatingPartial`): declares the enum at the model level and pins each column's `HasColumnType` to the PG enum name.
+
+     ```csharp
+     modelBuilder.HasPostgresEnum<UserRole>(name: "user_role", nameTranslator: snake);
+     modelBuilder.Entity<User>().Property(u => u.Role)
+         .HasColumnName("role").HasColumnType("user_role");
+     ```
 
 5. Wire `JsonStringEnumConverter` with `JsonNamingPolicy.SnakeCaseLower` at the API JSON boundary (§ 7.3) so responses emit `"checked_out"` rather than `"CheckedOut"` or numeric ordinals — matching current Node output.
 

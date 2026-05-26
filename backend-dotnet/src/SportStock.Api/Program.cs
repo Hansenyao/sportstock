@@ -83,7 +83,22 @@ Log.Logger = new LoggerConfiguration()
 
     builder.Services.AddDbContextPool<SportStockDbContext>((sp, opt) =>
     {
-        opt.UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>());
+        var ds = sp.GetRequiredService<NpgsqlDataSource>();
+        var snake = new NpgsqlSnakeCaseNameTranslator();
+        opt.UseNpgsql(ds, npg =>
+        {
+            // EF Core needs its own enum mapping in addition to what the
+            // NpgsqlDataSourceBuilder did for the driver level. Without
+            // these calls EF Core sends UserRole as int, which PG rejects
+            // with 42804 "is of type user_role but expression is of type
+            // integer".
+            npg.MapEnum<UserRole>("user_role", nameTranslator: snake);
+            npg.MapEnum<AssetStatus>("asset_status", nameTranslator: snake);
+            npg.MapEnum<LoanStatus>("loan_status", nameTranslator: snake);
+            npg.MapEnum<WriteOffSource>("write_off_source", nameTranslator: snake);
+            npg.MapEnum<StockMovementType>("stock_movement_type", nameTranslator: snake);
+            npg.MapEnum<NotificationType>("notification_type", nameTranslator: snake);
+        });
         if (builder.Environment.IsDevelopment())
             opt.EnableSensitiveDataLogging();
     });

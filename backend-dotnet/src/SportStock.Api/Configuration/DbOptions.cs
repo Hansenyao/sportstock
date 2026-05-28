@@ -6,5 +6,5 @@ public sealed class DbOptions
 {
     public const string SectionName = "Db";
 
-    [Required] public string ConnectionString { get; set; } = string.Empty;
+    [Required, MinLength(1)] public string ConnectionString { get; set; } = string.Empty;
 }

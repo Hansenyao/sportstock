@@ -297,11 +297,14 @@ Log.Logger = new LoggerConfiguration()
     app.UseAuthorization();
 
     // Health endpoint shape MUST match the Node /health output 1:1.
-    app.MapGet("/health", () => Results.Ok(new
+    // Root path returns the same payload so a bare http://host/ also works.
+    var health = () => Results.Ok(new
     {
         status = "ok",
         timestamp = DateTime.UtcNow.ToString("o"),
-    }));
+    });
+    app.MapGet("/", health);
+    app.MapGet("/health", health);
 
     app.MapControllers();
 

@@ -69,6 +69,7 @@ internal sealed class AuthService(
             SportType = req.Club.SportType,
             Address = req.Club.Address,
             ContactEmail = req.Club.ContactEmail,
+            IsActive = true,
         };
         var user = new User
         {
@@ -80,6 +81,7 @@ internal sealed class AuthService(
             Role = UserRole.ClubAdmin,
             EmailVerified = false,
             ClubId = clubId,
+            IsActive = true,
         };
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);

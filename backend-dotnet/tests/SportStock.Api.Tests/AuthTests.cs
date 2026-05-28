@@ -163,10 +163,17 @@ public sealed class AuthTests : IAsyncLifetime, IDisposable
         await _factory.WithDbContextAsync(async db =>
         {
             var user = await db.Users.IgnoreQueryFilters()
+                .Include(u => u.Club)
                 .FirstOrDefaultAsync(u => u.Email == newUserEmail);
             user.Should().NotBeNull();
             user!.Role.Should().Be(UserRole.ClubAdmin);
             user.EmailVerified.Should().BeFalse();
+            // EF Core writes every tracked property into INSERT, so the column
+            // DEFAULT TRUE on users.is_active / clubs.is_active is bypassed.
+            // RegisterAsync must set IsActive=true explicitly on both rows
+            // or login will fail with "Account is deactivated".
+            user.IsActive.Should().BeTrue();
+            user.Club!.IsActive.Should().BeTrue();
         });
     }
 
@@ -307,6 +314,53 @@ public sealed class AuthTests : IAsyncLifetime, IDisposable
         user.GetProperty("id").GetGuid().Should().Be(_coachUserId);
         user.GetProperty("email").GetString().Should().Be(CoachEmail);
         user.GetProperty("role").GetString().Should().Be("coach");
+    }
+
+    [Fact]
+    public async Task Login_Should_Succeed_After_Register_And_Verify_Email()
+    {
+        // End-to-end regression for the IsActive default bug: a fresh user
+        // who registered through the public endpoint and verified their email
+        // must be able to log in. Earlier this failed with "Account is
+        // deactivated" because EF Core wrote is_active=false into the INSERT,
+        // bypassing the column's DEFAULT TRUE. The seeded helpers used by
+        // every other login test set IsActive=true explicitly, so the bug
+        // never surfaced in those paths.
+        var email = Prefix + "e2elogin@test.com";
+        var clubName = ClubPrefix + "E2ELoginClub";
+        const string password = "TestPass@123";
+        using var client = _factory.CreateClient();
+
+        var register = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            club = new { name = clubName, contact_email = "e2e@test.com", sport_type = "Soccer" },
+            user = new { name = "E2E Admin", email, password },
+        }, JsonOpts);
+        register.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var code = await _factory.WithDbContextAsync(async db =>
+            await db.EmailVerifications
+                .Where(v => v.Email == email && v.Type == "registration" && v.UsedAt == null)
+                .OrderByDescending(v => v.CreatedAt)
+                .Select(v => v.Code)
+                .FirstAsync());
+
+        var verify = await client.PostAsJsonAsync("/api/v1/auth/verify-email", new
+        {
+            email,
+            code,
+        }, JsonOpts);
+        verify.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var login = await client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            email,
+            password,
+        }, JsonOpts);
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await login.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("token").GetString().Should().NotBeNullOrWhiteSpace();
+        body.GetProperty("user").GetProperty("role").GetString().Should().Be("club_admin");
     }
 
     [Fact]

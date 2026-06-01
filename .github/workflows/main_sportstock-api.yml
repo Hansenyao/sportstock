@@ -6,7 +6,7 @@ name: Build and deploy ASP.Net Core app to Azure Web App - sportstock-api
 on:
   push:
     branches:
-      - backend-dotnet
+      - main
   workflow_dispatch:
 
 jobs:

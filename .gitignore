@@ -41,3 +41,6 @@ next-env.d.ts
 
 # superpowers brainstorming sessions
 .superpowers/
+
+# Claude Code local session/cache files (any depth)
+.claude/

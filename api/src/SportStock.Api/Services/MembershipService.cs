@@ -7,7 +7,7 @@ using SportStock.Api.Exceptions;
 
 namespace SportStock.Api.Services;
 
-public sealed class MembershipService(SportStockDbContext db, INotificationService notificationService) : IMembershipService
+public sealed class MembershipService(SportStockDbContext db, INotificationService notificationService, IAuditLogService audit) : IMembershipService
 {
     public async Task<InvitationDto> InviteUserAsync(Guid clubId, Guid inviterId, InviteUserRequest req)
     {
@@ -38,6 +38,7 @@ public sealed class MembershipService(SportStockDbContext db, INotificationServi
         // TODO: send email notification to invitee (reserved — not implemented in current stage)
         // await emailService.SendInvitationEmailAsync(invitee.Email, ...);
 
+        await audit.LogAsync("membership.invite", clubId, inviterId, "user", req.InviteeId, new { role = req.Role.ToString() });
         return MapToDto(invitation);
     }
 
@@ -66,6 +67,7 @@ public sealed class MembershipService(SportStockDbContext db, INotificationServi
         db.ClubMemberships.Add(membership);
         await db.SaveChangesAsync();
 
+        await audit.LogAsync("membership.accept", clubId, userId, "club_membership", membership.Id);
         return new MembershipDto(membership.Id, membership.ClubId, membership.UserId, membership.Role, membership.JoinedAt);
     }
 

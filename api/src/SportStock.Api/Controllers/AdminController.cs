@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SportStock.Api.Auth;
 using SportStock.Api.Data.Enums;
 using SportStock.Api.Dtos.Admin;
+using SportStock.Api.Dtos.AuditLog;
 using SportStock.Api.Exceptions;
 using SportStock.Api.Services;
 
@@ -12,7 +13,7 @@ namespace SportStock.Api.Controllers;
 [Authorize]
 [Route("api/v1/admin")]
 [RequireRole(UserRole.SuperAdmin)]
-public sealed class AdminController(IAdminService service) : ControllerBase
+public sealed class AdminController(IAdminService service, IAuditLogService auditLogService) : ControllerBase
 {
     [HttpGet("stats")]
     public async Task<IActionResult> Stats(CancellationToken ct) =>
@@ -113,4 +114,9 @@ public sealed class AdminController(IAdminService service) : ControllerBase
         [FromQuery] string? status,
         CancellationToken ct) =>
         Ok(await service.ListClubLoansAsync(id, page == 0 ? 1 : page, limit == 0 ? 20 : limit, status, ct));
+
+    // GET /api/v1/admin/audit-logs — super-admin view across all clubs
+    [HttpGet("audit-logs")]
+    public async Task<IActionResult> ListAll([FromQuery] AuditLogQuery q)
+        => Ok(await auditLogService.ListAsync(q, clubId: null));
 }

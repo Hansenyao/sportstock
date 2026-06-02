@@ -256,12 +256,23 @@ public partial class SportStockDbContext : DbContext
             entity.Property(e => e.RetirementAlertValue)
                 .HasDefaultValue(80)
                 .HasColumnName("retirement_alert_value");
-            entity.Property(e => e.SportType)
-                .HasMaxLength(100)
-                .HasColumnName("sport_type");
+            entity.Property(e => e.SportTypeId)
+                .HasColumnName("sport_type_id");
+            entity.Property(e => e.OwnerId)
+                .HasColumnName("owner_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.SportType).WithMany()
+                .HasForeignKey(d => d.SportTypeId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("clubs_sport_type_id_fkey");
+
+            entity.HasOne(d => d.Owner).WithMany()
+                .HasForeignKey(d => d.OwnerId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("clubs_owner_id_fkey");
         });
 
         modelBuilder.Entity<EmailVerification>(entity =>

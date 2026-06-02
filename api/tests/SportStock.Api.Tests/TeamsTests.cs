@@ -54,21 +54,28 @@ public sealed class TeamsTests : IAsyncLifetime, IDisposable
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
-            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail, _clubId, UserRole.ClubAdmin);
-            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail, _clubId, UserRole.AssetManager);
-            _coach1UserId = await TestData.CreateUserAsync(db, Coach1Email, _clubId, UserRole.Coach);
-            _coach2UserId = await TestData.CreateUserAsync(db, Coach2Email, _clubId, UserRole.Coach);
+            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
+            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _managerUserId, ClubRole.AssetManager);
+            _coach1UserId = await TestData.CreateUserAsync(db, Coach1Email);
+            await TestData.CreateMembershipAsync(db, _clubId, _coach1UserId, ClubRole.Coach);
+            _coach2UserId = await TestData.CreateUserAsync(db, Coach2Email);
+            await TestData.CreateMembershipAsync(db, _clubId, _coach2UserId, ClubRole.Coach);
         });
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
     public void Dispose() { }
 
-    private HttpClient AuthedClient(Guid userId)
+    private HttpClient AuthedClient(Guid userId, ClubRole? role = null)
     {
+        var effectiveRole = role ?? (userId == _adminUserId ? ClubRole.ClubAdmin
+                                  : userId == _managerUserId ? ClubRole.AssetManager
+                                  : ClubRole.Coach);
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId));
+            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId, _clubId, effectiveRole));
         return client;
     }
 

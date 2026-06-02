@@ -55,20 +55,26 @@ public sealed class AssetsTests : IAsyncLifetime, IDisposable
             // asset_types / asset_batches / stock_movements / loans / loan_items.
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
-            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail, _clubId, UserRole.ClubAdmin);
-            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail, _clubId, UserRole.AssetManager);
-            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail, _clubId, UserRole.Coach);
+            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
+            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _managerUserId, ClubRole.AssetManager);
+            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _coachUserId, ClubRole.Coach);
         });
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
     public void Dispose() { }
 
-    private HttpClient AuthedClient(Guid userId)
+    private HttpClient AuthedClient(Guid userId, ClubRole? role = null)
     {
+        var effectiveRole = role ?? (userId == _adminUserId ? ClubRole.ClubAdmin
+                                  : userId == _managerUserId ? ClubRole.AssetManager
+                                  : ClubRole.Coach);
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId));
+            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId, _clubId, effectiveRole));
         return client;
     }
 

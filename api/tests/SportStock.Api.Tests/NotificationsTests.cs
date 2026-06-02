@@ -50,8 +50,10 @@ public sealed class NotificationsTests : IAsyncLifetime, IDisposable
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
-            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail, _clubId, UserRole.ClubAdmin);
-            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail, _clubId, UserRole.Coach);
+            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
+            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _coachUserId, ClubRole.Coach);
 
             // Seed a notification on the coach.
             db.Notifications.Add(new Notification
@@ -71,11 +73,12 @@ public sealed class NotificationsTests : IAsyncLifetime, IDisposable
     public Task DisposeAsync() => Task.CompletedTask;
     public void Dispose() { }
 
-    private HttpClient AuthedClient(Guid userId)
+    private HttpClient AuthedClient(Guid userId, ClubRole? role = null)
     {
+        var effectiveRole = role ?? (userId == _adminUserId ? ClubRole.ClubAdmin : ClubRole.Coach);
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId));
+            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId, _clubId, effectiveRole));
         return client;
     }
 
@@ -238,7 +241,7 @@ public sealed class NotificationsTests : IAsyncLifetime, IDisposable
         reg.StatusCode.Should().Be(HttpStatusCode.Created);
 
         // Seed an asset_type + batch + a pending loan in DB directly.
-        var (loanId, _) = await _factory.WithDbContextAsync(async db =>
+        var loanId = await _factory.WithDbContextAsync(async db =>
         {
             var nameId = Guid.NewGuid();
             var typeId = Guid.NewGuid();
@@ -251,8 +254,7 @@ public sealed class NotificationsTests : IAsyncLifetime, IDisposable
             db.AssetBatches.Add(new AssetBatch
             {
                 Id = batchId, AssetTypeId = typeId,
-                TotalQuantity = 5, AvailableQuantity = 5,
-                Status = AssetStatus.Available,
+                TotalQuantity = 5,
             });
             var lId = Guid.NewGuid();
             db.Loans.Add(new Loan
@@ -272,7 +274,7 @@ public sealed class NotificationsTests : IAsyncLifetime, IDisposable
                 Quantity = 1,
             });
             await db.SaveChangesAsync();
-            return (lId, batchId);
+            return lId;
         });
 
         var spy = _factory.GetSpy<SportStock.Api.Integrations.IFcmClient>()

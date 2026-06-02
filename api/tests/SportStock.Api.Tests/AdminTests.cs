@@ -52,10 +52,16 @@ public sealed class AdminTests : IAsyncLifetime, IDisposable
         await _factory.WithDbContextAsync(async db =>
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
-            _superAdminId = await TestData.CreateUserAsync(db, SuperAdminEmail, null, UserRole.SuperAdmin);
+            _superAdminId = await TestData.CreateUserAsync(db, SuperAdminEmail);
+            // Mark as super_admin directly
+            await db.Users.IgnoreQueryFilters()
+                .Where(u => u.Id == _superAdminId)
+                .ExecuteUpdateAsync(s => s.SetProperty(u => u.IsSupAdmin, true));
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Main");
-            _clubAdminUserId = await TestData.CreateUserAsync(db, ClubAdminEmail, _clubId, UserRole.ClubAdmin);
-            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail, _clubId, UserRole.Coach);
+            _clubAdminUserId = await TestData.CreateUserAsync(db, ClubAdminEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _clubAdminUserId, ClubRole.ClubAdmin);
+            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _coachUserId, ClubRole.Coach);
 
             var nameId = Guid.NewGuid();
             db.AssetNames.Add(new AssetName { Id = nameId, ClubId = _clubId, Name = "AdminTest Ball" });
@@ -68,8 +74,7 @@ public sealed class AdminTests : IAsyncLifetime, IDisposable
             {
                 Id = Guid.NewGuid(),
                 AssetTypeId = _assetTypeId,
-                TotalQuantity = 5, AvailableQuantity = 5,
-                Status = AssetStatus.Available,
+                TotalQuantity = 5,
                 PurchasePrice = 10m,
             });
             await db.SaveChangesAsync();
@@ -81,9 +86,14 @@ public sealed class AdminTests : IAsyncLifetime, IDisposable
 
     private HttpClient AuthedClient(Guid userId)
     {
+        // Super-admin token (no club scope); club admin/coach tokens are scoped.
+        var isSuperAdmin = userId == _superAdminId;
+        var token = isSuperAdmin
+            ? AuthHelper.MintToken(userId, activeClubId: null, role: null, isSupAdmin: true)
+            : AuthHelper.MintToken(userId, _clubId, ClubRole.ClubAdmin);
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId));
+            new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 

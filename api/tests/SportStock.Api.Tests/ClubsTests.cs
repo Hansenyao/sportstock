@@ -49,8 +49,10 @@ public sealed class ClubsTests : IAsyncLifetime, IDisposable
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
-            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail, _clubId, UserRole.ClubAdmin);
-            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail, _clubId, UserRole.AssetManager);
+            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
+            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _managerUserId, ClubRole.AssetManager);
         });
     }
 
@@ -58,11 +60,11 @@ public sealed class ClubsTests : IAsyncLifetime, IDisposable
 
     public void Dispose() { /* shared static factory */ }
 
-    private HttpClient AuthedClient(Guid userId)
+    private HttpClient AuthedClient(Guid userId, ClubRole role = ClubRole.ClubAdmin)
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId));
+            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId, _clubId, role));
         return client;
     }
 
@@ -83,7 +85,7 @@ public sealed class ClubsTests : IAsyncLifetime, IDisposable
     [Fact]
     public async Task GetMine_Should_Return_Club_Profile_For_Manager()
     {
-        using var client = AuthedClient(_managerUserId);
+        using var client = AuthedClient(_managerUserId, ClubRole.AssetManager);
         var response = await client.GetAsync("/api/v1/clubs/me");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -112,7 +114,7 @@ public sealed class ClubsTests : IAsyncLifetime, IDisposable
     [Fact]
     public async Task UpdateMine_Should_Return_403_For_Non_Admin()
     {
-        using var client = AuthedClient(_managerUserId);
+        using var client = AuthedClient(_managerUserId, ClubRole.AssetManager);
         var response = await client.PutAsJsonAsync("/api/v1/clubs/me", new
         {
             sport_type = "Basketball",

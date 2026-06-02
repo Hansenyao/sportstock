@@ -58,6 +58,7 @@ public sealed class AdminTests : IAsyncLifetime, IDisposable
                 .Where(u => u.Id == _superAdminId)
                 .ExecuteUpdateAsync(s => s.SetProperty(u => u.IsSupAdmin, true));
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Main");
+            await TestData.CreateWarehouseAsync(db, _clubId);
             _clubAdminUserId = await TestData.CreateUserAsync(db, ClubAdminEmail);
             await TestData.CreateMembershipAsync(db, _clubId, _clubAdminUserId, ClubRole.ClubAdmin);
             _coachUserId = await TestData.CreateUserAsync(db, CoachEmail);

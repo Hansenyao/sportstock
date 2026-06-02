@@ -32,7 +32,7 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
             SELECT
                 (SELECT COUNT(*) FROM clubs)                                                                AS ""TotalClubs"",
                 (SELECT COUNT(*) FROM clubs WHERE is_active = true)                                         AS ""ActiveClubs"",
-                (SELECT COUNT(*) FROM users WHERE role != 'super_admin')                                    AS ""TotalUsers"",
+                (SELECT COUNT(*) FROM users WHERE NOT is_super_admin)                                       AS ""TotalUsers"",
                 (SELECT COALESCE(SUM(total_quantity), 0) FROM asset_batches)                                AS ""TotalAssets"",
                 (SELECT COUNT(*) FROM loans WHERE status = 'checked_out')                                   AS ""ActiveLoans"",
                 (SELECT COUNT(*) FROM loans WHERE status = 'checked_out' AND due_date < CURRENT_DATE)       AS ""OverdueLoans""
@@ -45,7 +45,7 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
         {
             var stats = await db.Database.SqlQuery<AnalyticsOverviewClubStatsRow>($@"
                 SELECT
-                    (SELECT COUNT(*) FROM users WHERE club_id = {cid} AND role != 'super_admin')       AS ""UserCount"",
+                    (SELECT COUNT(*) FROM club_memberships WHERE club_id = {cid} AND is_active = true) AS ""UserCount"",
                     (SELECT COALESCE(SUM(ab.total_quantity), 0)
                      FROM asset_batches ab
                      JOIN asset_types at2 ON at2.id = ab.asset_type_id
@@ -56,12 +56,16 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
             ").FirstAsync(ct);
 
             var statusRows = await db.Database.SqlQuery<AssetByStatusRow>($@"
-                SELECT ab.status::text AS ""Status"",
-                       COALESCE(SUM(ab.total_quantity), 0) AS ""Total""
+                SELECT
+                    CASE WHEN COUNT(ai.id) FILTER (WHERE ai.status = 'available') > 0 THEN 'available'
+                         WHEN COUNT(ai.id) FILTER (WHERE ai.status = 'on_loan') > 0 THEN 'on_loan'
+                         ELSE 'retired' END AS ""Status"",
+                    COALESCE(SUM(ab.total_quantity), 0) AS ""Total""
                 FROM asset_batches ab
                 JOIN asset_types at2 ON at2.id = ab.asset_type_id
+                LEFT JOIN asset_items ai ON ai.batch_id = ab.id
                 WHERE at2.club_id = {cid}
-                GROUP BY ab.status").ToListAsync(ct);
+                GROUP BY at2.id").ToListAsync(ct);
 
             var valueRow = await db.Database.SqlQuery<TotalAssetValueRow>($@"
                 SELECT COALESCE(SUM(ab.purchase_price * ab.total_quantity), 0) AS ""TotalValue""
@@ -86,10 +90,14 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
 
         var platform = await GetPlatformStatsAsync(ct);
         var allStatus = await db.Database.SqlQuery<AssetByStatusRow>($@"
-            SELECT status::text AS ""Status"",
-                   COALESCE(SUM(total_quantity), 0) AS ""Total""
-            FROM asset_batches
-            GROUP BY status").ToListAsync(ct);
+            SELECT
+                CASE WHEN COUNT(ai.id) FILTER (WHERE ai.status = 'available') > 0 THEN 'available'
+                     WHEN COUNT(ai.id) FILTER (WHERE ai.status = 'on_loan') > 0 THEN 'on_loan'
+                     ELSE 'retired' END AS ""Status"",
+                COALESCE(SUM(ab.total_quantity), 0) AS ""Total""
+            FROM asset_batches ab
+            LEFT JOIN asset_items ai ON ai.batch_id = ab.id
+            GROUP BY ab.id").ToListAsync(ct);
         var allValue = await db.Database.SqlQuery<TotalAssetValueRow>($@"
             SELECT COALESCE(SUM(purchase_price * total_quantity), 0) AS ""TotalValue""
             FROM asset_batches").FirstAsync(ct);
@@ -150,14 +158,18 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
         Guid? clubId, CancellationToken ct = default)
     {
         var status = await db.Database.SqlQuery<AnalyticsAssetsStatusRow>($@"
-            SELECT ab.status::text AS ""Status"",
-                   COUNT(*)::bigint AS ""BatchCount"",
-                   COALESCE(SUM(ab.total_quantity), 0)::bigint AS ""TotalQty"",
-                   COALESCE(SUM(ab.purchase_price * ab.total_quantity), 0) AS ""TotalValue""
+            SELECT
+                CASE WHEN COUNT(ai.id) FILTER (WHERE ai.status = 'available') > 0 THEN 'available'
+                     WHEN COUNT(ai.id) FILTER (WHERE ai.status = 'on_loan') > 0 THEN 'on_loan'
+                     ELSE 'retired' END AS ""Status"",
+                COUNT(DISTINCT ab.id)::bigint AS ""BatchCount"",
+                COALESCE(SUM(ab.total_quantity), 0)::bigint AS ""TotalQty"",
+                COALESCE(SUM(ab.purchase_price * ab.total_quantity), 0) AS ""TotalValue""
             FROM asset_batches ab
             LEFT JOIN asset_types at2 ON at2.id = ab.asset_type_id
+            LEFT JOIN asset_items ai ON ai.batch_id = ab.id
             WHERE ({clubId}::uuid IS NULL OR at2.club_id = {clubId})
-            GROUP BY ab.status").ToListAsync(ct);
+            GROUP BY ab.id").ToListAsync(ct);
 
         var category = await db.Database.SqlQuery<AnalyticsAssetsCategoryRow>($@"
             SELECT COALESCE(ac.name, 'Uncategorized') AS ""Category"",
@@ -203,7 +215,7 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
             SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS ""Month"",
                    COUNT(*) AS ""NewUsers""
             FROM users
-            WHERE created_at >= NOW() - INTERVAL '12 months' AND role != 'super_admin'
+            WHERE created_at >= NOW() - INTERVAL '12 months' AND NOT is_super_admin
             GROUP BY 1 ORDER BY 1").ToListAsync(ct);
 
         return new AnalyticsGrowthResponse
@@ -235,20 +247,20 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
         var rows = await db.Database.SqlQuery<ClubListItemResponse>($@"
             SELECT c.id                                                                          AS ""Id"",
                    c.name                                                                        AS ""Name"",
-                   c.sport_type                                                                  AS ""SportType"",
+                   st.name                                                                       AS ""SportType"",
                    c.contact_email                                                               AS ""ContactEmail"",
                    c.is_active                                                                   AS ""IsActive"",
                    c.created_at                                                                  AS ""CreatedAt"",
-                   COUNT(DISTINCT u.id) FILTER (WHERE u.role != 'super_admin')                   AS ""UserCount"",
+                   (SELECT COUNT(*) FROM club_memberships cm WHERE cm.club_id = c.id AND cm.is_active = true) AS ""UserCount"",
                    COALESCE(SUM(ab.total_quantity), 0)                                           AS ""AssetCount"",
                    COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'checked_out')                  AS ""ActiveLoanCount""
             FROM clubs c
-            LEFT JOIN users u           ON u.club_id           = c.id
+            LEFT JOIN sport_types st    ON st.id               = c.sport_type_id
             LEFT JOIN asset_types at2   ON at2.club_id         = c.id
             LEFT JOIN asset_batches ab  ON ab.asset_type_id    = at2.id
             LEFT JOIN loans l           ON l.club_id            = c.id
             WHERE ({search}::text IS NULL OR c.name ILIKE {search})
-            GROUP BY c.id
+            GROUP BY c.id, st.name
             ORDER BY c.created_at DESC
             LIMIT {query.Limit} OFFSET {(query.Page - 1) * query.Limit}").ToListAsync(ct);
 
@@ -263,17 +275,17 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
         var row = await db.Database.SqlQuery<ClubDetailRow>($@"
             SELECT c.id                  AS ""Id"",
                    c.name                AS ""Name"",
-                   c.sport_type          AS ""SportType"",
+                   st.name               AS ""SportType"",
                    c.contact_email       AS ""ContactEmail"",
                    c.address             AS ""Address"",
                    c.is_active           AS ""IsActive"",
                    c.created_at          AS ""CreatedAt"",
                    u.id                  AS ""AdminId"",
-                   u.name                AS ""AdminName"",
+                   (u.first_name || ' ' || u.last_name) AS ""AdminName"",
                    u.email               AS ""AdminEmail"",
                    u.is_active           AS ""AdminIsActive"",
                    u.email_verified      AS ""AdminEmailVerified"",
-                   (SELECT COUNT(*) FROM users u2 WHERE u2.club_id = c.id AND u2.role != 'super_admin') AS ""UserCount"",
+                   (SELECT COUNT(*) FROM club_memberships cm WHERE cm.club_id = c.id AND cm.is_active = true) AS ""UserCount"",
                    (SELECT COALESCE(SUM(ab.total_quantity), 0)
                     FROM asset_batches ab
                     JOIN asset_types at2 ON at2.id = ab.asset_type_id
@@ -282,11 +294,13 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
                    (SELECT COUNT(*) FROM loans l
                     WHERE l.club_id = c.id AND l.status = 'checked_out' AND l.due_date < CURRENT_DATE)       AS ""OverdueLoanCount""
             FROM clubs c
+            LEFT JOIN sport_types st ON st.id = c.sport_type_id
             LEFT JOIN LATERAL (
-                SELECT id, name, email, is_active, email_verified
-                FROM users
-                WHERE club_id = c.id AND role = 'club_admin'
-                ORDER BY created_at ASC
+                SELECT u2.id, u2.first_name, u2.last_name, u2.email, u2.is_active, u2.email_verified
+                FROM club_memberships cm2
+                JOIN users u2 ON u2.id = cm2.user_id
+                WHERE cm2.club_id = c.id AND cm2.role = 'club_admin' AND cm2.is_active = true
+                ORDER BY cm2.created_at ASC
                 LIMIT 1
             ) u ON true
             WHERE c.id = {clubId}").FirstOrDefaultAsync(ct);

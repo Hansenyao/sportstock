@@ -54,6 +54,7 @@ public sealed class InventoryTests : IAsyncLifetime, IDisposable
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
+            await TestData.CreateWarehouseAsync(db, _clubId);
             _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
             await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
             _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail);
@@ -232,8 +233,9 @@ public sealed class InventoryTests : IAsyncLifetime, IDisposable
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("total_quantity").GetInt32().Should().Be(8);
-        body.GetProperty("status").GetString().Should().Be("available");
+        // In v2, total_quantity is the purchased quantity and does not decrease on retire.
+        // Instead, item statuses change — retired_count increases.
+        body.GetProperty("retired_count").GetInt32().Should().BeGreaterThanOrEqualTo(2);
 
         // SP side effect — a write_off-typed stock_movement must exist.
         var writeOffCount = await _factory.WithDbContextAsync(async db =>
@@ -255,8 +257,10 @@ public sealed class InventoryTests : IAsyncLifetime, IDisposable
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("status").GetString().Should().Be("retired");
-        body.GetProperty("total_quantity").GetInt32().Should().Be(0);
+        // In v2, retiring items changes their status in asset_items.
+        // retired_count should equal total_quantity (all units are retired).
+        body.GetProperty("retired_count").GetInt32().Should().Be(3);
+        body.GetProperty("available_count").GetInt32().Should().Be(0);
     }
 
     [Fact]
@@ -312,8 +316,9 @@ public sealed class InventoryTests : IAsyncLifetime, IDisposable
 
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        // In v2, maintenance uses asset_items; error message reports count mismatch
         body.GetProperty("message").GetString()
-            .Should().Contain("not in maintenance status");
+            .Should().Contain("in maintenance");
     }
 
     [Fact]

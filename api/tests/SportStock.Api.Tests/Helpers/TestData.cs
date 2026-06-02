@@ -161,6 +161,14 @@ internal static class TestData
                 .Where(l => clubIds.Contains(l.ClubId))
                 .ExecuteDeleteAsync();
 
+            // Kits reference asset_types via kit_items (ON DELETE RESTRICT).
+            // Delete kits explicitly (cascades to kit_items) before deleting
+            // clubs, which would otherwise attempt to cascade-delete asset_types
+            // while kit_items still hold a RESTRICT FK pointing at them.
+            await db.Kits.IgnoreQueryFilters()
+                .Where(k => clubIds.Contains(k.ClubId))
+                .ExecuteDeleteAsync();
+
             await db.Clubs.IgnoreQueryFilters()
                 .Where(c => clubIds.Contains(c.Id))
                 .ExecuteDeleteAsync();
@@ -174,6 +182,23 @@ internal static class TestData
     // ── Asset item helpers ───────────────────────────────────────────────────
 
     /// <summary>Directly insert a single AssetItem row for integration test setup.</summary>
+    public static async Task<Guid> CreateWarehouseAsync(
+        SportStockDbContext db,
+        Guid clubId,
+        string name = "Main Warehouse")
+    {
+        var w = new Warehouse
+        {
+            Id      = Guid.NewGuid(),
+            ClubId  = clubId,
+            Name    = name,
+            IsActive = true,
+        };
+        db.Warehouses.Add(w);
+        await db.SaveChangesAsync();
+        return w.Id;
+    }
+
     public static async Task<Guid> CreateAssetItemAsync(
         SportStockDbContext db,
         Guid clubId,

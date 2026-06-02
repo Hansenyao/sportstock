@@ -169,7 +169,7 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
 
         var coachSummary = await db.Database.SqlQuery<CoachSummaryRow>($@"
             SELECT u.id   AS ""Id"",
-                   u.name AS ""Name"",
+                   (u.first_name || ' ' || u.last_name) AS ""Name"",
                    COUNT(DISTINCT l.id) AS ""LoanCount"",
                    COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'checked_out') AS ""ActiveLoans""
             FROM loans l
@@ -178,7 +178,7 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
               AND ({teamFilter}::uuid IS NULL OR l.team_id = {teamFilter})
               AND ({fromFilter}::timestamptz IS NULL OR l.created_at >= {fromFilter})
               AND ({toFilter}::timestamptz IS NULL OR l.created_at < {toFilter})
-            GROUP BY u.id, u.name
+            GROUP BY u.id, u.first_name, u.last_name
             ORDER BY ""LoanCount"" DESC").ToListAsync(ct);
 
         var monthlyTrend = await db.Database.SqlQuery<MonthlyTrendRow>($@"

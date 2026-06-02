@@ -113,7 +113,7 @@ public sealed class AuthTests : IAsyncLifetime, IDisposable
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("role").GetString().Should().Be("ClubAdmin");
+        body.GetProperty("role").GetString().Should().Be("club_admin");
         body.GetProperty("active_club_id").GetGuid().Should().Be(_clubId);
     }
 
@@ -125,7 +125,7 @@ public sealed class AuthTests : IAsyncLifetime, IDisposable
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("role").GetString().Should().Be("Coach");
+        body.GetProperty("role").GetString().Should().Be("coach");
     }
 
     [Fact]

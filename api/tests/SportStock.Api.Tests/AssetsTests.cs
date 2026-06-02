@@ -55,6 +55,7 @@ public sealed class AssetsTests : IAsyncLifetime, IDisposable
             // asset_types / asset_batches / stock_movements / loans / loan_items.
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
+            await TestData.CreateWarehouseAsync(db, _clubId);
             _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
             await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
             _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail);

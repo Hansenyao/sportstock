@@ -14,11 +14,20 @@ namespace SportStock.Api.Tests;
 [Collection("Database")]
 public sealed class AuthMiddlewareTests : IAsyncLifetime, IDisposable
 {
+    private readonly DbFixture _dbFixture;
     private readonly SportStockWebApplicationFactory _factory;
 
-    public AuthMiddlewareTests(SportStockWebApplicationFactory factory)
+    private static SportStockWebApplicationFactory? s_factory;
+    private static readonly object s_factoryLock = new();
+
+    public AuthMiddlewareTests(DbFixture dbFixture)
     {
-        _factory = factory;
+        _dbFixture = dbFixture;
+        lock (s_factoryLock)
+        {
+            s_factory ??= new SportStockWebApplicationFactory().WithDb(dbFixture);
+        }
+        _factory = s_factory;
     }
 
     public Task InitializeAsync() => Task.CompletedTask;

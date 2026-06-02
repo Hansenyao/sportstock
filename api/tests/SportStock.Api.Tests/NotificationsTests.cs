@@ -50,6 +50,7 @@ public sealed class NotificationsTests : IAsyncLifetime, IDisposable
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
+            await TestData.CreateWarehouseAsync(db, _clubId);
             _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
             await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
             _coachUserId = await TestData.CreateUserAsync(db, CoachEmail);

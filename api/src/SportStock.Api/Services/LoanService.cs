@@ -420,18 +420,39 @@ internal sealed class LoanService(
     public async Task<LoanResponse> CheckoutAsync(
         Guid loanId, Guid operatorId, Guid clubId, CancellationToken ct = default)
     {
-        var coachId = await db.Loans
+        var loan = await db.Loans
             .IgnoreQueryFilters()
             .Where(l => l.Id == loanId && l.ClubId == clubId)
-            .Select(l => (Guid?)l.CoachId)
+            .Select(l => new { l.CoachId, l.Status })
             .FirstOrDefaultAsync(ct);
-        if (coachId is null) throw new AppException("Loan not found", 404);
-        if (coachId.Value != operatorId)
+        if (loan is null) throw new AppException("Loan not found", 404);
+        if (loan.CoachId != operatorId)
             throw new AppException("Only the borrower can confirm receipt", 403);
+        if (loan.Status != LoanStatus.Approved)
+            throw new AppException("Loan is not in approved status", 409);
+
+        // Validate sufficient available asset_items exist for each line before
+        // calling the stored procedure (SP will still double-check, but this
+        // gives a friendlier error message with the asset type ID).
+        var loanItems = await db.LoanItems
+            .Where(li => li.LoanId == loanId)
+            .Select(li => new { li.AssetTypeId, li.Quantity })
+            .ToListAsync(ct);
+
+        foreach (var li in loanItems)
+        {
+            var available = await db.AssetItems
+                .CountAsync(i => i.AssetTypeId == li.AssetTypeId
+                              && i.ClubId == clubId
+                              && i.Status == AssetItemStatus.Available, ct);
+            if (available < li.Quantity)
+                throw new AppException(
+                    $"Insufficient stock for asset type {li.AssetTypeId}: need {li.Quantity}, have {available}", 409);
+        }
 
         try
         {
-            await db.CheckoutLoanAsync(loanId, operatorId, ct);
+            await db.CheckoutLoanAsync(loanId, ct);
         }
         catch (PostgresException ex) when (ex.SqlState == RaiseExceptionSqlState
             && (ex.MessageText.Contains("not in approved status", StringComparison.Ordinal)
@@ -489,11 +510,10 @@ internal sealed class LoanService(
         foreach (var ri in req.Items)
         {
             var item = byId[ri.LoanItemId];
-            var returnedQty = ri.GoodQuantity + ri.MinorDamageQuantity;
-            var nonReturnedQty = ri.WriteOffQuantity + ri.LostQuantity;
             var autoNote = BuildReturnNote(ri.GoodQuantity, ri.MinorDamageQuantity, ri.WriteOffQuantity, ri.LostQuantity);
             var itemNote = ri.Notes is not null ? $"{autoNote}; {ri.Notes}" : autoNote;
 
+            // Persist the four-bucket breakdown on the loan_item record.
             await db.LoanItems
                 .Where(li => li.Id == ri.LoanItemId)
                 .ExecuteUpdateAsync(s => s
@@ -504,93 +524,21 @@ internal sealed class LoanService(
                     .SetProperty(li => li.ReturnNotes, itemNote)
                     .SetProperty(li => li.UpdatedAt, DateTime.UtcNow), ct);
 
-            var checkoutMovements = await db.StockMovements
-                .IgnoreQueryFilters()
-                .Where(sm => sm.LoanItemId == ri.LoanItemId && sm.Type == StockMovementType.LoanOut)
-                .OrderBy(sm => sm.CreatedAt)
-                .Select(sm => new { sm.AssetBatchId, Qty = Math.Abs(sm.QuantityDelta) })
-                .ToListAsync(ct);
+            // Derive a single condition for the SP based on the worst outcome
+            // of the physically returned items:
+            //   good -> items come back available
+            //   damaged -> items go to maintenance
+            //   (else) -> items are written_off / lost
+            var condition = ri.GoodQuantity > 0 ? "good"
+                : ri.MinorDamageQuantity > 0 ? "damaged"
+                : "written_off";
 
-            var remainingReturned = returnedQty;
-            var remainingNonReturned = nonReturnedQty;
+            // The SP updates asset_item.status for all assignments and removes
+            // the loan_item_assignments rows for this loan_item.
+            await db.ReturnLoanItemAsync(ri.LoanItemId, condition, ct);
 
-            foreach (var movement in checkoutMovements)
-            {
-                if (remainingReturned <= 0 && remainingNonReturned <= 0) break;
-                if (movement.AssetBatchId is null) continue;
-
-                var batchId = movement.AssetBatchId.Value;
-                var batchQty = movement.Qty;
-
-                var batchReturned = Math.Min(remainingReturned, batchQty);
-                remainingReturned -= batchReturned;
-                var batchNonReturned = Math.Min(batchQty - batchReturned, remainingNonReturned);
-                remainingNonReturned -= batchNonReturned;
-
-                if (batchReturned > 0)
-                {
-                    var availBefore = await db.AssetBatches
-                        .IgnoreQueryFilters()
-                        .Where(b => b.Id == batchId)
-                        .Select(b => b.AvailableQuantity)
-                        .FirstAsync(ct);
-
-                    await db.AssetBatches
-                        .IgnoreQueryFilters()
-                        .Where(b => b.Id == batchId)
-                        .ExecuteUpdateAsync(s => s
-                            .SetProperty(b => b.AvailableQuantity, b => b.AvailableQuantity + batchReturned)
-                            .SetProperty(b => b.Status, b =>
-                                b.Status == AssetStatus.OnLoan && b.AvailableQuantity + batchReturned > 0
-                                    ? AssetStatus.Available : b.Status)
-                            .SetProperty(b => b.UpdatedAt, DateTime.UtcNow), ct);
-
-                    db.StockMovements.Add(new StockMovement
-                    {
-                        Id = Guid.NewGuid(),
-                        ClubId = clubId,
-                        AssetBatchId = batchId,
-                        LoanId = loanId,
-                        LoanItemId = ri.LoanItemId,
-                        OperatorId = operatorId,
-                        Type = StockMovementType.LoanReturn,
-                        QuantityDelta = batchReturned,
-                        QuantityBefore = availBefore,
-                        QuantityAfter = availBefore + batchReturned,
-                        Notes = itemNote,
-                    });
-                    await db.SaveChangesAsync(ct);
-                }
-
-                if (batchNonReturned > 0)
-                {
-                    await db.AssetBatches
-                        .IgnoreQueryFilters()
-                        .Where(b => b.Id == batchId)
-                        .ExecuteUpdateAsync(s => s
-                            .SetProperty(b => b.TotalQuantity, b => b.TotalQuantity - batchNonReturned)
-                            .SetProperty(b => b.Status, b =>
-                                b.TotalQuantity - batchNonReturned <= 0 ? AssetStatus.Retired : b.Status)
-                            .SetProperty(b => b.UpdatedAt, DateTime.UtcNow), ct);
-
-                    db.StockMovements.Add(new StockMovement
-                    {
-                        Id = Guid.NewGuid(),
-                        ClubId = clubId,
-                        AssetBatchId = batchId,
-                        LoanId = loanId,
-                        LoanItemId = ri.LoanItemId,
-                        OperatorId = operatorId,
-                        Type = StockMovementType.WriteOff,
-                        QuantityDelta = -batchNonReturned,
-                        QuantityBefore = 0,
-                        QuantityAfter = 0,
-                        Notes = "Write-off/lost on loan return",
-                    });
-                    await db.SaveChangesAsync(ct);
-                }
-            }
-
+            // Write-off / lost orders are still tracked at the application
+            // layer so the inventory audit trail remains complete.
             if (ri.WriteOffQuantity > 0)
             {
                 db.WriteOffOrders.Add(new WriteOffOrder

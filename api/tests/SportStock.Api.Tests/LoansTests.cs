@@ -421,4 +421,90 @@ public sealed class LoansTests : IAsyncLifetime, IDisposable
         body.GetProperty("items")[0].GetProperty("quantity").GetInt32().Should().Be(3);
         body.GetProperty("reason").GetString().Should().Be("Updated reason");
     }
+
+    // ── Item-level checkout assignments ──────────────────────────────────────
+
+    [Fact]
+    public async Task Checkout_Should_CreateLoanItemAssignments()
+    {
+        // Arrange: create a dedicated asset type + 2 asset_items for this test.
+        Guid typeId = default;
+        Guid warehouseId = default;
+
+        await _factory.WithDbContextAsync(async db =>
+        {
+            // Warehouse
+            var wh = new Warehouse
+            {
+                Id       = Guid.NewGuid(),
+                ClubId   = _clubId,
+                Name     = "Loans Test Warehouse",
+                IsActive = true,
+            };
+            db.Warehouses.Add(wh);
+            await db.SaveChangesAsync();
+            warehouseId = wh.Id;
+
+            // Asset name + type
+            var assetName = new AssetName
+            {
+                Id     = Guid.NewGuid(),
+                ClubId = _clubId,
+                Name   = "Checkout Assignment Test Ball",
+            };
+            db.AssetNames.Add(assetName);
+            await db.SaveChangesAsync();
+
+            var assetType = new AssetType
+            {
+                Id          = Guid.NewGuid(),
+                ClubId      = _clubId,
+                AssetNameId = assetName.Id,
+                IsActive    = true,
+            };
+            db.AssetTypes.Add(assetType);
+            await db.SaveChangesAsync();
+            typeId = assetType.Id;
+
+            // Seed 2 available asset_items for the type.
+            await TestData.CreateAssetItemAsync(db, _clubId, typeId, warehouseId);
+            await TestData.CreateAssetItemAsync(db, _clubId, typeId, warehouseId);
+        });
+
+        // Create a loan for qty=2, approve it, then checkout as coach.
+        using var mgr   = AuthedClient(_managerUserId);
+        using var coach = AuthedClient(_coachUserId);
+
+        var createRes = await coach.PostAsJsonAsync("/api/v1/loans", new
+        {
+            items    = new[] { new { asset_type_id = typeId, quantity = 2 } },
+            reason   = "Assignment test",
+            due_date = Tomorrow.ToString("yyyy-MM-dd"),
+        }, JsonOpts);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created,
+            await createRes.Content.ReadAsStringAsync());
+        var loanId = (await createRes.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("id").GetGuid();
+
+        (await mgr.PostAsync($"/api/v1/loans/{loanId}/approve", null)).EnsureSuccessStatusCode();
+
+        var checkoutRes = await coach.PostAsync($"/api/v1/loans/{loanId}/checkout", null);
+        checkoutRes.StatusCode.Should().Be(HttpStatusCode.OK,
+            await checkoutRes.Content.ReadAsStringAsync());
+
+        // Assert: loan_item_assignments were created and items are on_loan.
+        await _factory.WithDbContextAsync(async db =>
+        {
+            var assignments = await db.LoanItemAssignments
+                .Where(a => a.LoanItem.LoanId == loanId)
+                .ToListAsync();
+            assignments.Should().HaveCount(2);
+
+            foreach (var assignment in assignments)
+            {
+                var item = await db.AssetItems.FindAsync(assignment.AssetItemId);
+                item!.Status.Should().Be(AssetItemStatus.OnLoan);
+            }
+        });
+    }
 }

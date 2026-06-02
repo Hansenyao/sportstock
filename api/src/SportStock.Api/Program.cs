@@ -186,6 +186,7 @@ Log.Logger = new LoggerConfiguration()
     builder.Services.AddScoped<SportStock.Api.Services.IWarehouseService, SportStock.Api.Services.WarehouseService>();
     builder.Services.AddScoped<SportStock.Api.Services.IAuditLogService, SportStock.Api.Services.AuditLogService>();
     builder.Services.AddScoped<SportStock.Api.Services.ISportTypeService, SportStock.Api.Services.SportTypeService>();
+    builder.Services.AddScoped<SportStock.Api.Services.IKitService, SportStock.Api.Services.KitService>();
 
     // ── JWT Bearer authentication ────────────────────────────────────────────
     // Same lazy-binding pattern as the DataSource: configure JwtBearerOptions

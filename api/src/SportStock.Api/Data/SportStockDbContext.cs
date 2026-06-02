@@ -18,21 +18,37 @@ public partial class SportStockDbContext : DbContext
 
     public virtual DbSet<AssetCategory> AssetCategories { get; set; }
 
+    public virtual DbSet<AssetItem> AssetItems { get; set; }
+
     public virtual DbSet<AssetName> AssetNames { get; set; }
 
     public virtual DbSet<AssetType> AssetTypes { get; set; }
 
+    public virtual DbSet<AuditLog> AuditLogs { get; set; }
+
     public virtual DbSet<Club> Clubs { get; set; }
+
+    public virtual DbSet<ClubInvitation> ClubInvitations { get; set; }
+
+    public virtual DbSet<ClubMembership> ClubMemberships { get; set; }
 
     public virtual DbSet<EmailVerification> EmailVerifications { get; set; }
 
     public virtual DbSet<FcmToken> FcmTokens { get; set; }
 
+    public virtual DbSet<Kit> Kits { get; set; }
+
+    public virtual DbSet<KitItem> KitItems { get; set; }
+
     public virtual DbSet<Loan> Loans { get; set; }
 
     public virtual DbSet<LoanItem> LoanItems { get; set; }
 
+    public virtual DbSet<LoanItemAssignment> LoanItemAssignments { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
+
+    public virtual DbSet<SportType> SportTypes { get; set; }
 
     public virtual DbSet<StockMovement> StockMovements { get; set; }
 
@@ -45,6 +61,8 @@ public partial class SportStockDbContext : DbContext
     public virtual DbSet<TeamMember> TeamMembers { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
+
+    public virtual DbSet<Warehouse> Warehouses { get; set; }
 
     public virtual DbSet<WriteOffOrder> WriteOffOrders { get; set; }
 

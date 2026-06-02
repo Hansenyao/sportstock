@@ -21,16 +21,26 @@ public partial class SportStockDbContext
         //      tells EF Core which PG type a specific column uses
         //      (auto-detection via convention is unreliable in EFCore 10).
         var snake = new NpgsqlSnakeCaseNameTranslator();
-        modelBuilder.HasPostgresEnum<UserRole>(name: "user_role", nameTranslator: snake);
+        modelBuilder.HasPostgresEnum<ClubRole>(name: "club_role", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<AssetStatus>(name: "asset_status", nameTranslator: snake);
+        modelBuilder.HasPostgresEnum<AssetItemStatus>(name: "asset_item_status", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<LoanStatus>(name: "loan_status", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<WriteOffSource>(name: "write_off_source", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<StockMovementType>(name: "stock_movement_type", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<NotificationType>(name: "notification_type", nameTranslator: snake);
 
         // PG enum columns dropped by EF Core Power Tools — see Data/Entities/Extensions/*.
-        modelBuilder.Entity<User>()
-            .Property(u => u.Role).HasColumnName("role").HasColumnType("user_role");
+        modelBuilder.Entity<ClubMembership>()
+            .Property(m => m.Role).HasColumnName("role").HasColumnType("club_role");
+
+        modelBuilder.Entity<ClubInvitation>()
+            .Property(i => i.Role).HasColumnName("role").HasColumnType("club_role");
+
+        modelBuilder.Entity<AssetItem>()
+            .Property(a => a.Status).HasColumnName("status").HasColumnType("asset_item_status");
+
+        modelBuilder.Entity<AuditLog>()
+            .Property(a => a.Meta).HasColumnType("jsonb");
 
         modelBuilder.Entity<AssetBatch>()
             .Property(b => b.Status).HasColumnName("status").HasColumnType("asset_status");
@@ -46,6 +56,12 @@ public partial class SportStockDbContext
 
         modelBuilder.Entity<Notification>()
             .Property(n => n.Type).HasColumnName("type").HasColumnType("notification_type");
+
+        // ClubInvitation has two FKs to users (invitee and invited_by).
+        modelBuilder.Entity<ClubInvitation>()
+            .HasOne(i => i.Invitee).WithMany(u => u.ReceivedInvitations).HasForeignKey(i => i.InviteeId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ClubInvitation>()
+            .HasOne(i => i.InvitedBy).WithMany(u => u.SentInvitations).HasForeignKey(i => i.InvitedById).OnDelete(DeleteBehavior.Cascade);
 
         // Keyless result row for the get_asset_depreciation(batch_id) function.
         // FromSql binds reader columns by name, so the snake_case PG columns

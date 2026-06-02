@@ -335,9 +335,17 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
     {
         var temp = GenerateTempPassword();
         var hash = BCrypt.Net.BCrypt.HashPassword(temp, 10);
+        // Find club admin users via membership table
+        var adminUserIds = await db.ClubMemberships
+            .IgnoreQueryFilters()
+            .Where(m => m.ClubId == clubId && m.Role == ClubRole.ClubAdmin && m.IsActive)
+            .Select(m => m.UserId)
+            .ToListAsync(ct);
+        if (adminUserIds.Count == 0) throw new AppException("No club admin found for this club", 404);
+
         var rows = await db.Users
             .IgnoreQueryFilters()
-            .Where(u => u.ClubId == clubId && u.Role == UserRole.ClubAdmin)
+            .Where(u => adminUserIds.Contains(u.Id))
             .ExecuteUpdateAsync(s => s.SetProperty(u => u.PasswordHash, hash), ct);
         if (rows == 0) throw new AppException("No club admin found for this club", 404);
         return temp;
@@ -349,24 +357,24 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
         if (page < 1) page = 1;
         if (limit < 1) limit = 20;
 
-        var source = db.Users
+        var source = db.ClubMemberships
             .IgnoreQueryFilters()
-            .Where(u => u.ClubId == clubId && u.Role != UserRole.SuperAdmin);
+            .Where(m => m.ClubId == clubId);
 
         var total = await source.CountAsync(ct);
         var data = await source
-            .OrderByDescending(u => u.CreatedAt)
+            .OrderByDescending(m => m.User.CreatedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
-            .Select(u => new AdminUserItem
+            .Select(m => new AdminUserItem
             {
-                Id = u.Id,
-                Name = u.Name,
-                Email = u.Email,
-                Role = u.Role,
-                IsActive = u.IsActive,
-                EmailVerified = u.EmailVerified,
-                CreatedAt = u.CreatedAt,
+                Id = m.UserId,
+                Name = m.User.FirstName + " " + m.User.LastName,
+                Email = m.User.Email,
+                Role = m.Role,
+                IsActive = m.IsActive,
+                EmailVerified = m.User.EmailVerified,
+                CreatedAt = m.User.CreatedAt,
             })
             .ToListAsync(ct);
 
@@ -378,10 +386,11 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
 
     public async Task UpdateUserStatusAsync(Guid clubId, Guid userId, bool isActive, CancellationToken ct = default)
     {
-        var rows = await db.Users
+        // In v2, IsActive is on ClubMembership, not User
+        var rows = await db.ClubMemberships
             .IgnoreQueryFilters()
-            .Where(u => u.Id == userId && u.ClubId == clubId)
-            .ExecuteUpdateAsync(s => s.SetProperty(u => u.IsActive, isActive), ct);
+            .Where(m => m.UserId == userId && m.ClubId == clubId)
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsActive, isActive), ct);
         if (rows == 0) throw new AppException("User not found in this club", 404);
     }
 
@@ -389,9 +398,16 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
     {
         var temp = GenerateTempPassword();
         var hash = BCrypt.Net.BCrypt.HashPassword(temp, 10);
+
+        // Verify user belongs to this club
+        var isMember = await db.ClubMemberships
+            .IgnoreQueryFilters()
+            .AnyAsync(m => m.UserId == userId && m.ClubId == clubId, ct);
+        if (!isMember) throw new AppException("User not found in this club", 404);
+
         var rows = await db.Users
             .IgnoreQueryFilters()
-            .Where(u => u.Id == userId && u.ClubId == clubId)
+            .Where(u => u.Id == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(u => u.PasswordHash, hash), ct);
         if (rows == 0) throw new AppException("User not found in this club", 404);
         return temp;
@@ -430,12 +446,12 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
                 IsActive = at.IsActive,
                 CreatedAt = at.CreatedAt,
                 TotalQuantity = at.AssetBatches.Sum(b => (long?)b.TotalQuantity) ?? 0,
-                AvailableQuantity = at.AssetBatches.Sum(b => (long?)b.AvailableQuantity) ?? 0,
+                AvailableQuantity = db.AssetItems.Count(ai => ai.AssetTypeId == at.Id && ai.Status == AssetItemStatus.Available),
                 BatchCount = at.AssetBatches.Count(),
                 Status = at.AssetBatches.Count() == 0
                          || at.AssetBatches.Sum(b => (long?)b.TotalQuantity) == 0
                             ? "retired"
-                            : at.AssetBatches.Sum(b => (long?)b.AvailableQuantity) == 0
+                            : db.AssetItems.Count(ai => ai.AssetTypeId == at.Id && ai.Status == AssetItemStatus.Available) == 0
                                 ? "on_loan"
                                 : "available",
             });
@@ -526,7 +542,7 @@ internal sealed class AdminService(SportStockDbContext db) : IAdminService
                 Status = l.Status,
                 DueDate = l.DueDate,
                 CreatedAt = l.CreatedAt,
-                CoachName = l.Coach.Name,
+                CoachName = l.Coach.FirstName + " " + l.Coach.LastName,
                 ItemCount = db.LoanItems.Count(li => li.LoanId == l.Id),
             })
             .ToListAsync(ct);

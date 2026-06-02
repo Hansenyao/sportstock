@@ -217,12 +217,23 @@ internal sealed class AssetService(
             PurchasePrice = req.PurchasePrice,
             UsefulLifeYears = req.UsefulLifeYears,
             TotalQuantity = qty,
-            AvailableQuantity = qty,
-            Status = AssetStatus.Available,
             Notes = req.Notes,
         };
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
+
+        // Create individual asset items for v2 item-level tracking
+        for (int i = 0; i < qty; i++)
+        {
+            db.AssetItems.Add(new AssetItem
+            {
+                Id = Guid.NewGuid(),
+                AssetTypeId = typeId,
+                BatchId = batch.Id,
+                ClubId = clubId,
+                Status = AssetItemStatus.Available,
+            });
+        }
 
         db.StockMovements.Add(new StockMovement
         {
@@ -344,12 +355,23 @@ internal sealed class AssetService(
             PurchasePrice = req.PurchasePrice,
             UsefulLifeYears = req.UsefulLifeYears,
             TotalQuantity = qty,
-            AvailableQuantity = qty,
-            Status = AssetStatus.Available,
             Notes = req.Notes,
         };
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
+
+        // Create individual asset items for v2 item-level tracking
+        for (int i = 0; i < qty; i++)
+        {
+            db.AssetItems.Add(new AssetItem
+            {
+                Id = Guid.NewGuid(),
+                AssetTypeId = typeId,
+                BatchId = batch.Id,
+                ClubId = clubId,
+                Status = AssetItemStatus.Available,
+            });
+        }
 
         db.StockMovements.Add(new StockMovement
         {
@@ -386,19 +408,8 @@ internal sealed class AssetService(
         ApplyNullableInt(req.UsefulLifeYears, v => batch.UsefulLifeYears = v);
         ApplyNullableString(req.Notes, v => batch.Notes = v);
 
-        if (req.Status is not null)
-        {
-            if (!ValidBatchStatus.Contains(req.Status))
-                throw new AppException("Invalid batch status", 400);
-            batch.Status = req.Status switch
-            {
-                "available" => AssetStatus.Available,
-                "on_loan" => AssetStatus.OnLoan,
-                "maintenance" => AssetStatus.Maintenance,
-                "retired" => AssetStatus.Retired,
-                _ => batch.Status,
-            };
-        }
+        // Note: batch-level status is not tracked in v2 (status is per asset_item).
+        // Batch status update requests are silently ignored for backwards compatibility.
         batch.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);

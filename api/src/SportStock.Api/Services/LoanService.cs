@@ -56,19 +56,23 @@ internal sealed class LoanService(
         OverdueNotifiedAt = l.OverdueNotifiedAt,
         CreatedAt = l.CreatedAt,
         UpdatedAt = l.UpdatedAt,
-        CoachName = l.Coach.Name,
+        CoachName = l.Coach.FirstName + " " + l.Coach.LastName,
         CoachEmail = l.Coach.Email,
-        CreatedByName = l.CreatedByNavigation != null ? l.CreatedByNavigation.Name : null,
-        ApprovedByName = l.ApprovedByNavigation != null ? l.ApprovedByNavigation.Name : null,
-        CheckoutByName = l.CheckoutByNavigation != null ? l.CheckoutByNavigation.Name : null,
-        ReturnConfirmedByName = l.ReturnConfirmedByNavigation != null ? l.ReturnConfirmedByNavigation.Name : null,
+        CreatedByName = l.CreatedByNavigation != null
+            ? l.CreatedByNavigation.FirstName + " " + l.CreatedByNavigation.LastName : null,
+        ApprovedByName = l.ApprovedByNavigation != null
+            ? l.ApprovedByNavigation.FirstName + " " + l.ApprovedByNavigation.LastName : null,
+        CheckoutByName = l.CheckoutByNavigation != null
+            ? l.CheckoutByNavigation.FirstName + " " + l.CheckoutByNavigation.LastName : null,
+        ReturnConfirmedByName = l.ReturnConfirmedByNavigation != null
+            ? l.ReturnConfirmedByNavigation.FirstName + " " + l.ReturnConfirmedByNavigation.LastName : null,
         TeamName = l.Team != null ? l.Team.Name : null,
     };
 
     // ── List ─────────────────────────────────────────────────────────────────
 
     public async Task<PaginatedResult<LoanResponse>> ListAsync(
-        Guid clubId, Guid userId, UserRole role, ListLoansQuery query, CancellationToken ct = default)
+        Guid clubId, Guid userId, ClubRole? role, ListLoansQuery query, CancellationToken ct = default)
     {
         if (query.Page < 1) query.Page = 1;
         if (query.Limit < 1) query.Limit = 20;
@@ -79,7 +83,7 @@ internal sealed class LoanService(
 
         // Coaches only ever see their own loans; admin/manager filters honor
         // explicit coach_id + team_id query parameters.
-        if (role == UserRole.Coach)
+        if (role == ClubRole.Coach)
         {
             source = source.Where(l => l.CoachId == userId);
         }
@@ -118,7 +122,8 @@ internal sealed class LoanService(
         {
             var kw = $"%{query.Search}%";
             source = source.Where(l =>
-                EF.Functions.ILike(l.Coach.Name, kw)
+                EF.Functions.ILike(l.Coach.FirstName + " " + l.Coach.LastName, kw)
+                || EF.Functions.ILike(l.Coach.FirstName, kw)
                 || db.LoanItems.Any(li =>
                     li.LoanId == l.Id
                     && EF.Functions.ILike(li.AssetType.AssetName.Name, kw)));
@@ -158,7 +163,7 @@ internal sealed class LoanService(
     // ── Get single ───────────────────────────────────────────────────────────
 
     public async Task<LoanResponse> GetAsync(
-        Guid loanId, Guid clubId, Guid userId, UserRole role, CancellationToken ct = default)
+        Guid loanId, Guid clubId, Guid userId, ClubRole? role, CancellationToken ct = default)
     {
         var loan = await db.Loans
             .IgnoreQueryFilters()
@@ -166,7 +171,7 @@ internal sealed class LoanService(
             .Select(LoanProjection)
             .FirstOrDefaultAsync(ct);
         if (loan is null) throw new AppException("Loan not found", 404);
-        if (role == UserRole.Coach && loan.CoachId != userId)
+        if (role == ClubRole.Coach && loan.CoachId != userId)
             throw new AppException("Access denied", 403);
 
         loan.Items = await FetchItemsByLoanIdsAsync(new[] { loanId }, ct);
@@ -176,7 +181,7 @@ internal sealed class LoanService(
     // ── Create ───────────────────────────────────────────────────────────────
 
     public async Task<LoanResponse> CreateAsync(
-        Guid clubId, Guid requesterId, UserRole requesterRole, CreateLoanRequest req, CancellationToken ct = default)
+        Guid clubId, Guid requesterId, ClubRole? requesterRole, CreateLoanRequest req, CancellationToken ct = default)
     {
         if (req.Items is null || req.Items.Count == 0)
             throw new AppException("At least one item is required", 400);
@@ -186,7 +191,7 @@ internal sealed class LoanService(
             throw new AppException("due_date must be a future date", 400);
 
         Guid coachId;
-        if (requesterRole == UserRole.Coach)
+        if (requesterRole == ClubRole.Coach)
         {
             coachId = requesterId;
         }
@@ -199,8 +204,8 @@ internal sealed class LoanService(
 
         var coach = await db.Users
             .IgnoreQueryFilters()
-            .Where(u => u.Id == coachId && u.ClubId == clubId && u.IsActive)
-            .Select(u => new { u.Name })
+            .Where(u => u.Id == coachId && u.IsActive)
+            .Select(u => new { Name = u.FirstName + " " + u.LastName })
             .FirstOrDefaultAsync(ct);
         if (coach is null) throw new AppException("Borrower not found in this club", 404);
 
@@ -254,7 +259,7 @@ internal sealed class LoanService(
 
         await notifications.NotifyClubRolesAsync(
             clubId,
-            new[] { UserRole.AssetManager, UserRole.ClubAdmin },
+            new[] { ClubRole.AssetManager, ClubRole.ClubAdmin },
             NotificationType.LoanRequest,
             "New Loan Request",
             $"{coach.Name} is requesting {req.Items.Count} item(s)",
@@ -267,7 +272,7 @@ internal sealed class LoanService(
     // ── Update (pending only) ────────────────────────────────────────────────
 
     public async Task<LoanResponse> UpdateAsync(
-        Guid loanId, Guid clubId, Guid userId, UserRole role, UpdateLoanRequest req, CancellationToken ct = default)
+        Guid loanId, Guid clubId, Guid userId, ClubRole? role, UpdateLoanRequest req, CancellationToken ct = default)
     {
         var loan = await db.Loans
             .IgnoreQueryFilters()
@@ -275,9 +280,9 @@ internal sealed class LoanService(
         if (loan is null) throw new AppException("Loan not found", 404);
         if (loan.Status != LoanStatus.Pending)
             throw new AppException("Only pending loans can be edited", 409);
-        if (role == UserRole.Coach && loan.CoachId != userId)
+        if (role == ClubRole.Coach && loan.CoachId != userId)
             throw new AppException("Access denied", 403);
-        if (role == UserRole.Coach && req.CoachId is { } cid && cid != loan.CoachId)
+        if (role == ClubRole.Coach && req.CoachId is { } cid && cid != loan.CoachId)
             throw new AppException("Coaches cannot change the borrower", 403);
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -291,8 +296,8 @@ internal sealed class LoanService(
         if (req.Reason is not null) loan.Reason = req.Reason;
         if (req.CoachId is { } newCoach)
         {
-            var ok = await db.Users.IgnoreQueryFilters()
-                .AnyAsync(u => u.Id == newCoach && u.ClubId == clubId && u.IsActive, ct);
+            var ok = await db.ClubMemberships.IgnoreQueryFilters()
+                .AnyAsync(m => m.UserId == newCoach && m.ClubId == clubId && m.IsActive, ct);
             if (!ok) throw new AppException("Borrower not found in this club", 404);
             loan.CoachId = newCoach;
         }
@@ -354,7 +359,7 @@ internal sealed class LoanService(
     // ── Delete (pending only, creator only) ──────────────────────────────────
 
     public async Task DeleteAsync(
-        Guid loanId, Guid clubId, Guid userId, UserRole role, CancellationToken ct = default)
+        Guid loanId, Guid clubId, Guid userId, ClubRole? role, CancellationToken ct = default)
     {
         var loan = await db.Loans
             .IgnoreQueryFilters()
@@ -362,7 +367,8 @@ internal sealed class LoanService(
         if (loan is null) throw new AppException("Loan not found", 404);
         if (loan.Status != LoanStatus.Pending)
             throw new AppException("Only pending loans can be deleted", 409);
-        if (loan.CreatedBy != userId && role != UserRole.SuperAdmin)
+        if (loan.CreatedBy != userId
+            && role != ClubRole.ClubAdmin && role != ClubRole.AssetManager)
             throw new AppException("Only the creator can delete this loan", 403);
 
         await db.Loans.Where(l => l.Id == loanId).ExecuteDeleteAsync(ct);
@@ -384,7 +390,7 @@ internal sealed class LoanService(
         }
 
         DetachLoan(loanId);
-        var loan = await GetAsync(loanId, clubId, approverId, UserRole.ClubAdmin, ct);
+        var loan = await GetAsync(loanId, clubId, approverId, ClubRole.ClubAdmin, ct);
         await notifications.NotifyUserAsync(
             clubId, loan.CoachId,
             NotificationType.LoanApproved,
@@ -409,7 +415,7 @@ internal sealed class LoanService(
         }
 
         DetachLoan(loanId);
-        var loan = await GetAsync(loanId, clubId, approverId, UserRole.ClubAdmin, ct);
+        var loan = await GetAsync(loanId, clubId, approverId, ClubRole.ClubAdmin, ct);
         var body = reason is not null
             ? $"Your loan request was rejected: {reason}"
             : "Your loan request was rejected.";
@@ -465,7 +471,7 @@ internal sealed class LoanService(
 
         DetachLoan(loanId);
         await audit.LogAsync("loan.checkout", clubId, operatorId, "loan", loanId, new { loan_id = loanId });
-        return await GetAsync(loanId, clubId, operatorId, UserRole.ClubAdmin, ct);
+        return await GetAsync(loanId, clubId, operatorId, ClubRole.ClubAdmin, ct);
     }
 
     // ── Confirm Return (the hairy one) ───────────────────────────────────────
@@ -594,7 +600,7 @@ internal sealed class LoanService(
         await audit.LogAsync("loan.return", clubId, operatorId, "loan", loanId, new { loan_id = loanId });
 
         DetachLoan(loanId);
-        return await GetAsync(loanId, clubId, operatorId, UserRole.ClubAdmin, ct);
+        return await GetAsync(loanId, clubId, operatorId, ClubRole.ClubAdmin, ct);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -608,9 +614,10 @@ internal sealed class LoanService(
             .Select(at => new
             {
                 AssetName = at.AssetName.Name,
-                Available = db.AssetBatches
-                    .Where(ab => ab.AssetTypeId == at.Id && ab.Status != AssetStatus.Retired)
-                    .Sum(ab => (int?)ab.AvailableQuantity) ?? 0,
+                Available = db.AssetItems
+                    .Count(ai => ai.AssetTypeId == at.Id
+                              && ai.ClubId == clubId
+                              && ai.Status == AssetItemStatus.Available),
             })
             .FirstOrDefaultAsync(ct);
         if (info is null)

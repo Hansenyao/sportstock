@@ -23,7 +23,7 @@ public sealed class UsersController(IUserService users) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
 
         bool? isActiveBool = isActive switch
@@ -35,14 +35,14 @@ public sealed class UsersController(IUserService users) : ControllerBase
         };
 
         var result = await users.ListAsync(
-            currentUser.ClubId.Value, role, isActiveBool,
+            currentUser.ActiveClubId.Value, role, isActiveBool,
             page == 0 ? 1 : page,
             limit == 0 ? 20 : limit, ct);
         return Ok(result);
     }
 
     [HttpPost]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> Create(
         [FromBody] CreateUserRequest body,
         [FromServices] IValidator<CreateUserRequest> validator,
@@ -50,9 +50,9 @@ public sealed class UsersController(IUserService users) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var created = await users.CreateAsync(currentUser.ClubId.Value, body, ct);
+        var created = await users.CreateAsync(currentUser.ActiveClubId.Value, body, ct);
         return StatusCode(201, created);
     }
 
@@ -62,14 +62,14 @@ public sealed class UsersController(IUserService users) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var user = await users.GetAsync(id, currentUser.ClubId.Value, ct);
+        var user = await users.GetAsync(id, currentUser.ActiveClubId.Value, ct);
         return Ok(user);
     }
 
     [HttpPut("{id:guid}")]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> Update(
         Guid id,
         [FromBody] UpdateUserRequest body,
@@ -78,22 +78,22 @@ public sealed class UsersController(IUserService users) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var updated = await users.UpdateAsync(id, currentUser.ClubId.Value, body, ct);
+        var updated = await users.UpdateAsync(id, currentUser.ActiveClubId.Value, body, ct);
         return Ok(updated);
     }
 
     [HttpDelete("{id:guid}")]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> Deactivate(
         Guid id,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        await users.DeactivateAsync(id, currentUser.ClubId.Value, currentUser.UserId, ct);
+        await users.DeactivateAsync(id, currentUser.ActiveClubId.Value, currentUser.UserId, ct);
         return NoContent();
     }
 }

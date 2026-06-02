@@ -20,9 +20,9 @@ public sealed class WriteOffsController(IWriteOffService service) : ControllerBa
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var page = await service.ListAsync(currentUser.ClubId.Value, query, ct);
+        var page = await service.ListAsync(currentUser.ActiveClubId.Value, query, ct);
         return Ok(page);
     }
 
@@ -32,14 +32,14 @@ public sealed class WriteOffsController(IWriteOffService service) : ControllerBa
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var row = await service.GetAsync(id, currentUser.ClubId.Value, ct);
+        var row = await service.GetAsync(id, currentUser.ActiveClubId.Value, ct);
         return Ok(row);
     }
 
     [HttpPost]
-    [RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Create(
         [FromBody] CreateWriteOffRequest body,
         [FromServices] IValidator<CreateWriteOffRequest> validator,
@@ -47,10 +47,10 @@ public sealed class WriteOffsController(IWriteOffService service) : ControllerBa
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var created = await service.CreateAsync(
-            currentUser.ClubId.Value, currentUser.UserId, body, ct);
+            currentUser.ActiveClubId.Value, currentUser.UserId, body, ct);
         return StatusCode(201, created);
     }
 }

@@ -161,7 +161,7 @@ public sealed class AdminUserItem
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public UserRole Role { get; set; }
+    public ClubRole Role { get; set; }
     public bool IsActive { get; set; }
     public bool EmailVerified { get; set; }
     public DateTime CreatedAt { get; set; }

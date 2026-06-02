@@ -57,16 +57,16 @@ internal sealed class NotificationService(
     }
 
     public async Task NotifyClubRolesAsync(
-        Guid clubId, IReadOnlyList<UserRole> roles, NotificationType type,
+        Guid clubId, IReadOnlyList<ClubRole> roles, NotificationType type,
         string title, string body, object? payload = null,
         CancellationToken ct = default)
     {
         var jsonPayload = payload is null ? null : JsonSerializer.Serialize(payload, PayloadJson);
 
-        var recipients = await db.Users
+        var recipients = await db.ClubMemberships
             .IgnoreQueryFilters()
-            .Where(u => u.ClubId == clubId && u.IsActive && roles.Contains(u.Role))
-            .Select(u => u.Id)
+            .Where(m => m.ClubId == clubId && m.IsActive && roles.Contains(m.Role))
+            .Select(m => m.UserId)
             .ToListAsync(ct);
 
         if (recipients.Count == 0) return;

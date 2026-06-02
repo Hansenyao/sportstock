@@ -90,7 +90,6 @@ public partial class SportStockDbContext : DbContext
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("id");
             entity.Property(e => e.AssetTypeId).HasColumnName("asset_type_id");
-            entity.Property(e => e.AvailableQuantity).HasColumnName("available_quantity");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
@@ -136,7 +135,7 @@ public partial class SportStockDbContext : DbContext
                 .HasMaxLength(100)
                 .HasColumnName("name");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.AssetCategories)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("asset_categories_club_id_fkey");
@@ -171,7 +170,7 @@ public partial class SportStockDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("asset_names_category_id_fkey");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.AssetNames)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("asset_names_club_id_fkey");
         });
@@ -219,7 +218,7 @@ public partial class SportStockDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("asset_types_asset_name_id_fkey");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.AssetTypes)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("asset_types_club_id_fkey");
         });
@@ -317,7 +316,7 @@ public partial class SportStockDbContext : DbContext
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
-            entity.HasOne(d => d.User).WithMany(p => p.FcmTokens)
+            entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("fcm_tokens_user_id_fkey");
         });
@@ -361,31 +360,31 @@ public partial class SportStockDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
 
-            entity.HasOne(d => d.ApprovedByNavigation).WithMany(p => p.LoanApprovedByNavigations)
+            entity.HasOne(d => d.ApprovedByNavigation).WithMany()
                 .HasForeignKey(d => d.ApprovedBy)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("loans_approved_by_fkey");
 
-            entity.HasOne(d => d.CheckoutByNavigation).WithMany(p => p.LoanCheckoutByNavigations)
+            entity.HasOne(d => d.CheckoutByNavigation).WithMany()
                 .HasForeignKey(d => d.CheckoutBy)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("loans_checkout_by_fkey");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.Loans)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("loans_club_id_fkey");
 
-            entity.HasOne(d => d.Coach).WithMany(p => p.LoanCoaches)
+            entity.HasOne(d => d.Coach).WithMany()
                 .HasForeignKey(d => d.CoachId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("loans_coach_id_fkey");
 
-            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.LoanCreatedByNavigations)
+            entity.HasOne(d => d.CreatedByNavigation).WithMany()
                 .HasForeignKey(d => d.CreatedBy)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("loans_created_by_fkey");
 
-            entity.HasOne(d => d.ReturnConfirmedByNavigation).WithMany(p => p.LoanReturnConfirmedByNavigations)
+            entity.HasOne(d => d.ReturnConfirmedByNavigation).WithMany()
                 .HasForeignKey(d => d.ReturnConfirmedBy)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("loans_return_confirmed_by_fkey");
@@ -463,11 +462,11 @@ public partial class SportStockDbContext : DbContext
                 .HasColumnName("title");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.Notifications)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("notifications_club_id_fkey");
 
-            entity.HasOne(d => d.User).WithMany(p => p.Notifications)
+            entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("notifications_user_id_fkey");
         });
@@ -503,7 +502,7 @@ public partial class SportStockDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("stock_movements_asset_batch_id_fkey");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.StockMovements)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("stock_movements_club_id_fkey");
 
@@ -517,7 +516,7 @@ public partial class SportStockDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("stock_movements_loan_item_id_fkey");
 
-            entity.HasOne(d => d.Operator).WithMany(p => p.StockMovements)
+            entity.HasOne(d => d.Operator).WithMany()
                 .HasForeignKey(d => d.OperatorId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("stock_movements_operator_id_fkey");
@@ -580,11 +579,11 @@ public partial class SportStockDbContext : DbContext
                 .HasDefaultValueSql("'in_progress'::character varying")
                 .HasColumnName("status");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.StocktakeSessions)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("stocktake_sessions_club_id_fkey");
 
-            entity.HasOne(d => d.ConductedByNavigation).WithMany(p => p.StocktakeSessions)
+            entity.HasOne(d => d.ConductedByNavigation).WithMany()
                 .HasForeignKey(d => d.ConductedBy)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("stocktake_sessions_conducted_by_fkey");
@@ -618,7 +617,7 @@ public partial class SportStockDbContext : DbContext
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.Teams)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("teams_club_id_fkey");
         });
@@ -655,7 +654,7 @@ public partial class SportStockDbContext : DbContext
                 .HasForeignKey<TeamMember>(d => d.TeamId)
                 .HasConstraintName("team_members_team_id_fkey");
 
-            entity.HasOne(d => d.User).WithMany(p => p.TeamMembers)
+            entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("team_members_user_id_fkey");
         });
@@ -666,8 +665,6 @@ public partial class SportStockDbContext : DbContext
 
             entity.ToTable("users");
 
-            entity.HasIndex(e => e.ClubId, "idx_users_club_id");
-
             entity.HasIndex(e => e.Email, "idx_users_email");
 
             entity.HasIndex(e => e.Email, "users_email_key").IsUnique();
@@ -675,7 +672,6 @@ public partial class SportStockDbContext : DbContext
             entity.Property(e => e.Id)
                 .HasDefaultValueSql("gen_random_uuid()")
                 .HasColumnName("id");
-            entity.Property(e => e.ClubId).HasColumnName("club_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("created_at");
@@ -683,12 +679,18 @@ public partial class SportStockDbContext : DbContext
                 .HasMaxLength(255)
                 .HasColumnName("email");
             entity.Property(e => e.EmailVerified).HasColumnName("email_verified");
+            entity.Property(e => e.FirstName)
+                .HasMaxLength(100)
+                .HasColumnName("first_name");
+            entity.Property(e => e.LastName)
+                .HasMaxLength(100)
+                .HasColumnName("last_name");
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
-            entity.Property(e => e.Name)
-                .HasMaxLength(255)
-                .HasColumnName("name");
+            entity.Property(e => e.IsSupAdmin)
+                .HasDefaultValue(false)
+                .HasColumnName("is_sup_admin");
             entity.Property(e => e.PasswordHash).HasColumnName("password_hash");
             entity.Property(e => e.Phone)
                 .HasMaxLength(50)
@@ -696,11 +698,6 @@ public partial class SportStockDbContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
-
-            entity.HasOne(d => d.Club).WithMany(p => p.Users)
-                .HasForeignKey(d => d.ClubId)
-                .OnDelete(DeleteBehavior.Cascade)
-                .HasConstraintName("users_club_id_fkey");
         });
 
         modelBuilder.Entity<WriteOffOrder>(entity =>
@@ -735,11 +732,11 @@ public partial class SportStockDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("write_off_orders_asset_type_id_fkey");
 
-            entity.HasOne(d => d.Club).WithMany(p => p.WriteOffOrders)
+            entity.HasOne(d => d.Club).WithMany()
                 .HasForeignKey(d => d.ClubId)
                 .HasConstraintName("write_off_orders_club_id_fkey");
 
-            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.WriteOffOrders)
+            entity.HasOne(d => d.CreatedByNavigation).WithMany()
                 .HasForeignKey(d => d.CreatedBy)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("write_off_orders_created_by_fkey");

@@ -89,7 +89,8 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
                     ? sm.AssetBatch.AssetType.Model : null,
                 Size = sm.AssetBatch != null && sm.AssetBatch.AssetType != null
                     ? sm.AssetBatch.AssetType.Size : null,
-                OperatorName = sm.Operator != null ? sm.Operator.Name : null,
+                OperatorName = sm.Operator != null
+                    ? sm.Operator.FirstName + " " + sm.Operator.LastName : null,
             })
             .ToListAsync(ct);
 
@@ -304,7 +305,8 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
                 StartedAt = s.StartedAt,
                 CompletedAt = s.CompletedAt,
                 CreatedAt = s.CreatedAt,
-                ConductedByName = s.ConductedByNavigation.Name,
+                ConductedByName = s.ConductedByNavigation != null
+                    ? s.ConductedByNavigation.FirstName + " " + s.ConductedByNavigation.LastName : null,
             })
             .ToListAsync(ct);
     }
@@ -326,7 +328,7 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         var conductedByName = await db.Users
             .IgnoreQueryFilters()
             .Where(u => u.Id == conductedBy)
-            .Select(u => u.Name)
+            .Select(u => u.FirstName + " " + u.LastName)
             .FirstAsync(ct);
 
         return new StocktakeSessionListItem
@@ -463,7 +465,7 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         var conductedByName = await db.Users
             .IgnoreQueryFilters()
             .Where(u => u.Id == session.ConductedBy)
-            .Select(u => u.Name)
+            .Select(u => u.FirstName + " " + u.LastName)
             .FirstAsync(ct);
 
         return new StocktakeSessionListItem

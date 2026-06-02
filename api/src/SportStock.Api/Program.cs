@@ -71,8 +71,8 @@ Log.Logger = new LoggerConfiguration()
         var connStr = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DbOptions>>()
                         .Value.ConnectionString;
         var dsb = new NpgsqlDataSourceBuilder(connStr);
-        dsb.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
-        dsb.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<ClubRole>("club_role", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<AssetItemStatus>("asset_item_status", new NpgsqlSnakeCaseNameTranslator());
         dsb.MapEnum<LoanStatus>("loan_status", new NpgsqlSnakeCaseNameTranslator());
         dsb.MapEnum<WriteOffSource>("write_off_source", new NpgsqlSnakeCaseNameTranslator());
         dsb.MapEnum<StockMovementType>("stock_movement_type", new NpgsqlSnakeCaseNameTranslator());
@@ -89,11 +89,11 @@ Log.Logger = new LoggerConfiguration()
         {
             // EF Core needs its own enum mapping in addition to what the
             // NpgsqlDataSourceBuilder did for the driver level. Without
-            // these calls EF Core sends UserRole as int, which PG rejects
-            // with 42804 "is of type user_role but expression is of type
+            // these calls EF Core sends ClubRole as int, which PG rejects
+            // with 42804 "is of type club_role but expression is of type
             // integer".
-            npg.MapEnum<UserRole>("user_role", nameTranslator: snake);
-            npg.MapEnum<AssetStatus>("asset_status", nameTranslator: snake);
+            npg.MapEnum<ClubRole>("club_role", nameTranslator: snake);
+            npg.MapEnum<AssetItemStatus>("asset_item_status", nameTranslator: snake);
             npg.MapEnum<LoanStatus>("loan_status", nameTranslator: snake);
             npg.MapEnum<WriteOffSource>("write_off_source", nameTranslator: snake);
             npg.MapEnum<StockMovementType>("stock_movement_type", nameTranslator: snake);

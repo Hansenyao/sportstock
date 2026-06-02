@@ -122,11 +122,11 @@ internal sealed class TeamService(SportStockDbContext db) : ITeamService
         AssertTeamRole(teamRole);
         await AssertTeamBelongsToClubAsync(teamId, clubId, ct);
 
-        var user = await db.Users
+        var membership = await db.ClubMemberships
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(u => u.Id == userId && u.ClubId == clubId && u.IsActive, ct);
-        if (user is null) throw new AppException("User not found", 404);
-        if (user.Role != UserRole.Coach)
+            .FirstOrDefaultAsync(m => m.UserId == userId && m.ClubId == clubId && m.IsActive, ct);
+        if (membership is null) throw new AppException("User not found", 404);
+        if (membership.Role != ClubRole.Coach)
             throw new AppException("Only coaches can be assigned to teams", 400);
 
         if (teamRole == "head_coach")
@@ -220,7 +220,7 @@ internal sealed class TeamService(SportStockDbContext db) : ITeamService
                 tm.UserId,
                 tm.TeamRole,
                 tm.CreatedAt,
-                u.Name,
+                Name = u.FirstName + " " + u.LastName,
                 u.Email,
                 u.Phone,
             })
@@ -254,7 +254,7 @@ internal sealed class TeamService(SportStockDbContext db) : ITeamService
                 UserId = tm.UserId,
                 TeamRole = tm.TeamRole,
                 CreatedAt = tm.CreatedAt,
-                Name = u.Name,
+                Name = u.FirstName + " " + u.LastName,
                 Email = u.Email,
                 Phone = u.Phone,
             })

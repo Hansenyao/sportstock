@@ -21,9 +21,9 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var page = await service.ListMovementsAsync(currentUser.ClubId.Value, query, ct);
+        var page = await service.ListMovementsAsync(currentUser.ActiveClubId.Value, query, ct);
         return Ok(page);
     }
 
@@ -36,10 +36,10 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var batch = await service.AdjustBatchAsync(
-            currentUser.ClubId.Value, currentUser.UserId, batchId, body, ct);
+            currentUser.ActiveClubId.Value, currentUser.UserId, batchId, body, ct);
         return Ok(batch);
     }
 
@@ -52,10 +52,10 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var batch = await service.RetireBatchAsync(
-            currentUser.ClubId.Value, currentUser.UserId, batchId, body, ct);
+            currentUser.ActiveClubId.Value, currentUser.UserId, batchId, body, ct);
         return Ok(batch);
     }
 
@@ -68,10 +68,10 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var batch = await service.CompleteMaintenanceAsync(
-            currentUser.ClubId.Value, currentUser.UserId, batchId, body, ct);
+            currentUser.ActiveClubId.Value, currentUser.UserId, batchId, body, ct);
         return Ok(batch);
     }
 
@@ -82,10 +82,10 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var rows = await service.ListStocktakesAsync(
-            currentUser.ClubId.Value, page == 0 ? 1 : page, limit == 0 ? 10 : limit, ct);
+            currentUser.ActiveClubId.Value, page == 0 ? 1 : page, limit == 0 ? 10 : limit, ct);
         return Ok(rows);
     }
 
@@ -95,10 +95,10 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var created = await service.CreateStocktakeAsync(
-            currentUser.ClubId.Value, currentUser.UserId, body, ct);
+            currentUser.ActiveClubId.Value, currentUser.UserId, body, ct);
         return StatusCode(201, created);
     }
 
@@ -108,9 +108,9 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var detail = await service.GetStocktakeAsync(id, currentUser.ClubId.Value, ct);
+        var detail = await service.GetStocktakeAsync(id, currentUser.ActiveClubId.Value, ct);
         return Ok(detail);
     }
 
@@ -123,9 +123,9 @@ public sealed class InventoryController(IInventoryService service) : ControllerB
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var updated = await service.UpdateStocktakeAsync(id, currentUser.ClubId.Value, body, ct);
+        var updated = await service.UpdateStocktakeAsync(id, currentUser.ActiveClubId.Value, body, ct);
         return Ok(updated);
     }
 }

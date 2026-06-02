@@ -42,9 +42,6 @@ public partial class SportStockDbContext
         modelBuilder.Entity<AuditLog>()
             .Property(a => a.Meta).HasColumnType("jsonb");
 
-        modelBuilder.Entity<AssetBatch>()
-            .Property(b => b.Status).HasColumnName("status").HasColumnType("asset_status");
-
         modelBuilder.Entity<Loan>()
             .Property(l => l.Status).HasColumnName("status").HasColumnType("loan_status");
 

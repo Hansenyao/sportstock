@@ -38,7 +38,9 @@ internal sealed class WriteOffService(SportStockDbContext db) : IWriteOffService
         Brand = w.AssetType.Brand,
         Model = w.AssetType.Model,
         Size = w.AssetType.Size,
-        CreatedByName = w.CreatedByNavigation.Name,
+        CreatedByName = w.CreatedByNavigation != null
+            ? w.CreatedByNavigation.FirstName + " " + w.CreatedByNavigation.LastName
+            : null,
     };
 
     public async Task<PaginatedResult<WriteOffResponse>> ListAsync(
@@ -115,52 +117,39 @@ internal sealed class WriteOffService(SportStockDbContext db) : IWriteOffService
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-        // FIFO across batches: oldest purchase_date first, NULLs last.
-        var batches = await (
-            from b in db.AssetBatches.IgnoreQueryFilters()
-            join at in db.AssetTypes.IgnoreQueryFilters() on b.AssetTypeId equals at.Id
-            where b.AssetTypeId == typeId
-                  && at.ClubId == clubId
-                  && b.AvailableQuantity > 0
-                  && b.Status != AssetStatus.Retired
-            orderby b.PurchaseDate ?? DateOnly.MaxValue, b.CreatedAt
-            select b
-        ).ToListAsync(ct);
+        // V2: work at the asset_item level. FIFO across batches: oldest batch first.
+        var availableItems = await db.AssetItems
+            .IgnoreQueryFilters()
+            .Where(i => i.AssetTypeId == typeId && i.ClubId == clubId && i.Status == AssetItemStatus.Available)
+            .OrderBy(i => i.Batch!.PurchaseDate ?? DateOnly.MaxValue)
+            .ThenBy(i => i.CreatedAt)
+            .Take(qty)
+            .ToListAsync(ct);
 
-        if (batches.Count == 0)
+        if (availableItems.Count == 0)
             throw new AppException("Asset not found or no available stock", 404);
-
-        var totalAvail = batches.Sum(b => b.AvailableQuantity);
-        if (qty > totalAvail)
+        if (availableItems.Count < qty)
             throw new AppException(
-                $"Cannot write off {qty} units; only {totalAvail} available in stock", 409);
+                $"Cannot write off {qty} units; only {availableItems.Count} available in stock", 409);
 
-        var remaining = qty;
         var movementNote = req.Reason ?? "Manual write-off";
-        foreach (var batch in batches)
+        foreach (var item in availableItems)
         {
-            if (remaining <= 0) break;
-            var deduct = Math.Min(remaining, batch.AvailableQuantity);
-            remaining -= deduct;
-            var availBefore = batch.AvailableQuantity;
-
-            batch.AvailableQuantity -= deduct;
-            batch.TotalQuantity -= deduct;
-            batch.UpdatedAt = DateTime.UtcNow;
-
-            db.StockMovements.Add(new StockMovement
-            {
-                Id = Guid.NewGuid(),
-                ClubId = clubId,
-                AssetBatchId = batch.Id,
-                OperatorId = operatorId,
-                Type = StockMovementType.WriteOff,
-                QuantityDelta = -deduct,
-                QuantityBefore = availBefore,
-                QuantityAfter = availBefore - deduct,
-                Notes = movementNote,
-            });
+            item.Status = AssetItemStatus.WrittenOff;
         }
+
+        // Record a single stock movement for the whole write-off
+        db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(),
+            ClubId = clubId,
+            OperatorId = operatorId,
+            Type = StockMovementType.WriteOff,
+            QuantityDelta = -qty,
+            QuantityBefore = availableItems.Count,
+            QuantityAfter = 0,
+            Notes = movementNote,
+        });
 
         var order = new WriteOffOrder
         {

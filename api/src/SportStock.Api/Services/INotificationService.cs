@@ -12,7 +12,7 @@ public interface INotificationService
     // Internal — write to notifications + push via FCM. Fire-and-forget at
     // call sites; failures should not bubble back up to the caller.
     Task NotifyClubRolesAsync(
-        Guid clubId, IReadOnlyList<UserRole> roles, NotificationType type,
+        Guid clubId, IReadOnlyList<ClubRole> roles, NotificationType type,
         string title, string body, object? payload = null,
         CancellationToken ct = default);
 

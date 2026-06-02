@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportStock.Api.Auth;
-using SportStock.Api.Data.Enums;
 using SportStock.Api.Dtos.Admin;
 using SportStock.Api.Dtos.AuditLog;
 using SportStock.Api.Dtos.SportType;
@@ -13,7 +12,7 @@ namespace SportStock.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/admin")]
-[RequireRole(UserRole.SuperAdmin)]
+[RequireSuperAdmin]
 public sealed class AdminController(IAdminService service, IAuditLogService auditLogService, ISportTypeService sportTypeService) : ControllerBase
 {
     [HttpGet("stats")]

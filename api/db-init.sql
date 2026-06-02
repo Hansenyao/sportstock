@@ -404,6 +404,8 @@ CREATE TABLE loan_item_assignments (
     UNIQUE (asset_item_id)   -- an item cannot be on two active loans simultaneously
 );
 
+CREATE INDEX idx_lia_loan_item_id ON loan_item_assignments(loan_item_id);
+
 -- ── Write-offs ────────────────────────────────────────────────────────────────
 
 -- WRITE_OFF_ORDERS: decommissioned assets (manual or from loan return)
@@ -416,7 +418,7 @@ CREATE TABLE write_off_orders (
     reason        TEXT,
     source        write_off_source NOT NULL DEFAULT 'manual',
     loan_item_id  UUID             REFERENCES loan_items(id) ON DELETE SET NULL,
-    created_by    UUID             NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_by    UUID             NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     notes         TEXT,
     created_at    TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ      NOT NULL DEFAULT NOW()
@@ -752,8 +754,9 @@ $$;
 CREATE OR REPLACE PROCEDURE checkout_loan(p_loan_id UUID)
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_item RECORD;
-    v_li   RECORD;
+    v_item           RECORD;
+    v_li             RECORD;
+    v_assigned_count INT;
 BEGIN
     FOR v_li IN
         SELECT li.id, li.asset_type_id, li.quantity
@@ -777,6 +780,17 @@ BEGIN
                    updated_at = NOW()
             WHERE  id = v_item.id;
         END LOOP;
+
+        -- Verify enough items were assigned
+        SELECT COUNT(*) INTO v_assigned_count
+        FROM loan_item_assignments
+        WHERE loan_item_id = v_li.id;
+
+        IF v_assigned_count < v_li.quantity THEN
+            RAISE EXCEPTION 'Insufficient stock for asset_type_id %: need %, found %',
+                v_li.asset_type_id, v_li.quantity, v_assigned_count
+                USING ERRCODE = 'P0001';
+        END IF;
     END LOOP;
 
     UPDATE loans

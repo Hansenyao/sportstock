@@ -12,7 +12,7 @@ namespace SportStock.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/inventory")]
-[RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+[RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
 public sealed class InventoryController(IInventoryService service) : ControllerBase
 {
     [HttpGet("movements")]

@@ -20,25 +20,21 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
     {
         var asset = await db.Database.SqlQuery<SummaryAssetRow>($@"
             SELECT
-                COUNT(DISTINCT at.id)                                                            AS ""TotalAssets"",
-                COALESCE(SUM(ab.total_quantity)     FILTER (WHERE at.is_active = true), 0)      AS ""TotalItems"",
-                COALESCE(SUM(ab.available_quantity) FILTER (WHERE at.is_active = true), 0)      AS ""AvailableItems"",
+                COUNT(DISTINCT at.id)                                                                AS ""TotalAssets"",
+                COALESCE(SUM(ab.total_quantity) FILTER (WHERE at.is_active = true), 0)              AS ""TotalItems"",
+                COUNT(ai.id) FILTER (WHERE at.is_active = true AND ai.status = 'available')         AS ""AvailableItems"",
                 COALESCE(
                   SUM(ab.purchase_price * ab.total_quantity)
                     FILTER (WHERE at.is_active = true AND ab.purchase_price IS NOT NULL), 0
-                )                                                                                AS ""TotalPurchaseValue"",
-                COALESCE(SUM(ab.total_quantity)
-                  FILTER (WHERE at.is_active = true AND ab.status != 'retired'), 0)              AS ""ActiveTotal"",
-                COALESCE(SUM(ab.available_quantity)
-                  FILTER (WHERE at.is_active = true AND ab.status != 'retired'), 0)              AS ""AvailableQty"",
-                COALESCE(SUM(ab.total_quantity - ab.available_quantity)
-                  FILTER (WHERE at.is_active = true AND ab.status IN ('available', 'on_loan')), 0) AS ""OnLoanQty"",
-                COALESCE(SUM(ab.total_quantity)
-                  FILTER (WHERE at.is_active = true AND ab.status = 'maintenance'), 0)           AS ""MaintenanceQty"",
-                COALESCE(SUM(ab.total_quantity)
-                  FILTER (WHERE at.is_active = true AND ab.status = 'retired'), 0)               AS ""RetiredQty""
+                )                                                                                    AS ""TotalPurchaseValue"",
+                COUNT(ai.id) FILTER (WHERE at.is_active = true AND ai.status != 'retired' AND ai.status != 'written_off') AS ""ActiveTotal"",
+                COUNT(ai.id) FILTER (WHERE at.is_active = true AND ai.status = 'available')         AS ""AvailableQty"",
+                COUNT(ai.id) FILTER (WHERE at.is_active = true AND ai.status = 'on_loan')           AS ""OnLoanQty"",
+                COUNT(ai.id) FILTER (WHERE at.is_active = true AND ai.status = 'maintenance')       AS ""MaintenanceQty"",
+                COUNT(ai.id) FILTER (WHERE at.is_active = true AND ai.status = 'retired')           AS ""RetiredQty""
             FROM asset_types at
             LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
+            LEFT JOIN asset_items ai ON ai.asset_type_id = at.id
             WHERE at.club_id = {clubId}").FirstAsync(ct);
 
         var loan = await db.Database.SqlQuery<SummaryLoanRow>($@"
@@ -49,15 +45,13 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
 
         var categories = await db.Database.SqlQuery<CategoryBreakdownRow>($@"
             SELECT
-                COALESCE(ac.name, 'Uncategorized')               AS ""CategoryName"",
-                COALESCE(SUM(ab.total_quantity)
-                  FILTER (WHERE ab.status != 'retired'), 0)      AS ""TotalQty"",
-                COALESCE(SUM(ab.available_quantity)
-                  FILTER (WHERE ab.status != 'retired'), 0)      AS ""AvailableQty""
+                COALESCE(ac.name, 'Uncategorized')                                         AS ""CategoryName"",
+                COUNT(ai.id) FILTER (WHERE ai.status != 'retired' AND ai.status != 'written_off') AS ""TotalQty"",
+                COUNT(ai.id) FILTER (WHERE ai.status = 'available')                        AS ""AvailableQty""
             FROM asset_types at
             JOIN asset_names an ON an.id = at.asset_name_id
             LEFT JOIN asset_categories ac ON ac.id = an.category_id
-            LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
+            LEFT JOIN asset_items ai ON ai.asset_type_id = at.id
             WHERE at.club_id = {clubId} AND at.is_active = true AND an.club_id = {clubId}
             GROUP BY ac.id, ac.name
             ORDER BY ""TotalQty"" DESC").ToListAsync(ct);
@@ -93,7 +87,6 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
                    at.brand       AS ""Brand"",
                    at.model       AS ""Model"",
                    at.size        AS ""Size"",
-                   ab.status::text AS ""BatchStatus"",
                    ab.purchase_date AS ""PurchaseDate"",
                    ab.total_quantity AS ""TotalQuantity"",
                    c.name         AS ""CategoryName"",
@@ -127,7 +120,6 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
                 Brand = r.Brand,
                 Model = r.Model,
                 Size = r.Size,
-                BatchStatus = r.BatchStatus,
                 PurchaseDate = r.PurchaseDate,
                 TotalQuantity = r.TotalQuantity,
                 CategoryName = r.CategoryName,
@@ -337,7 +329,6 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
                 ab.purchase_date     AS ""PurchaseDate"",
                 ab.useful_life_years AS ""UsefulLifeYears"",
                 ab.total_quantity    AS ""TotalQuantity"",
-                ab.status::text      AS ""BatchStatus"",
                 ROUND(
                     EXTRACT(EPOCH FROM (NOW() - ab.purchase_date))
                     / (ab.useful_life_years * 365.25 * 86400) * 100
@@ -348,9 +339,12 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
             JOIN clubs         c  ON c.id  = at.club_id
             WHERE at.club_id = {clubId}
               AND at.is_active = true
-              AND ab.status    != 'retired'
               AND ab.purchase_date     IS NOT NULL
               AND ab.useful_life_years IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM asset_items ai
+                WHERE ai.batch_id = ab.id AND ai.status != 'retired' AND ai.status != 'written_off'
+              )
               AND (
                 CASE
                   WHEN c.retirement_alert_mode = 'percent' THEN
@@ -367,25 +361,23 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
 
         var lowStock = await db.Database.SqlQuery<LowStockRow>($@"
             SELECT
-                at.id                                              AS ""AssetTypeId"",
-                an.name                                            AS ""AssetName"",
-                at.brand                                           AS ""Brand"",
-                at.model                                           AS ""Model"",
-                at.size                                            AS ""Size"",
-                COALESCE(SUM(ab.total_quantity)
-                  FILTER (WHERE ab.status != 'retired'), 0)        AS ""TotalQty"",
-                COALESCE(SUM(ab.available_quantity)
-                  FILTER (WHERE ab.status != 'retired'), 0)        AS ""AvailableQty"",
-                COALESCE(at.low_stock_threshold, c.low_stock_threshold) AS ""EffectiveThreshold""
+                at.id                                                                    AS ""AssetTypeId"",
+                an.name                                                                  AS ""AssetName"",
+                at.brand                                                                 AS ""Brand"",
+                at.model                                                                 AS ""Model"",
+                at.size                                                                  AS ""Size"",
+                COUNT(ai.id) FILTER (WHERE ai.status != 'retired' AND ai.status != 'written_off') AS ""TotalQty"",
+                COUNT(ai.id) FILTER (WHERE ai.status = 'available')                      AS ""AvailableQty"",
+                COALESCE(at.low_stock_threshold, c.low_stock_threshold)                 AS ""EffectiveThreshold""
             FROM asset_types at
             JOIN asset_names an ON an.id = at.asset_name_id AND an.club_id = {clubId}
             JOIN clubs        c  ON c.id  = at.club_id
-            LEFT JOIN asset_batches ab ON ab.asset_type_id = at.id
+            LEFT JOIN asset_items ai ON ai.asset_type_id = at.id
             WHERE at.club_id = {clubId} AND at.is_active = true
             GROUP BY at.id, an.name, at.brand, at.model, at.size,
                      at.low_stock_threshold, c.low_stock_threshold
             HAVING
-                COALESCE(SUM(ab.available_quantity) FILTER (WHERE ab.status != 'retired'), 0)
+                COUNT(ai.id) FILTER (WHERE ai.status = 'available')
                 <= COALESCE(at.low_stock_threshold, c.low_stock_threshold)
             ORDER BY ""AvailableQty"" ASC").ToListAsync(ct);
 
@@ -401,7 +393,6 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
                 PurchaseDate = r.PurchaseDate,
                 UsefulLifeYears = r.UsefulLifeYears,
                 TotalQuantity = r.TotalQuantity,
-                BatchStatus = r.BatchStatus,
                 LifeUsedPercent = r.LifeUsedPercent,
             }).ToList(),
             LowStock = lowStock.Select(r => new LowStockItem
@@ -456,7 +447,6 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
         public string? Brand { get; set; }
         public string? Model { get; set; }
         public string? Size { get; set; }
-        public string BatchStatus { get; set; } = string.Empty;
         public DateOnly? PurchaseDate { get; set; }
         public int TotalQuantity { get; set; }
         public string? CategoryName { get; set; }
@@ -533,7 +523,6 @@ internal sealed class ReportService(SportStockDbContext db) : IReportService
         public DateOnly PurchaseDate { get; set; }
         public int UsefulLifeYears { get; set; }
         public int TotalQuantity { get; set; }
-        public string BatchStatus { get; set; } = string.Empty;
         public int LifeUsedPercent { get; set; }
     }
 

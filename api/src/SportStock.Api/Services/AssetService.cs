@@ -436,6 +436,143 @@ internal sealed class AssetService(
         };
     }
 
+    // ── Item-level operations (v2) ───────────────────────────────────────────
+
+    public async Task<AssetItemDto> AddItemAsync(Guid assetTypeId, AddAssetItemRequest req, Guid clubId)
+    {
+        var warehouse = await db.Warehouses
+            .FirstOrDefaultAsync(w => w.Id == req.WarehouseId && w.ClubId == clubId && w.IsActive)
+            ?? throw new AppException("Warehouse not found", 404);
+
+        if (req.BatchId.HasValue)
+        {
+            _ = await db.AssetBatches
+                .FirstOrDefaultAsync(b => b.Id == req.BatchId && b.AssetTypeId == assetTypeId)
+                ?? throw new AppException("Batch not found", 404);
+        }
+
+        var item = new AssetItem
+        {
+            Id           = Guid.NewGuid(),
+            ClubId       = clubId,
+            AssetTypeId  = assetTypeId,
+            BatchId      = req.BatchId,
+            WarehouseId  = req.WarehouseId,
+            SerialNumber = req.SerialNumber,
+            Status       = AssetItemStatus.Available,
+            Notes        = req.Notes,
+        };
+        db.AssetItems.Add(item);
+        await db.SaveChangesAsync();
+
+        return MapItemToDto(item, warehouse.Name);
+    }
+
+    public async Task<List<AssetItemDto>> ListItemsAsync(Guid assetTypeId, Guid clubId)
+    {
+        var rows = await db.AssetItems
+            .Include(i => i.Warehouse)
+            .Where(i => i.AssetTypeId == assetTypeId && i.ClubId == clubId
+                   && i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff)
+            .OrderBy(i => i.CreatedAt)
+            .ToListAsync();
+
+        return rows.Select(i => MapItemToDto(i, i.Warehouse.Name)).ToList();
+    }
+
+    public async Task<AssetItemDto> UpdateItemAsync(Guid itemId, UpdateAssetItemRequest req, Guid clubId)
+    {
+        var item = await db.AssetItems.Include(i => i.Warehouse)
+            .FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+
+        if (req.WarehouseId.HasValue)
+        {
+            var wh = await db.Warehouses.FirstOrDefaultAsync(w => w.Id == req.WarehouseId && w.ClubId == clubId && w.IsActive)
+                ?? throw new AppException("Warehouse not found", 404);
+            item.WarehouseId = wh.Id;
+            item.Warehouse   = wh;
+        }
+        if (req.SerialNumber is not null) item.SerialNumber = req.SerialNumber;
+        if (req.Notes is not null)        item.Notes        = req.Notes;
+        item.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return MapItemToDto(item, item.Warehouse.Name);
+    }
+
+    public async Task RetireItemAsync(Guid itemId, Guid clubId)
+    {
+        var item = await db.AssetItems.FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+        item.Status    = AssetItemStatus.Retired;
+        item.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RetireItemsByQuantityAsync(Guid assetTypeId, int quantity, string? notes, Guid clubId)
+    {
+        var items = await db.AssetItems
+            .Where(i => i.AssetTypeId == assetTypeId && i.ClubId == clubId && i.Status == AssetItemStatus.Available)
+            .OrderBy(i => i.CreatedAt)
+            .Take(quantity)
+            .ToListAsync();
+
+        if (items.Count < quantity)
+            throw new AppException($"Not enough available items: requested {quantity}, found {items.Count}", 409);
+
+        foreach (var item in items)
+        {
+            item.Status    = AssetItemStatus.Retired;
+            item.Notes     = notes ?? item.Notes;
+            item.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+    }
+
+    public async Task WriteOffItemAsync(Guid itemId, string reason, Guid clubId)
+    {
+        var item = await db.AssetItems.FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+        item.Status    = AssetItemStatus.WrittenOff;
+        item.Notes     = reason;
+        item.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task WriteOffItemsByQuantityAsync(Guid assetTypeId, int quantity, string reason, Guid clubId)
+    {
+        var items = await db.AssetItems
+            .Where(i => i.AssetTypeId == assetTypeId && i.ClubId == clubId && i.Status == AssetItemStatus.Available)
+            .OrderBy(i => i.CreatedAt)
+            .Take(quantity)
+            .ToListAsync();
+
+        if (items.Count < quantity)
+            throw new AppException($"Not enough available items: requested {quantity}, found {items.Count}", 409);
+
+        foreach (var item in items)
+        {
+            item.Status    = AssetItemStatus.WrittenOff;
+            item.Notes     = reason;
+            item.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+    }
+
+    private static string AssetItemStatusToSnakeCase(AssetItemStatus status) => status switch
+    {
+        AssetItemStatus.Available  => "available",
+        AssetItemStatus.OnLoan     => "on_loan",
+        AssetItemStatus.Maintenance => "maintenance",
+        AssetItemStatus.Retired    => "retired",
+        AssetItemStatus.WrittenOff => "written_off",
+        _                          => status.ToString().ToLowerInvariant(),
+    };
+
+    private static AssetItemDto MapItemToDto(AssetItem i, string warehouseName) =>
+        new(i.Id, i.AssetTypeId, i.BatchId, i.WarehouseId, warehouseName, i.SerialNumber,
+            AssetItemStatusToSnakeCase(i.Status), i.Notes, i.CreatedAt);
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     // EF Core 10 cannot translate a static helper *method* invocation inside a
@@ -459,13 +596,15 @@ internal sealed class AssetService(
         IsActive = at.IsActive,
         CreatedAt = at.CreatedAt,
         UpdatedAt = at.UpdatedAt,
-        TotalQuantity = at.AssetBatches.Sum(b => (int?)b.TotalQuantity) ?? 0,
-        AvailableQuantity = at.AssetBatches.Sum(b => (int?)b.AvailableQuantity) ?? 0,
+        // v2: quantities derived from asset_items instead of batch-level counters.
+        TotalQuantity = at.AssetItems.Count(i =>
+            i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff),
+        AvailableQuantity = at.AssetItems.Count(i => i.Status == AssetItemStatus.Available),
         BatchCount = at.AssetBatches.Count(),
-        Status = at.AssetBatches.Count() == 0
-                 || at.AssetBatches.Sum(b => (int?)b.TotalQuantity) == 0
+        Status = at.AssetItems.Count(i =>
+                     i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff) == 0
                     ? "retired"
-                    : at.AssetBatches.Sum(b => (int?)b.AvailableQuantity) == 0
+                    : at.AssetItems.Count(i => i.Status == AssetItemStatus.Available) == 0
                         ? "on_loan"
                         : "available",
         Batches = at.AssetBatches
@@ -478,8 +617,13 @@ internal sealed class AssetService(
                 PurchasePrice = b.PurchasePrice,
                 UsefulLifeYears = b.UsefulLifeYears,
                 TotalQuantity = b.TotalQuantity,
-                AvailableQuantity = b.AvailableQuantity,
-                Status = b.Status,
+                AvailableQuantity = b.AssetItems.Count(i => i.Status == AssetItemStatus.Available),
+                Status = b.AssetItems.Count(i =>
+                             i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff) == 0
+                             ? AssetStatus.Retired
+                             : b.AssetItems.Count(i => i.Status == AssetItemStatus.Available) == 0
+                                 ? AssetStatus.OnLoan
+                                 : AssetStatus.Available,
                 Notes = b.Notes,
                 CreatedAt = b.CreatedAt,
             })

@@ -183,4 +183,91 @@ public sealed class AssetsController(IAssetService service) : ControllerBase
         var data = await service.GetDepreciationAsync(batchId, currentUser.ClubId.Value, ct);
         return Ok(data);
     }
+
+    // ── Item-level endpoints (v2) ────────────────────────────────────────────
+
+    [HttpGet("{typeId:guid}/items")]
+    public async Task<IActionResult> ListItems(
+        Guid typeId,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        return Ok(await service.ListItemsAsync(typeId, currentUser.ActiveClubId.Value));
+    }
+
+    [HttpPost("{typeId:guid}/items")]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
+    public async Task<IActionResult> AddItem(
+        Guid typeId,
+        [FromBody] AddAssetItemRequest req,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        return StatusCode(201, await service.AddItemAsync(typeId, req, currentUser.ActiveClubId.Value));
+    }
+
+    [HttpPut("items/{itemId:guid}")]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
+    public async Task<IActionResult> UpdateItem(
+        Guid itemId,
+        [FromBody] UpdateAssetItemRequest req,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        return Ok(await service.UpdateItemAsync(itemId, req, currentUser.ActiveClubId.Value));
+    }
+
+    [HttpPost("{typeId:guid}/items/retire")]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
+    public async Task<IActionResult> RetireByQuantity(
+        Guid typeId,
+        [FromBody] RetireByQuantityRequest req,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        await service.RetireItemsByQuantityAsync(typeId, req.Quantity, req.Notes, currentUser.ActiveClubId.Value);
+        return NoContent();
+    }
+
+    [HttpPost("items/{itemId:guid}/retire")]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
+    public async Task<IActionResult> RetireItem(
+        Guid itemId,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        await service.RetireItemAsync(itemId, currentUser.ActiveClubId.Value);
+        return NoContent();
+    }
+
+    [HttpPost("{typeId:guid}/items/write-off")]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
+    public async Task<IActionResult> WriteOffByQuantity(
+        Guid typeId,
+        [FromBody] WriteOffByQuantityRequest req,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        await service.WriteOffItemsByQuantityAsync(typeId, req.Quantity, req.Reason, currentUser.ActiveClubId.Value);
+        return NoContent();
+    }
+
+    [HttpPost("items/{itemId:guid}/write-off")]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
+    public async Task<IActionResult> WriteOffItem(
+        Guid itemId,
+        [FromBody] WriteOffItemRequest req,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        await service.WriteOffItemAsync(itemId, req.Reason, currentUser.ActiveClubId.Value);
+        return NoContent();
+    }
 }

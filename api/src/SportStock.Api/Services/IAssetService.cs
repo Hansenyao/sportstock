@@ -23,4 +23,13 @@ public interface IAssetService
 
     // Depreciation
     Task<DepreciationResponse> GetDepreciationAsync(Guid batchId, Guid clubId, CancellationToken ct = default);
+
+    // Item-level operations (v2)
+    Task<AssetItemDto> AddItemAsync(Guid assetTypeId, AddAssetItemRequest req, Guid clubId);
+    Task<List<AssetItemDto>> ListItemsAsync(Guid assetTypeId, Guid clubId);
+    Task<AssetItemDto> UpdateItemAsync(Guid itemId, UpdateAssetItemRequest req, Guid clubId);
+    Task RetireItemAsync(Guid itemId, Guid clubId);
+    Task RetireItemsByQuantityAsync(Guid assetTypeId, int quantity, string? notes, Guid clubId);
+    Task WriteOffItemAsync(Guid itemId, string reason, Guid clubId);
+    Task WriteOffItemsByQuantityAsync(Guid assetTypeId, int quantity, string reason, Guid clubId);
 }

@@ -171,6 +171,31 @@ internal static class TestData
             .ExecuteDeleteAsync();
     }
 
+    // ── Asset item helpers ───────────────────────────────────────────────────
+
+    /// <summary>Directly insert a single AssetItem row for integration test setup.</summary>
+    public static async Task<Guid> CreateAssetItemAsync(
+        SportStockDbContext db,
+        Guid clubId,
+        Guid assetTypeId,
+        Guid warehouseId,
+        AssetItemStatus status = AssetItemStatus.Available,
+        string? serialNumber = null)
+    {
+        var item = new AssetItem
+        {
+            Id           = Guid.NewGuid(),
+            ClubId       = clubId,
+            AssetTypeId  = assetTypeId,
+            WarehouseId  = warehouseId,
+            Status       = status,
+            SerialNumber = serialNumber,
+        };
+        db.AssetItems.Add(item);
+        await db.SaveChangesAsync();
+        return item.Id;
+    }
+
     private static string Slug(string name) =>
         new string(name.ToLowerInvariant().Where(c => char.IsLetterOrDigit(c)).ToArray());
 }

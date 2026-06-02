@@ -57,6 +57,13 @@ public partial class SportStockDbContext
         modelBuilder.Entity<Notification>()
             .Property(n => n.Type).HasColumnName("type").HasColumnType("notification_type");
 
+        // AssetItem.AssetTypeId → asset_types.id (v2 item-level tracking).
+        modelBuilder.Entity<AssetType>()
+            .HasMany(t => t.AssetItems)
+            .WithOne(i => i.AssetType)
+            .HasForeignKey(i => i.AssetTypeId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         // ClubInvitation has two FKs to users (invitee and invited_by).
         modelBuilder.Entity<ClubInvitation>()
             .HasOne(i => i.Invitee).WithMany(u => u.ReceivedInvitations).HasForeignKey(i => i.InviteeId).OnDelete(DeleteBehavior.Cascade);

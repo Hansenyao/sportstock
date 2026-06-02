@@ -22,12 +22,142 @@ public partial class SportStockDbContext
         //      (auto-detection via convention is unreliable in EFCore 10).
         var snake = new NpgsqlSnakeCaseNameTranslator();
         modelBuilder.HasPostgresEnum<ClubRole>(name: "club_role", nameTranslator: snake);
-        modelBuilder.HasPostgresEnum<AssetStatus>(name: "asset_status", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<AssetItemStatus>(name: "asset_item_status", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<LoanStatus>(name: "loan_status", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<WriteOffSource>(name: "write_off_source", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<StockMovementType>(name: "stock_movement_type", nameTranslator: snake);
         modelBuilder.HasPostgresEnum<NotificationType>(name: "notification_type", nameTranslator: snake);
+
+        // User.IsSupAdmin maps to is_super_admin (snake_case would produce is_sup_admin)
+        modelBuilder.Entity<User>()
+            .Property(u => u.IsSupAdmin).HasColumnName("is_super_admin");
+
+        // Club.SportType ↔ SportType.Clubs — tie the two ends together so EF Core
+        // doesn't create a shadow FK SportTypeId1 alongside the real sport_type_id.
+        modelBuilder.Entity<Club>()
+            .HasOne(c => c.SportType)
+            .WithMany(s => s.Clubs)
+            .HasForeignKey(c => c.SportTypeId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Club.Owner — single nav, no inverse on User
+        modelBuilder.Entity<Club>()
+            .HasOne(c => c.Owner)
+            .WithMany()
+            .HasForeignKey(c => c.OwnerId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Table + column mappings for v2 entities.
+        // The auto-generated context uses explicit ToTable + HasColumnName everywhere;
+        // new entities must follow the same pattern or EF Core uses PascalCase names.
+        modelBuilder.Entity<ClubMembership>(e =>
+        {
+            e.ToTable("club_memberships");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ClubId).HasColumnName("club_id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.Role).HasColumnName("role").HasColumnType("club_role");
+            e.Property(x => x.IsActive).HasColumnName("is_active");
+            e.Property(x => x.InvitedBy).HasColumnName("invited_by");
+            e.Property(x => x.JoinedAt).HasColumnName("joined_at");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<ClubInvitation>(e =>
+        {
+            e.ToTable("club_invitations");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ClubId).HasColumnName("club_id");
+            e.Property(x => x.InviteeId).HasColumnName("invitee_id");
+            e.Property(x => x.InvitedById).HasColumnName("invited_by");
+            e.Property(x => x.Role).HasColumnName("role").HasColumnType("club_role");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.RespondedAt).HasColumnName("responded_at");
+        });
+
+        modelBuilder.Entity<SportType>(e =>
+        {
+            e.ToTable("sport_types");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.IsActive).HasColumnName("is_active");
+            e.Property(x => x.SortOrder).HasColumnName("sort_order");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<Warehouse>(e =>
+        {
+            e.ToTable("warehouses");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ClubId).HasColumnName("club_id");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.Description).HasColumnName("description");
+            e.Property(x => x.IsActive).HasColumnName("is_active");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<AssetItem>(e =>
+        {
+            e.ToTable("asset_items");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ClubId).HasColumnName("club_id");
+            e.Property(x => x.AssetTypeId).HasColumnName("asset_type_id");
+            e.Property(x => x.BatchId).HasColumnName("batch_id");
+            e.Property(x => x.WarehouseId).HasColumnName("warehouse_id");
+            e.Property(x => x.SerialNumber).HasColumnName("serial_number");
+            e.Property(x => x.Status).HasColumnName("status").HasColumnType("asset_item_status");
+            e.Property(x => x.Notes).HasColumnName("notes");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<LoanItemAssignment>(e =>
+        {
+            e.ToTable("loan_item_assignments");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.LoanItemId).HasColumnName("loan_item_id");
+            e.Property(x => x.AssetItemId).HasColumnName("asset_item_id");
+            e.Property(x => x.AssignedAt).HasColumnName("assigned_at");
+        });
+
+        modelBuilder.Entity<AuditLog>(e =>
+        {
+            e.ToTable("audit_logs");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ClubId).HasColumnName("club_id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.Action).HasColumnName("action");
+            e.Property(x => x.EntityType).HasColumnName("entity_type");
+            e.Property(x => x.EntityId).HasColumnName("entity_id");
+            e.Property(x => x.Meta).HasColumnName("meta").HasColumnType("jsonb");
+            e.Property(x => x.IpAddress).HasColumnName("ip_address");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<Kit>(e =>
+        {
+            e.ToTable("kits");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ClubId).HasColumnName("club_id");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.Description).HasColumnName("description");
+            e.Property(x => x.IsActive).HasColumnName("is_active");
+            e.Property(x => x.CreatedBy).HasColumnName("created_by");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<KitItem>(e =>
+        {
+            e.ToTable("kit_items");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.KitId).HasColumnName("kit_id");
+            e.Property(x => x.AssetTypeId).HasColumnName("asset_type_id");
+            e.Property(x => x.Quantity).HasColumnName("quantity");
+        });
 
         // PG enum columns dropped by EF Core Power Tools — see Data/Entities/Extensions/*.
         modelBuilder.Entity<ClubMembership>()

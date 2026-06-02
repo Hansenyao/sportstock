@@ -222,6 +222,13 @@ internal sealed class AssetService(
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
 
+        // Auto-select first active warehouse for item creation
+        var warehouse = await db.Warehouses
+            .Where(w => w.ClubId == clubId && w.IsActive)
+            .OrderBy(w => w.CreatedAt)
+            .FirstOrDefaultAsync(ct)
+            ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+
         // Create individual asset items for v2 item-level tracking
         for (int i = 0; i < qty; i++)
         {
@@ -231,6 +238,7 @@ internal sealed class AssetService(
                 AssetTypeId = typeId,
                 BatchId = batch.Id,
                 ClubId = clubId,
+                WarehouseId = warehouse.Id,
                 Status = AssetItemStatus.Available,
             });
         }
@@ -360,6 +368,13 @@ internal sealed class AssetService(
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
 
+        // Auto-select first active warehouse for item creation
+        var warehouse = await db.Warehouses
+            .Where(w => w.ClubId == clubId && w.IsActive)
+            .OrderBy(w => w.CreatedAt)
+            .FirstOrDefaultAsync(ct)
+            ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+
         // Create individual asset items for v2 item-level tracking
         for (int i = 0; i < qty; i++)
         {
@@ -369,6 +384,7 @@ internal sealed class AssetService(
                 AssetTypeId = typeId,
                 BatchId = batch.Id,
                 ClubId = clubId,
+                WarehouseId = warehouse.Id,
                 Status = AssetItemStatus.Available,
             });
         }

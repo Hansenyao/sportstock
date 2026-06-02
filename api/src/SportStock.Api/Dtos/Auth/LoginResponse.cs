@@ -2,8 +2,8 @@ using SportStock.Api.Data.Enums;
 
 namespace SportStock.Api.Dtos.Auth;
 
-// Mirrors Node response shape:
-//   { token, user: { id, club_id, name, email, role, club_name } }
+// Legacy response shape — superseded by LoginResult (v2 multi-club).
+// Kept for compilation; not returned by any endpoint.
 public sealed class LoginResponse
 {
     public string Token { get; set; } = string.Empty;
@@ -16,6 +16,6 @@ public sealed class LoginUserInfo
     public Guid? ClubId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public UserRole Role { get; set; }
+    public ClubRole Role { get; set; }
     public string? ClubName { get; set; }
 }

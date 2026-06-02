@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -14,22 +16,19 @@ using SportStock.Api.Integrations;
 
 namespace SportStock.Api.Services;
 
-// Ports backend/src/services/auth.service.ts 1:1. Behavior parity is
-// required for the frontend to switch base URL with zero code changes.
+// AuthService v2: user-only registration, club creation by authenticated user,
+// multi-club login (scoped vs unscoped token), and club selection.
 //
-// Notable preserved-from-Node quirks:
-//   - GenerateCode returns the literal "123456" (no real random until
-//     Resend is wired). See // TODO comments below.
+// Preserved quirks from v1:
+//   - GenerateCode returns "123456" (no real random until Resend is wired).
 //   - email is always lowercased before storage / lookup.
-//   - forgot-password is silent when the email is unknown to avoid
-//     enumeration; it always returns 200 from the controller.
-//   - login emits a single 401 for "wrong email or password" — no
-//     distinction between the two on the wire.
+//   - forgot-password is silent when the email is unknown (anti-enumeration).
+//   - login returns a single 401 for wrong email or password.
 internal sealed class AuthService(
-    SportStockDbContext db,
-    IEmailSender emailSender,
-    IOptions<JwtOptions> jwtOptions,
-    ILogger<AuthService> log) : IAuthService
+    SportStockDbContext _db,
+    IEmailSender _emailSender,
+    IOptions<JwtOptions> _jwtOptions,
+    ILogger<AuthService> _log) : IAuthService
 {
     private const int SaltRounds = 10;
     private const int CodeExpiryMinutes = 15;
@@ -37,198 +36,238 @@ internal sealed class AuthService(
     // TODO: restore real code generation before production
     private static string GenerateCode() => "123456";
 
-    public async Task RegisterAsync(RegisterRequest req, CancellationToken ct = default)
+    // ── Public registration: user-only ────────────────────────────────────────
+
+    public async Task<RegisterUserResult> RegisterUserAsync(RegisterUserRequest req)
     {
-        var emailNormalized = req.User.Email.Trim().ToLowerInvariant();
-        var clubName = req.Club.Name.Trim();
+        if (await _db.Users.AnyAsync(u => u.Email == req.Email.ToLowerInvariant()))
+            throw new AppException("Email already registered", 409);
 
-        // Uniqueness checks throw 409 directly so the validator can stay
-        // strictly a 400 emitter (see RegisterRequestValidator).
-        var emailExists = await db.Users
-            .IgnoreQueryFilters()
-            .AnyAsync(u => u.Email == emailNormalized, ct);
-        if (emailExists)
-            throw new AppException("This email is already registered", 409);
-
-        var clubExists = await db.Clubs
-            .IgnoreQueryFilters()
-            .AnyAsync(c => c.Name.ToLower() == clubName.ToLower(), ct);
-        if (clubExists)
-            throw new AppException("A club with this name already exists", 409);
-
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(req.User.Password, SaltRounds);
-
-        // Pre-generate the Club.Id client-side so we can wire ClubId on the
-        // User row in the same SaveChanges roundtrip (otherwise we would
-        // need two roundtrips to read the DB-generated UUID back).
-        var clubId = Guid.NewGuid();
-        var club = new Club
-        {
-            Id = clubId,
-            Name = clubName,
-            SportType = req.Club.SportType,
-            Address = req.Club.Address,
-            ContactEmail = req.Club.ContactEmail,
-            IsActive = true,
-        };
         var user = new User
         {
-            Id = Guid.NewGuid(),
-            Email = emailNormalized,
-            PasswordHash = passwordHash,
-            Name = req.User.Name.Trim(),
-            Phone = req.User.Phone,
-            Role = UserRole.ClubAdmin,
+            Id            = Guid.NewGuid(),
+            Email         = req.Email.ToLowerInvariant(),
+            PasswordHash  = BCrypt.Net.BCrypt.HashPassword(req.Password, SaltRounds),
+            FirstName     = req.FirstName,
+            LastName      = req.LastName,
+            Phone         = req.Phone,
+            IsActive      = true,
             EmailVerified = false,
-            ClubId = clubId,
-            IsActive = true,
         };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        try
-        {
-            db.Clubs.Add(club);
-            db.Users.Add(user);
-            await db.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-        }
-        catch
-        {
-            await tx.RollbackAsync(ct);
-            throw;
-        }
+        // Current stage: OTP hardcoded to "123456", no actual email sent
+        await SendVerificationOtpAsync(user.Email);
 
-        await SendVerificationCodeAsync(emailNormalized, VerificationCodeKind.Registration, ct);
+        return new RegisterUserResult(user.Id, user.Email, user.FirstName, user.LastName);
     }
 
-    public async Task SendVerificationCodeAsync(
-        string email, VerificationCodeKind kind, CancellationToken ct = default)
+    // ── Authenticated: create a club ──────────────────────────────────────────
+
+    public async Task<RegisterClubResult> RegisterClubAsync(RegisterClubRequest req, Guid callerId)
     {
-        var emailNormalized = email.ToLowerInvariant();
-        var code = GenerateCode();
+        var caller = await _db.Users.FindAsync(callerId)
+            ?? throw new AppException("User not found", 404);
 
-        db.EmailVerifications.Add(new EmailVerification
+        var club = new Club
         {
-            Id = Guid.NewGuid(),
-            Email = emailNormalized,
-            Code = code,
-            Type = TypeColumnValue(kind),
-            ExpiresAt = DateTime.UtcNow.AddMinutes(CodeExpiryMinutes),
-        });
-        await db.SaveChangesAsync(ct);
+            Id              = Guid.NewGuid(),
+            Name            = req.ClubName,
+            SportTypeId     = req.SportTypeId,
+            ContactEmail    = req.ContactEmail,
+            OwnerId         = callerId,
+            IsActive        = true,
+            RetirementAlertMode = "percent",
+        };
+        _db.Clubs.Add(club);
 
-        // TODO: uncomment Resend wiring before production. The current stub
-        // logs the OTP at Warning level instead of mailing it.
-        await emailSender.SendVerificationCodeAsync(emailNormalized, code, kind, ct);
+        var membership = new ClubMembership
+        {
+            Id       = Guid.NewGuid(),
+            ClubId   = club.Id,
+            UserId   = callerId,
+            Role     = ClubRole.ClubAdmin,
+            IsActive = true,
+            JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _db.ClubMemberships.Add(membership);
+        await _db.SaveChangesAsync();
+
+        return new RegisterClubResult(club.Id, club.Name, MintScopedToken(caller, membership));
     }
 
-    public async Task VerifyEmailAsync(string email, string code, CancellationToken ct = default)
+    // ── Login: returns clubs array; auto-scopes if exactly one club ───────────
+
+    public async Task<LoginResult> LoginAsync(LoginRequest req)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == req.Email.ToLowerInvariant())
+            ?? throw new AppException("Invalid credentials", 401);
+
+        if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+            throw new AppException("Invalid credentials", 401);
+        if (!user.EmailVerified)
+            throw new AppException("Email not verified", 403);
+        if (!user.IsActive)
+            throw new AppException("Account is deactivated", 403);
+
+        var memberships = await _db.ClubMemberships
+            .Include(m => m.Club)
+            .Where(m => m.UserId == user.Id && m.IsActive && m.Club.IsActive)
+            .ToListAsync();
+
+        string token;
+        Guid? activeClubId = null;
+        ClubRole? activeRole = null;
+
+        if (user.IsSupAdmin)
+        {
+            token = MintUnscopedToken(user, memberships);
+        }
+        else if (memberships.Count == 1)
+        {
+            activeClubId = memberships[0].ClubId;
+            activeRole   = memberships[0].Role;
+            token = MintScopedToken(user, memberships[0]);
+        }
+        else
+        {
+            token = MintUnscopedToken(user, memberships);
+        }
+
+        return new LoginResult(
+            token,
+            user.IsSupAdmin,
+            activeClubId,
+            activeRole,
+            memberships.Select(m => new ClubSummary(m.ClubId, m.Club.Name, m.Role)).ToList());
+    }
+
+    // ── Select club: exchange unscoped token for scoped ───────────────────────
+
+    public async Task<string> SelectClubAsync(Guid userId, Guid clubId)
+    {
+        var membership = await _db.ClubMemberships
+            .Include(m => m.Club)
+            .FirstOrDefaultAsync(m => m.UserId == userId && m.ClubId == clubId && m.IsActive)
+            ?? throw new AppException("Club not found or access denied", 403);
+
+        if (!membership.Club.IsActive)
+            throw new AppException("This club has been disabled", 403);
+
+        var user = await _db.Users.FindAsync(userId)
+            ?? throw new AppException("User not found", 404);
+
+        return MintScopedToken(user, membership);
+    }
+
+    // ── Get current user profile ──────────────────────────────────────────────
+
+    public async Task<MeResult> GetMeAsync(Guid userId, Guid? activeClubId)
+    {
+        var user = await _db.Users
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new AppException("User not found", 404);
+
+        ClubMembership? membership = null;
+        if (activeClubId.HasValue)
+        {
+            membership = await _db.ClubMemberships
+                .IgnoreQueryFilters()
+                .Include(m => m.Club)
+                .FirstOrDefaultAsync(m => m.UserId == userId && m.ClubId == activeClubId.Value);
+        }
+
+        return new MeResult
+        {
+            Id            = user.Id,
+            FirstName     = user.FirstName,
+            LastName      = user.LastName,
+            Email         = user.Email,
+            Phone         = user.Phone,
+            IsSupAdmin    = user.IsSupAdmin,
+            IsActive      = user.IsActive,
+            EmailVerified = user.EmailVerified,
+            CreatedAt     = user.CreatedAt,
+            ActiveClubId  = membership?.ClubId,
+            Role          = membership?.Role,
+            ClubName      = membership?.Club?.Name,
+            ClubLogo      = membership?.Club?.LogoUrl,
+        };
+    }
+
+    // ── Email verification ────────────────────────────────────────────────────
+
+    public async Task VerifyEmailAsync(string email, string code)
     {
         var emailNormalized = email.ToLowerInvariant();
-        var verification = await db.EmailVerifications
+        var verification = await _db.EmailVerifications
             .Where(v => v.Email == emailNormalized
                      && v.Code == code
                      && v.Type == TypeColumnValue(VerificationCodeKind.Registration)
                      && v.ExpiresAt > DateTime.UtcNow
                      && v.UsedAt == null)
             .OrderByDescending(v => v.CreatedAt)
-            .FirstOrDefaultAsync(ct);
+            .FirstOrDefaultAsync();
 
         if (verification is null)
             throw new AppException("Invalid or expired verification code", 400);
 
         verification.UsedAt = DateTime.UtcNow;
-        await db.Users
+        await _db.Users
             .IgnoreQueryFilters()
             .Where(u => u.Email == emailNormalized)
-            .ExecuteUpdateAsync(s => s.SetProperty(u => u.EmailVerified, true), ct);
-        await db.SaveChangesAsync(ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.EmailVerified, true));
+        await _db.SaveChangesAsync();
     }
 
-    public async Task<LoginResponse> LoginAsync(string email, string password, CancellationToken ct = default)
+    // ── Password reset ────────────────────────────────────────────────────────
+
+    public async Task ForgotPasswordAsync(string email)
     {
         var emailNormalized = email.ToLowerInvariant();
-        var user = await db.Users
+        var exists = await _db.Users
             .IgnoreQueryFilters()
-            .Include(u => u.Club)
-            .FirstOrDefaultAsync(u => u.Email == emailNormalized, ct);
-
-        if (user is null)
-            throw new AppException("Invalid email or password", 401);
-
-        if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
-            throw new AppException("Invalid email or password", 401);
-
-        if (!user.EmailVerified)
-            throw new AppException("Please verify your email before logging in", 403);
-
-        if (!user.IsActive)
-            throw new AppException("Account is deactivated", 403);
-
-        if (user.Club is { IsActive: false })
-            throw new AppException("This club has been disabled", 403);
-
-        return new LoginResponse
-        {
-            Token = SignToken(user.Id),
-            User = new LoginUserInfo
-            {
-                Id = user.Id,
-                ClubId = user.ClubId,
-                Name = user.Name,
-                Email = user.Email,
-                Role = user.Role,
-                ClubName = user.Club?.Name,
-            },
-        };
-    }
-
-    public async Task ForgotPasswordAsync(string email, CancellationToken ct = default)
-    {
-        var emailNormalized = email.ToLowerInvariant();
-        var exists = await db.Users
-            .IgnoreQueryFilters()
-            .AnyAsync(u => u.Email == emailNormalized
-                        && u.EmailVerified
-                        && u.IsActive, ct);
+            .AnyAsync(u => u.Email == emailNormalized && u.EmailVerified && u.IsActive);
         if (!exists)
         {
-            log.LogInformation("forgot-password called for unknown email (silent)");
+            _log.LogInformation("forgot-password called for unknown email (silent)");
             return;
         }
 
-        await SendVerificationCodeAsync(emailNormalized, VerificationCodeKind.PasswordReset, ct);
+        await SendVerificationCodeAsync(emailNormalized, VerificationCodeKind.PasswordReset);
     }
 
-    public async Task ResetPasswordAsync(
-        string email, string code, string newPassword, CancellationToken ct = default)
+    public async Task ResetPasswordAsync(ResetPasswordRequest req)
     {
-        // The validator already enforces NewPassword length, but re-check here
-        // so direct callers (tests, internal triggers) cannot bypass it.
-        if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 6)
+        if (string.IsNullOrEmpty(req.NewPassword) || req.NewPassword.Length < 6)
             throw new AppException("Password must be at least 6 characters", 400);
 
-        var emailNormalized = email.ToLowerInvariant();
-        var verification = await db.EmailVerifications
+        var emailNormalized = req.Email.ToLowerInvariant();
+        var verification = await _db.EmailVerifications
             .Where(v => v.Email == emailNormalized
-                     && v.Code == code
+                     && v.Code == req.Code
                      && v.Type == TypeColumnValue(VerificationCodeKind.PasswordReset)
                      && v.ExpiresAt > DateTime.UtcNow
                      && v.UsedAt == null)
             .OrderByDescending(v => v.CreatedAt)
-            .FirstOrDefaultAsync(ct);
+            .FirstOrDefaultAsync();
 
         if (verification is null)
             throw new AppException("Invalid or expired reset code", 400);
 
         verification.UsedAt = DateTime.UtcNow;
-        var hash = BCrypt.Net.BCrypt.HashPassword(newPassword, SaltRounds);
-        await db.Users
+        var hash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword, SaltRounds);
+        await _db.Users
             .IgnoreQueryFilters()
             .Where(u => u.Email == emailNormalized)
-            .ExecuteUpdateAsync(s => s.SetProperty(u => u.PasswordHash, hash), ct);
-        await db.SaveChangesAsync(ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.PasswordHash, hash));
+        await _db.SaveChangesAsync();
     }
+
+    // ── Change password (authenticated) ──────────────────────────────────────
 
     public async Task ChangePasswordAsync(
         Guid userId, string currentPassword, string newPassword, CancellationToken ct = default)
@@ -236,7 +275,7 @@ internal sealed class AuthService(
         if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 6)
             throw new AppException("New password must be at least 6 characters", 400);
 
-        var user = await db.Users
+        var user = await _db.Users
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(u => u.Id == userId, ct);
 
@@ -247,61 +286,94 @@ internal sealed class AuthService(
             throw new AppException("Current password is incorrect", 400);
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword, SaltRounds);
-        await db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<ProfileResponse?> GetProfileAsync(
-        Guid userId,
-        Guid? activeClubId = null,
-        CancellationToken ct = default)
+    // ── Send verification code (resend endpoint) ──────────────────────────────
+
+    public async Task SendVerificationCodeAsync(
+        string email, VerificationCodeKind kind, CancellationToken ct = default)
     {
-        var user = await db.Users
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(u => u.Id == userId, ct);
+        var emailNormalized = email.ToLowerInvariant();
+        var code = GenerateCode();
 
-        if (user is null) return null;
-
-        Data.Entities.ClubMembership? membership = null;
-        if (activeClubId.HasValue)
+        _db.EmailVerifications.Add(new EmailVerification
         {
-            membership = await db.ClubMemberships
-                .IgnoreQueryFilters()
-                .Include(m => m.Club)
-                .FirstOrDefaultAsync(m => m.UserId == userId && m.ClubId == activeClubId.Value, ct);
-        }
+            Id        = Guid.NewGuid(),
+            Email     = emailNormalized,
+            Code      = code,
+            Type      = TypeColumnValue(kind),
+            ExpiresAt = DateTime.UtcNow.AddMinutes(CodeExpiryMinutes),
+        });
+        await _db.SaveChangesAsync(ct);
 
-        return new ProfileResponse
-        {
-            Id = user.Id,
-            FirstName = user.FirstName,
-            LastName = user.LastName,
-            Email = user.Email,
-            Phone = user.Phone,
-            IsSupAdmin = user.IsSupAdmin,
-            IsActive = user.IsActive,
-            EmailVerified = user.EmailVerified,
-            CreatedAt = user.CreatedAt,
-            ActiveClubId = membership?.ClubId,
-            Role = membership?.Role,
-            ClubName = membership?.Club?.Name,
-            ClubLogo = membership?.Club?.LogoUrl,
-        };
+        await _emailSender.SendVerificationCodeAsync(emailNormalized, code, kind, ct);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // ── Private JWT helpers ───────────────────────────────────────────────────
 
-    private string SignToken(Guid userId)
+    private string MintScopedToken(User user, ClubMembership m)
+    {
+        var claims = new[]
+        {
+            new Claim("sub",             user.Id.ToString()),
+            new Claim("email",           user.Email),
+            new Claim("first_name",      user.FirstName),
+            new Claim("last_name",       user.LastName),
+            new Claim("is_super_admin",  user.IsSupAdmin.ToString().ToLower()),
+            new Claim("active_club_id",  m.ClubId.ToString()),
+            new Claim("club_role",       m.Role.ToString()),
+        };
+        return BuildJwt(claims);
+    }
+
+    private string MintUnscopedToken(User user, List<ClubMembership> memberships)
+    {
+        var claims = new List<Claim>
+        {
+            new("sub",            user.Id.ToString()),
+            new("email",          user.Email),
+            new("first_name",     user.FirstName),
+            new("last_name",      user.LastName),
+            new("is_super_admin", user.IsSupAdmin.ToString().ToLower()),
+        };
+        claims.Add(new Claim("clubs", JsonSerializer.Serialize(
+            memberships.Select(m => new
+            {
+                club_id   = m.ClubId,
+                club_name = m.Club.Name,
+                role      = m.Role.ToString(),
+            }))));
+        return BuildJwt(claims);
+    }
+
+    private string BuildJwt(IEnumerable<Claim> claims)
     {
         var handler = new JsonWebTokenHandler();
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Value.Secret));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.Value.Secret));
         return handler.CreateToken(new SecurityTokenDescriptor
         {
-            // Match the Node payload exactly: { sub, iat, exp }. iat is added
-            // automatically by JsonWebTokenHandler.
-            Subject = new ClaimsIdentity(new[] { new Claim("sub", userId.ToString()) }),
-            Expires = DateTime.UtcNow.Add(ParseExpiresIn(jwtOptions.Value.ExpiresIn)),
+            Subject = new ClaimsIdentity(claims),
+            Expires = DateTime.UtcNow.Add(ParseExpiresIn(_jwtOptions.Value.ExpiresIn)),
             SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
         });
+    }
+
+    // Internal helper used by RegisterUserAsync (no CancellationToken needed).
+    private async Task SendVerificationOtpAsync(string emailNormalized)
+    {
+        var code = GenerateCode();
+        _db.EmailVerifications.Add(new EmailVerification
+        {
+            Id        = Guid.NewGuid(),
+            Email     = emailNormalized,
+            Code      = code,
+            Type      = TypeColumnValue(VerificationCodeKind.Registration),
+            ExpiresAt = DateTime.UtcNow.AddMinutes(CodeExpiryMinutes),
+        });
+        await _db.SaveChangesAsync();
+        await _emailSender.SendVerificationCodeAsync(
+            emailNormalized, code, VerificationCodeKind.Registration, CancellationToken.None);
     }
 
     // Parses jsonwebtoken-style duration strings ("7d", "1h", "30m", "60s",
@@ -318,13 +390,11 @@ internal sealed class AuthService(
             'h' => TimeSpan.FromHours(int.Parse(numPart)),
             'm' => TimeSpan.FromMinutes(int.Parse(numPart)),
             's' => TimeSpan.FromSeconds(int.Parse(numPart)),
-            _ => TimeSpan.FromSeconds(int.Parse(input)),
+            _   => TimeSpan.FromSeconds(int.Parse(input)),
         };
     }
 
-    // email_verifications.type is a plain VARCHAR holding snake_case strings,
-    // not a PG enum, so we serialize by hand here rather than going through
-    // NpgsqlSnakeCaseNameTranslator.
+    // email_verifications.type is a plain VARCHAR holding snake_case strings.
     private static string TypeColumnValue(VerificationCodeKind kind) => kind switch
     {
         VerificationCodeKind.Registration => "registration",

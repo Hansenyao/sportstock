@@ -9,7 +9,7 @@ namespace SportStock.Api.Auth;
 // default 401/403 responses are plain text and would diverge from the rest
 // of the API's { statusCode, error, message } shape.
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
-public sealed class RequireRoleAttribute(params UserRole[] allowedRoles) : Attribute, IAsyncAuthorizationFilter
+public sealed class RequireRoleAttribute(params ClubRole[] allowedRoles) : Attribute, IAsyncAuthorizationFilter
 {
     public Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {

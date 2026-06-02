@@ -15,32 +15,29 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
 {
     // ── Public endpoints ─────────────────────────────────────────────────────
 
+    // POST /api/v1/auth/register — create a user account only (no club)
     [HttpPost("register")]
-    public async Task<IActionResult> Register(
-        [FromBody] RegisterRequest body,
-        [FromServices] IValidator<RegisterRequest> validator,
-        CancellationToken ct)
+    [AllowAnonymous]
+    public async Task<IActionResult> Register([FromBody] RegisterUserRequest req)
     {
-        await validator.ValidateAndThrowAsync(body, ct);
-        await auth.RegisterAsync(body, ct);
-        return StatusCode(201, new
-        {
-            message = "Registration successful. Please check your email for the verification code.",
-        });
+        var result = await auth.RegisterUserAsync(req);
+        return Ok(result);
     }
 
     [HttpPost("verify-email")]
+    [AllowAnonymous]
     public async Task<IActionResult> VerifyEmail(
         [FromBody] VerifyEmailRequest body,
         [FromServices] IValidator<VerifyEmailRequest> validator,
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        await auth.VerifyEmailAsync(body.Email, body.Code, ct);
+        await auth.VerifyEmailAsync(body.Email, body.Code);
         return Ok(new { message = "Email verified successfully. You can now log in." });
     }
 
     [HttpPost("resend-verification")]
+    [AllowAnonymous]
     public async Task<IActionResult> ResendVerification(
         [FromBody] ResendVerificationRequest body,
         [FromServices] IValidator<ResendVerificationRequest> validator,
@@ -52,53 +49,75 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
     }
 
     [HttpPost("login")]
+    [AllowAnonymous]
     public async Task<IActionResult> Login(
         [FromBody] LoginRequest body,
         [FromServices] IValidator<LoginRequest> validator,
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        var result = await auth.LoginAsync(body.Email, body.Password, ct);
+        var result = await auth.LoginAsync(body);
         return Ok(result);
     }
 
     [HttpPost("forgot-password")]
+    [AllowAnonymous]
     public async Task<IActionResult> ForgotPassword(
         [FromBody] ForgotPasswordRequest body,
         [FromServices] IValidator<ForgotPasswordRequest> validator,
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        await auth.ForgotPasswordAsync(body.Email, ct);
+        await auth.ForgotPasswordAsync(body.Email);
         return Ok(new { message = "If this email is registered, a reset code has been sent." });
     }
 
     [HttpPost("reset-password")]
+    [AllowAnonymous]
     public async Task<IActionResult> ResetPassword(
         [FromBody] ResetPasswordRequest body,
         [FromServices] IValidator<ResetPasswordRequest> validator,
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        await auth.ResetPasswordAsync(body.Email, body.Code, body.NewPassword, ct);
+        await auth.ResetPasswordAsync(body);
         return Ok(new { message = "Password reset successful. You can now log in." });
     }
 
     // ── Authenticated endpoints ──────────────────────────────────────────────
 
+    // POST /api/v1/auth/register-club — authenticated user creates a new club
+    [HttpPost("register-club")]
     [Authorize]
-    [HttpGet("me")]
-    public async Task<IActionResult> GetMe(
-        [FromServices] ICurrentUser currentUser,
-        CancellationToken ct)
+    public async Task<IActionResult> RegisterClub(
+        [FromBody] RegisterClubRequest req,
+        [FromServices] ICurrentUser currentUser)
     {
-        var profile = await auth.GetProfileAsync(currentUser.UserId, currentUser.ActiveClubId, ct);
-        if (profile is null) throw new AppException("User not found", 404);
-        return Ok(profile);
+        var result = await auth.RegisterClubAsync(req, currentUser.UserId);
+        return Ok(result);
     }
 
+    // POST /api/v1/auth/select-club — exchange unscoped token for scoped
+    [HttpPost("select-club")]
     [Authorize]
+    public async Task<IActionResult> SelectClub(
+        [FromBody] SelectClubRequest req,
+        [FromServices] ICurrentUser currentUser)
+    {
+        var token = await auth.SelectClubAsync(currentUser.UserId, req.ClubId);
+        return Ok(new { token });
+    }
+
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> GetMe([FromServices] ICurrentUser currentUser)
+    {
+        var result = await auth.GetMeAsync(currentUser.UserId, currentUser.ActiveClubId);
+        return Ok(result);
+    }
+
     [HttpPut("password")]
+    [Authorize]
     public async Task<IActionResult> ChangePassword(
         [FromBody] ChangePasswordRequest body,
         [FromServices] IValidator<ChangePasswordRequest> validator,

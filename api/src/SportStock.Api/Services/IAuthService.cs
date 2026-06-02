@@ -19,5 +19,5 @@ public interface IAuthService
 
     Task ChangePasswordAsync(Guid userId, string currentPassword, string newPassword, CancellationToken ct = default);
 
-    Task<ProfileResponse?> GetProfileAsync(Guid userId, CancellationToken ct = default);
+    Task<ProfileResponse?> GetProfileAsync(Guid userId, Guid? activeClubId = null, CancellationToken ct = default);
 }

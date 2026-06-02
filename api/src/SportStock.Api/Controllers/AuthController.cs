@@ -92,7 +92,7 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        var profile = await auth.GetProfileAsync(currentUser.UserId, ct);
+        var profile = await auth.GetProfileAsync(currentUser.UserId, currentUser.ActiveClubId, ct);
         if (profile is null) throw new AppException("User not found", 404);
         return Ok(profile);
     }

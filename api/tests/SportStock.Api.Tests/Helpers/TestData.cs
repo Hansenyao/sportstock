@@ -5,7 +5,7 @@ using SportStock.Api.Data.Enums;
 
 namespace SportStock.Api.Tests.Helpers;
 
-// Shared fixture for tests that need pre-seeded users. The bcrypt hash is
+// Shared fixture for tests that need pre-seeded data. The bcrypt hash is
 // generated once with rounds=4 (cheap) to keep test setup fast — production
 // uses rounds=10 but the hash format is identical, so AuthService.LoginAsync
 // happily verifies our test passwords.
@@ -15,6 +15,9 @@ internal static class TestData
     public static readonly string PasswordHash =
         BCrypt.Net.BCrypt.HashPassword(Password, 4);
 
+    // ── Club helpers ─────────────────────────────────────────────────────────
+
+    /// <summary>Create a club with an explicit name (used by most existing tests).</summary>
     public static async Task<Guid> CreateClubAsync(
         SportStockDbContext db,
         string name,
@@ -24,20 +27,48 @@ internal static class TestData
         {
             Id = Guid.NewGuid(),
             Name = name,
-            SportType = "Testing",
             ContactEmail = $"{Slug(name)}@test.com",
             IsActive = isActive,
+            RetirementAlertMode = "percent",
         };
         db.Clubs.Add(club);
         await db.SaveChangesAsync();
         return club.Id;
     }
 
+    /// <summary>
+    /// Create a club owned by <paramref name="ownerId"/> with an auto-generated name.
+    /// Used by middleware / multi-club tests that don't care about the club name.
+    /// </summary>
+    public static async Task<Guid> CreateClubAsync(
+        SportStockDbContext db,
+        Guid ownerId,
+        string? name = null)
+    {
+        var clubName = name ?? $"Club_{Guid.NewGuid():N}";
+        var club = new Club
+        {
+            Id = Guid.NewGuid(),
+            Name = clubName,
+            OwnerId = ownerId,
+            ContactEmail = $"{Slug(clubName)}@test.com",
+            IsActive = true,
+            RetirementAlertMode = "percent",
+        };
+        db.Clubs.Add(club);
+        await db.SaveChangesAsync();
+        return club.Id;
+    }
+
+    // ── User helpers ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Create a platform-level user with no club affiliation.
+    /// Club membership is added separately via <see cref="CreateMembershipAsync"/>.
+    /// </summary>
     public static async Task<Guid> CreateUserAsync(
         SportStockDbContext db,
         string email,
-        Guid? clubId,
-        UserRole role,
         string? passwordHash = null,
         bool emailVerified = true,
         bool isActive = true)
@@ -47,15 +78,39 @@ internal static class TestData
             Id = Guid.NewGuid(),
             Email = email.ToLowerInvariant(),
             PasswordHash = passwordHash ?? PasswordHash,
-            Name = $"Test {role}",
-            ClubId = clubId,
-            Role = role,
+            FirstName = "Test",
+            LastName = "User",
             EmailVerified = emailVerified,
             IsActive = isActive,
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
         return user.Id;
+    }
+
+    // ── Membership helpers ───────────────────────────────────────────────────
+
+    /// <summary>Add an active ClubMembership for an existing user/club pair.</summary>
+    public static async Task<Guid> CreateMembershipAsync(
+        SportStockDbContext db,
+        Guid clubId,
+        Guid userId,
+        ClubRole role,
+        bool isActive = true)
+    {
+        var membership = new ClubMembership
+        {
+            Id = Guid.NewGuid(),
+            ClubId = clubId,
+            UserId = userId,
+            Role = role,
+            IsActive = isActive,
+            JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+        };
+        db.ClubMemberships.Add(membership);
+        await db.SaveChangesAsync();
+        return membership.Id;
     }
 
     // Reset rows touched by a test class so it can run repeatedly without

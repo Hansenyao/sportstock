@@ -250,28 +250,41 @@ internal sealed class AuthService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<ProfileResponse?> GetProfileAsync(Guid userId, CancellationToken ct = default)
+    public async Task<ProfileResponse?> GetProfileAsync(
+        Guid userId,
+        Guid? activeClubId = null,
+        CancellationToken ct = default)
     {
         var user = await db.Users
             .IgnoreQueryFilters()
-            .Include(u => u.Club)
             .FirstOrDefaultAsync(u => u.Id == userId, ct);
 
         if (user is null) return null;
 
+        Data.Entities.ClubMembership? membership = null;
+        if (activeClubId.HasValue)
+        {
+            membership = await db.ClubMemberships
+                .IgnoreQueryFilters()
+                .Include(m => m.Club)
+                .FirstOrDefaultAsync(m => m.UserId == userId && m.ClubId == activeClubId.Value, ct);
+        }
+
         return new ProfileResponse
         {
             Id = user.Id,
-            ClubId = user.ClubId,
-            Name = user.Name,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
             Email = user.Email,
             Phone = user.Phone,
-            Role = user.Role,
+            IsSupAdmin = user.IsSupAdmin,
             IsActive = user.IsActive,
             EmailVerified = user.EmailVerified,
             CreatedAt = user.CreatedAt,
-            ClubName = user.Club?.Name,
-            ClubLogo = user.Club?.LogoUrl,
+            ActiveClubId = membership?.ClubId,
+            Role = membership?.Role,
+            ClubName = membership?.Club?.Name,
+            ClubLogo = membership?.Club?.LogoUrl,
         };
     }
 

@@ -11,8 +11,15 @@ public interface ICurrentUser
 {
     bool IsAuthenticated { get; }
     Guid UserId { get; }
-    Guid? ClubId { get; }       // null for super_admin
-    UserRole Role { get; }
-    string Name { get; }
+    bool IsSupAdmin { get; }
+
+    // Null when token is unscoped (user hasn't selected a club yet)
+    Guid? ActiveClubId { get; }
+    ClubRole? Role { get; }
+
+    string FirstName { get; }
+    string LastName { get; }
     string Email { get; }
+
+    bool HasClubContext { get; }
 }

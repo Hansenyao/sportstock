@@ -8,46 +8,18 @@ namespace SportStock.Api.Data.Entities;
 public partial class User
 {
     public Guid Id { get; set; }
-
-    public Guid? ClubId { get; set; }
-
     public string Email { get; set; } = null!;
-
     public string PasswordHash { get; set; } = null!;
-
-    public string Name { get; set; } = null!;
-
+    public string FirstName { get; set; } = null!;
+    public string LastName { get; set; } = null!;
     public string? Phone { get; set; }
-
+    public bool IsSupAdmin { get; set; }
     public bool EmailVerified { get; set; }
-
     public bool IsActive { get; set; }
-
     public DateTime CreatedAt { get; set; }
-
     public DateTime UpdatedAt { get; set; }
 
-    public virtual Club? Club { get; set; }
-
-    public virtual ICollection<FcmToken> FcmTokens { get; set; } = new List<FcmToken>();
-
-    public virtual ICollection<Loan> LoanApprovedByNavigations { get; set; } = new List<Loan>();
-
-    public virtual ICollection<Loan> LoanCheckoutByNavigations { get; set; } = new List<Loan>();
-
-    public virtual ICollection<Loan> LoanCoaches { get; set; } = new List<Loan>();
-
-    public virtual ICollection<Loan> LoanCreatedByNavigations { get; set; } = new List<Loan>();
-
-    public virtual ICollection<Loan> LoanReturnConfirmedByNavigations { get; set; } = new List<Loan>();
-
-    public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
-
-    public virtual ICollection<StockMovement> StockMovements { get; set; } = new List<StockMovement>();
-
-    public virtual ICollection<StocktakeSession> StocktakeSessions { get; set; } = new List<StocktakeSession>();
-
-    public virtual ICollection<TeamMember> TeamMembers { get; set; } = new List<TeamMember>();
-
-    public virtual ICollection<WriteOffOrder> WriteOffOrders { get; set; } = new List<WriteOffOrder>();
+    public virtual ICollection<ClubMembership> ClubMemberships { get; set; } = new List<ClubMembership>();
+    public virtual ICollection<ClubInvitation> SentInvitations { get; set; } = new List<ClubInvitation>();
+    public virtual ICollection<ClubInvitation> ReceivedInvitations { get; set; } = new List<ClubInvitation>();
 }

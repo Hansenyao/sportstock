@@ -8,46 +8,21 @@ namespace SportStock.Api.Data.Entities;
 public partial class Club
 {
     public Guid Id { get; set; }
-
     public string Name { get; set; } = null!;
-
-    public string? SportType { get; set; }
-
+    public Guid? SportTypeId { get; set; }
     public string? Address { get; set; }
-
     public string? ContactEmail { get; set; }
-
     public string? LogoUrl { get; set; }
-
+    public Guid? OwnerId { get; set; }
     public int LowStockThreshold { get; set; }
-
     public string RetirementAlertMode { get; set; } = null!;
-
     public int RetirementAlertValue { get; set; }
-
     public bool IsActive { get; set; }
-
     public DateTime CreatedAt { get; set; }
-
     public DateTime UpdatedAt { get; set; }
 
-    public virtual ICollection<AssetCategory> AssetCategories { get; set; } = new List<AssetCategory>();
-
-    public virtual ICollection<AssetName> AssetNames { get; set; } = new List<AssetName>();
-
-    public virtual ICollection<AssetType> AssetTypes { get; set; } = new List<AssetType>();
-
-    public virtual ICollection<Loan> Loans { get; set; } = new List<Loan>();
-
-    public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
-
-    public virtual ICollection<StockMovement> StockMovements { get; set; } = new List<StockMovement>();
-
-    public virtual ICollection<StocktakeSession> StocktakeSessions { get; set; } = new List<StocktakeSession>();
-
-    public virtual ICollection<Team> Teams { get; set; } = new List<Team>();
-
-    public virtual ICollection<User> Users { get; set; } = new List<User>();
-
-    public virtual ICollection<WriteOffOrder> WriteOffOrders { get; set; } = new List<WriteOffOrder>();
+    public virtual SportType? SportType { get; set; }
+    public virtual User? Owner { get; set; }
+    public virtual ICollection<ClubMembership> Memberships { get; set; } = new List<ClubMembership>();
+    public virtual ICollection<Warehouse> Warehouses { get; set; } = new List<Warehouse>();
 }

@@ -306,7 +306,7 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
                 CompletedAt = s.CompletedAt,
                 CreatedAt = s.CreatedAt,
                 ConductedByName = s.ConductedByNavigation != null
-                    ? s.ConductedByNavigation.FirstName + " " + s.ConductedByNavigation.LastName : null,
+                    ? s.ConductedByNavigation.FirstName + " " + s.ConductedByNavigation.LastName : string.Empty,
             })
             .ToListAsync(ct);
     }

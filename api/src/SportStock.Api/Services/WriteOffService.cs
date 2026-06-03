@@ -40,7 +40,7 @@ internal sealed class WriteOffService(SportStockDbContext db) : IWriteOffService
         Size = w.AssetType.Size,
         CreatedByName = w.CreatedByNavigation != null
             ? w.CreatedByNavigation.FirstName + " " + w.CreatedByNavigation.LastName
-            : null,
+            : string.Empty,
     };
 
     public async Task<PaginatedResult<WriteOffResponse>> ListAsync(

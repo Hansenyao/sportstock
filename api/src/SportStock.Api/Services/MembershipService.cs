@@ -7,7 +7,7 @@ using SportStock.Api.Exceptions;
 
 namespace SportStock.Api.Services;
 
-public sealed class MembershipService(SportStockDbContext db, INotificationService notificationService, IAuditLogService audit) : IMembershipService
+public sealed class MembershipService(SportStockDbContext db, IAuditLogService audit) : IMembershipService
 {
     public async Task<InvitationDto> InviteUserAsync(Guid clubId, Guid inviterId, InviteUserRequest req)
     {

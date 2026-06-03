@@ -16,4 +16,19 @@ client.interceptors.request.use(cfg => {
   return cfg;
 });
 
+client.interceptors.response.use(
+  res => res,
+  err => {
+    const url: string = (err.config?.url as string) ?? '';
+    if (err.response?.status === 401 && !url.startsWith('/auth/')) {
+      setToken(null);
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('active_club_id');
+      window.location.href = '/login';
+    }
+    return Promise.reject(err);
+  }
+);
+
 export default client;

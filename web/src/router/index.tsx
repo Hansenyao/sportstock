@@ -13,7 +13,6 @@ import SettingsPage from '../pages/Settings';
 import UsersPage from '../pages/Users';
 import TeamsPage from '../pages/Teams';
 import LoansPage from '../pages/Loans';
-import WriteOffsPage from '../pages/WriteOffs';
 import AnalyticsPage from '../pages/Analytics';
 import AssetNamesPage from '../pages/AssetNames';
 import AssetsPage from '../pages/Assets';
@@ -97,7 +96,7 @@ export default function AppRouter() {
         }
       />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

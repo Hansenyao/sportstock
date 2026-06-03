@@ -32,7 +32,7 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user && activeClub?.role !== 'club_admin' && activeClub?.role !== 'asset_manager') {
+    if (user && activeClub?.role !== 'club_admin' && activeClub?.role !== 'asset_manager' && activeClub?.role !== 'accountant') {
       setLoading(false);
       navigate('/dashboard', { replace: true });
       return;

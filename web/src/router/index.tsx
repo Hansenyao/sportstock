@@ -23,11 +23,10 @@ import ProfilePage    from '../pages/Profile';
 import MyClubsPage   from '../pages/MyClubs';
 import CreateClubPage from '../pages/CreateClub';
 
-// Stub pages (replaced by real pages in Tasks 11-21)
-const WarehousesPage   = () => <div>Warehouses — coming soon</div>;
-const KitsPage         = () => <div>Kits — coming soon</div>;
-const AuditLogsPage    = () => <div>Audit Logs — coming soon</div>;
-const StockPage        = () => <div>Stock Management — coming soon</div>;
+import WarehousesPage from '../pages/Warehouses';
+import KitsPage       from '../pages/Kits';
+import AuditLogsPage  from '../pages/AuditLogs';
+import StockPage      from '../pages/Stock';
 
 function RequireAuth() {
   const { isAuthenticated, isValidating } = useAuth();

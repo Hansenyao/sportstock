@@ -94,3 +94,31 @@ export const updateBatch = (typeId: string, batchId: string, data: Record<string
 
 export const getBatchDepreciation = (typeId: string, batchId: string) =>
   client.get<Record<string, unknown>>(`/assets/${typeId}/batches/${batchId}/depreciation`);
+
+export interface AssetItem {
+  id: string;
+  serial_number?: string | null;
+  warehouse_id: string;
+  warehouse_name: string;
+  status: 'available' | 'on_loan' | 'maintenance' | 'retired' | 'written_off';
+  notes?: string | null;
+  created_at: string;
+}
+
+export const getAssetItems = (typeId: string) =>
+  client.get<{ data: AssetItem[]; total: number }>(`/assets/${typeId}/items`);
+
+export const updateAssetItem = (itemId: string, data: { warehouse_id?: string; serial_number?: string; notes?: string }) =>
+  client.put<AssetItem>(`/assets/items/${itemId}`, data);
+
+export const retireItem = (itemId: string) =>
+  client.post<{ message: string }>(`/assets/items/${itemId}/retire`);
+
+export const writeOffItem = (itemId: string) =>
+  client.post<{ message: string }>(`/assets/items/${itemId}/write-off`);
+
+export const retireByQuantity = (typeId: string, quantity: number) =>
+  client.post<{ message: string }>(`/assets/${typeId}/items/retire`, { quantity });
+
+export const writeOffByQuantity = (typeId: string, quantity: number) =>
+  client.post<{ message: string }>(`/assets/${typeId}/items/write-off`, { quantity });

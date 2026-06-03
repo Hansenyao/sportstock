@@ -28,3 +28,9 @@ export const updateUser = (id: string, data: { name?: string; phone?: string; ro
 
 export const deactivateUser = (id: string) =>
   client.delete(`/users/${id}`);
+
+export const searchUsers = (clubId: string, query: string) =>
+  client.get<{ data: Array<{ id: string; first_name: string; last_name: string; email: string }> }>(
+    `/clubs/${clubId}/members/search`,
+    { params: { q: query } }
+  );

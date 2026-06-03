@@ -1,48 +1,54 @@
 import client from './client';
 
+// Matches backend KitItemDto(Guid Id, Guid AssetTypeId, string AssetTypeName, int Quantity, int AvailableQuantity)
 export interface KitItem {
   id: string;
-  asset_type_id: string;
-  asset_type_name: string;
+  assetTypeId: string;
+  assetTypeName: string;
   quantity: number;
-  available_quantity: number;
+  availableQuantity: number;
 }
 
+// Matches backend KitDetailDto(Guid Id, string Name, string? Description, bool IsAvailable, List<KitItemDto> Items)
 export interface Kit {
   id: string;
   name: string;
   description?: string | null;
-  is_active: boolean;
-  is_available: boolean;
+  isAvailable: boolean;
   items: KitItem[];
 }
 
+// Matches backend KitDto(Guid Id, string Name, string? Description, bool IsActive)
 export interface KitListItem {
   id: string;
   name: string;
-  is_active: boolean;
-  is_available: boolean;
-  item_count: number;
+  description?: string | null;
+  isActive: boolean;
 }
 
+// GET /kits → List<KitDto> (plain array)
 export const listKits = () =>
-  client.get<{ data: KitListItem[] }>('/kits');
+  client.get<KitListItem[]>('/kits');
 
 export const getKit = (id: string) =>
   client.get<Kit>(`/kits/${id}`);
 
+// POST /kits → 201 KitDetailDto
 export const createKit = (data: { name: string; description?: string }) =>
   client.post<Kit>('/kits', data);
 
+// PUT /kits/{id} → 204 No Content
 export const updateKit = (id: string, data: { name?: string; description?: string }) =>
-  client.put<Kit>(`/kits/${id}`, data);
+  client.put<void>(`/kits/${id}`, data);
 
 export const deleteKit = (id: string) =>
   client.delete(`/kits/${id}`);
 
-export const addKitItem = (kitId: string, data: { asset_type_id: string; quantity: number }) =>
+// POST /kits/{id}/items → 201 KitItemDto
+export const addKitItem = (kitId: string, data: { assetTypeId: string; quantity: number }) =>
   client.post<KitItem>(`/kits/${kitId}/items`, data);
 
+// PUT /kits/{id}/items/{itemId} → 200 KitItemDto
 export const updateKitItem = (kitId: string, itemId: string, data: { quantity: number }) =>
   client.put<KitItem>(`/kits/${kitId}/items/${itemId}`, data);
 

@@ -17,8 +17,9 @@ import AnalyticsPage from '../pages/Analytics';
 import AssetNamesPage from '../pages/AssetNames';
 import AssetsPage from '../pages/Assets';
 
-// Stub pages (replaced by real pages in Tasks 10-21)
-const RegisterUserPage = () => <div>Register User — coming soon</div>;
+import RegisterUserPage from '../pages/RegisterUser';
+
+// Stub pages (replaced by real pages in Tasks 11-21)
 const ProfilePage      = () => <div>Profile — coming soon</div>;
 const MyClubsPage      = () => <div>My Clubs — coming soon</div>;
 const CreateClubPage   = () => <div>Create Club — coming soon</div>;

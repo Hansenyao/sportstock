@@ -133,4 +133,47 @@ export const listClubLoans = (
   params?: { page?: number; limit?: number; status?: string }
 ) => adminApi.get<Paginated<Record<string, unknown>>>(`/clubs/${clubId}/loans`, { params }).then(r => r.data);
 
+// Sport Types
+export interface SportType {
+  id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export const listAdminSportTypes = () =>
+  adminApi.get<{ data: SportType[] } | SportType[]>('/settings/sport-types');
+
+export const createSportType = (data: { name: string; sort_order?: number }) =>
+  adminApi.post<SportType>('/settings/sport-types', data);
+
+export const updateSportType = (id: string, data: { name?: string; is_active?: boolean; sort_order?: number }) =>
+  adminApi.put<SportType | void>(`/settings/sport-types/${id}`, data);
+
+export const deleteSportType = (id: string) =>
+  adminApi.delete(`/settings/sport-types/${id}`);
+
+// Admin Audit Logs
+export interface AdminAuditLog {
+  id: string;
+  club_id?: string | null;
+  club_name?: string | null;
+  action: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  performed_by?: string | null;
+  ip_address?: string | null;
+  created_at: string;
+}
+
+export const getAdminAuditLogs = (params: {
+  club_id?: string;
+  from?: string;
+  to?: string;
+  action?: string;
+  page?: number;
+  limit?: number;
+}) =>
+  adminApi.get<{ data: AdminAuditLog[]; total: number }>('/audit-logs', { params });
+
 export default adminApi;

@@ -19,10 +19,11 @@ import AssetsPage from '../pages/Assets';
 
 import RegisterUserPage from '../pages/RegisterUser';
 
+import ProfilePage    from '../pages/Profile';
+import MyClubsPage   from '../pages/MyClubs';
+import CreateClubPage from '../pages/CreateClub';
+
 // Stub pages (replaced by real pages in Tasks 11-21)
-const ProfilePage      = () => <div>Profile — coming soon</div>;
-const MyClubsPage      = () => <div>My Clubs — coming soon</div>;
-const CreateClubPage   = () => <div>Create Club — coming soon</div>;
 const WarehousesPage   = () => <div>Warehouses — coming soon</div>;
 const KitsPage         = () => <div>Kits — coming soon</div>;
 const AuditLogsPage    = () => <div>Audit Logs — coming soon</div>;

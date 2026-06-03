@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAdminAuth } from '../../contexts/AdminAuthContext';
-import type { AuthUser } from '../../../types';
+import type { AuthUser, LoginResult } from '../../../types';
 
 const { Title, Text } = Typography;
 
@@ -24,15 +24,20 @@ export default function AdminLoginPage() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await axios.post<{ token: string; user: AuthUser }>(
+      const res = await axios.post<LoginResult>(
         `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/auth/login`,
         { email: values.email, password: values.password }
       );
-      if (res.data.user.role !== 'super_admin') {
+      if (!res.data.is_sup_admin) {
         setErrorMsg('This portal is for platform administrators only.');
         return;
       }
-      login(res.data.token, res.data.user);
+      // Fetch full profile to build AuthUser
+      const meRes = await axios.get<AuthUser>(
+        `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/auth/me`,
+        { headers: { Authorization: `Bearer ${res.data.token}` } }
+      );
+      login(res.data.token, meRes.data);
       navigate('/admin/dashboard');
     } catch (err) {
       if (axios.isAxiosError(err)) {

@@ -13,14 +13,14 @@ import AdminAuditLogsPage from '../pages/AuditLogs';
 function RequireAdminAuth() {
   const { isAuthenticated, isValidating, user } = useAdminAuth();
   if (isValidating) return null;
-  if (!isAuthenticated || user?.role !== 'super_admin') return <Navigate to="/admin/login" replace />;
+  if (!isAuthenticated || !user?.is_sup_admin) return <Navigate to="/admin/login" replace />;
   return <Outlet />;
 }
 
 function RedirectIfAdminAuth() {
   const { isAuthenticated, isValidating, user } = useAdminAuth();
   if (isValidating) return null;
-  if (isAuthenticated && user?.role === 'super_admin') return <Navigate to="/admin/dashboard" replace />;
+  if (isAuthenticated && user?.is_sup_admin) return <Navigate to="/admin/dashboard" replace />;
   return <Outlet />;
 }
 

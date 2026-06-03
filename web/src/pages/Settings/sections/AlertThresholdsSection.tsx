@@ -7,14 +7,14 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { getMyClub, updateMyClub, type Club } from '../../../api/clubs';
 
 export default function AlertThresholdsSection() {
-  const { user } = useAuth();
+  const { activeClub } = useAuth();
   const { message } = App.useApp();
   const [form] = Form.useForm<{
     retirement_alert_mode:  'percent' | 'months';
     retirement_alert_value: number;
     low_stock_threshold:    number;
   }>();
-  const isAdmin = user?.role === 'club_admin';
+  const isAdmin = activeClub?.role === 'club_admin';
 
   const [club, setClub] = useState<Club | null>(null);
   const [loading, setLoading] = useState(true);

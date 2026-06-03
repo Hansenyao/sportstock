@@ -210,7 +210,7 @@ export default function KitsPage() {
               )}
             </Descriptions>
 
-            <Divider orientation="left" plain>Items</Divider>
+            <Divider plain>Items</Divider>
             <Table
               rowKey="id"
               dataSource={detailKit.items}
@@ -219,7 +219,7 @@ export default function KitsPage() {
               pagination={false}
             />
 
-            <Divider orientation="left" plain>Add Item</Divider>
+            <Divider plain>Add Item</Divider>
             <Form form={addItemForm} layout="inline" onFinish={handleAddItem}>
               <Form.Item name="asset_type_id" rules={[{ required: true, message: 'Select asset type' }]}>
                 <Select

@@ -13,10 +13,10 @@ const SPORT_TYPES = [
 const SPORT_TYPE_OPTIONS = SPORT_TYPES.map(s => ({ value: s, label: s }));
 
 export default function ClubInfoSection() {
-  const { user } = useAuth();
+  const { activeClub } = useAuth();
   const { message } = App.useApp();
   const [form] = Form.useForm();
-  const isAdmin = user?.role === 'club_admin';
+  const isAdmin = activeClub?.role === 'club_admin';
 
   const [club, setClub] = useState<Club | null>(null);
   const [loading, setLoading] = useState(true);

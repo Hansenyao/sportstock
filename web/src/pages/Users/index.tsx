@@ -8,7 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   listUsers, getUser, createUser, updateUser, deactivateUser, type ClubUser,
 } from '../../api/users';
-import type { UserRole } from '../../types';
+import type { ClubRole } from '../../types';
 import type { UserTeamMembership, TeamRole } from '../../api/teams';
 
 const { Title } = Typography;
@@ -40,10 +40,10 @@ const TEAM_ROLE_COLOR: Record<TeamRole, string> = {
 type ModalMode = 'create' | 'edit';
 
 export default function UsersPage() {
-  const { user: me } = useAuth();
+  const { user: me, activeClub } = useAuth();
   const { message } = App.useApp();
   const [form] = Form.useForm();
-  const isAdmin = me?.role === 'club_admin';
+  const isAdmin = activeClub?.role === 'club_admin';
 
   const [users, setUsers] = useState<ClubUser[]>([]);
   const [total, setTotal] = useState(0);
@@ -91,7 +91,7 @@ export default function UsersPage() {
     setModalOpen(true);
   }
 
-  async function handleSubmit(values: { name: string; email: string; role: UserRole; phone?: string }) {
+  async function handleSubmit(values: { name: string; email: string; role: ClubRole; phone?: string }) {
     setSaving(true);
     try {
       if (modalMode === 'create') {

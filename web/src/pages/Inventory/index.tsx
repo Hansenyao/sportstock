@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Input, InputNumber, Select,
   Typography, Flex, App, Popconfirm, Space, Row, Col, DatePicker,
-  Upload, Avatar, Tooltip, Drawer, Badge, Divider, List,
+  Upload, Avatar, Tooltip, Drawer, Badge, Divider,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
@@ -64,7 +64,7 @@ type ModalMode = 'create' | 'editType' | 'addBatch';
 const PAGE_SIZE = 20;
 
 export default function InventoryPage() {
-  const { user, activeClub } = useAuth();
+  const { activeClub } = useAuth();
   const { message, modal } = App.useApp();
   const canEdit = activeClub?.role === 'club_admin' || activeClub?.role === 'asset_manager';
 

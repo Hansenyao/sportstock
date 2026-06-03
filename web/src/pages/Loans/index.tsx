@@ -83,7 +83,7 @@ function AssetThumb({ src, size = 36 }: { src?: string | null; size?: number }) 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function LoansPage() {
-  const { user } = useAuth();
+  const { user, activeClub } = useAuth();
   const { message } = App.useApp();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -91,8 +91,8 @@ export default function LoansPage() {
   const [rejectForm] = Form.useForm();
   const [editForm] = Form.useForm();
 
-  const isManager = user?.role === 'club_admin' || user?.role === 'asset_manager';
-  const isCoach   = user?.role === 'coach';
+  const isManager = activeClub?.role === 'club_admin' || activeClub?.role === 'asset_manager';
+  const isCoach   = activeClub?.role === 'coach';
 
   // List state
   const [loans, setLoans]       = useState<Loan[]>([]);

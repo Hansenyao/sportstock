@@ -42,9 +42,9 @@ type ModalMode = 'create' | 'editType' | 'addBatch';
 const PAGE_SIZE = 20;
 
 export default function AssetsPage() {
-  const { user } = useAuth();
+  const { activeClub } = useAuth();
   const { message } = App.useApp();
-  const canEdit = user?.role === 'club_admin' || user?.role === 'asset_manager';
+  const canEdit = activeClub?.role === 'club_admin' || activeClub?.role === 'asset_manager';
 
   // List state
   const [assets, setAssets]       = useState<AssetType[]>([]);

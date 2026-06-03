@@ -1,6 +1,6 @@
 import client from './client';
 import type { PaginatedResult } from './assets';
-import type { UserRole } from '../types';
+import type { ClubRole } from '../types';
 import type { UserTeamMembership } from './teams';
 
 export interface ClubUser {
@@ -8,7 +8,7 @@ export interface ClubUser {
   name: string;
   email: string;
   phone?: string | null;
-  role: UserRole;
+  role: ClubRole;
   is_active: boolean;
   created_at: string;
   teams?: UserTeamMembership[];
@@ -20,10 +20,10 @@ export const listUsers = (params?: Record<string, unknown>) =>
 export const getUser = (id: string) =>
   client.get<ClubUser>(`/users/${id}`);
 
-export const createUser = (data: { name: string; email: string; role: UserRole; phone?: string }) =>
+export const createUser = (data: { name: string; email: string; role: ClubRole; phone?: string }) =>
   client.post<ClubUser>('/users', data);
 
-export const updateUser = (id: string, data: { name?: string; phone?: string; role?: UserRole }) =>
+export const updateUser = (id: string, data: { name?: string; phone?: string; role?: ClubRole }) =>
   client.put<ClubUser>(`/users/${id}`, data);
 
 export const deactivateUser = (id: string) =>

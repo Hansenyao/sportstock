@@ -8,6 +8,7 @@ import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
   ArrowDownOutlined, ShoppingCartOutlined, DeleteOutlined, EditOutlined,
   MinusOutlined, DeleteFilled, CheckCircleOutlined, SearchOutlined,
+  AppstoreAddOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -20,6 +21,8 @@ import {
 import { listAssets, type AssetType } from '../../api/assets';
 import { listUsers, getUser, type ClubUser } from '../../api/users';
 import { listTeams, type Team, type UserTeamMembership } from '../../api/teams';
+import * as kitsApi from '../../api/kits';
+import type { KitListItem } from '../../api/kits';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -139,6 +142,12 @@ export default function LoansPage() {
   const setAL = (key: string, val: boolean) =>
     setActionLoading(prev => ({ ...prev, [key]: val }));
 
+  // Kit selector state
+  const [kitModalOpen, setKitModalOpen]   = useState(false);
+  const [kitModalTarget, setKitModalTarget] = useState<'create' | 'edit'>('create');
+  const [kitList, setKitList]             = useState<KitListItem[]>([]);
+  const [kitsLoading, setKitsLoading]     = useState(false);
+
   // ── Data loading ────────────────────────────────────────────────────────────
 
   const fetchLoans = useCallback(async (p = page, tab = activeTab, f = filters) => {
@@ -238,6 +247,84 @@ export default function LoansPage() {
   }
 
   function clearCart() { setCart([]); saveCart(user?.id, []); }
+
+  // ── Kit selector ─────────────────────────────────────────────────────────────
+
+  async function openKitModal(target: 'create' | 'edit') {
+    setKitModalTarget(target);
+    setKitModalOpen(true);
+    setKitsLoading(true);
+    try {
+      const res = await kitsApi.listKits();
+      setKitList(res.data);
+    } catch {
+      message.error('Failed to load kits');
+    } finally {
+      setKitsLoading(false);
+    }
+  }
+
+  async function handleKitSelect(kitId: string, target: 'create' | 'edit') {
+    try {
+      const res = await kitsApi.getKit(kitId);
+      const kitItems = res.data.items;
+
+      if (target === 'create') {
+        setCart(prev => {
+          const next = [...prev];
+          for (const ki of kitItems) {
+            const existing = next.find(c => c.asset_type_id === ki.asset_type_id);
+            if (existing) {
+              existing.quantity = Math.min(
+                existing.quantity + ki.quantity,
+                existing.available_quantity
+              );
+            } else {
+              next.push({
+                asset_type_id: ki.asset_type_id,
+                asset_name: ki.asset_type_name,
+                asset_image: null,
+                brand: null,
+                model: null,
+                size: null,
+                available_quantity: ki.available_quantity,
+                quantity: ki.quantity,
+              });
+            }
+          }
+          saveCart(user?.id, next);
+          return next;
+        });
+      } else {
+        setEditCart(prev => {
+          const next = [...prev];
+          for (const ki of kitItems) {
+            const existing = next.find(c => c.asset_type_id === ki.asset_type_id);
+            if (existing) {
+              existing.quantity += ki.quantity;
+            } else {
+              next.push({
+                asset_type_id: ki.asset_type_id,
+                asset_name: ki.asset_type_name,
+                asset_image: null,
+                brand: null,
+                model: null,
+                size: null,
+                available_quantity: ki.available_quantity,
+                quantity: ki.quantity,
+              });
+            }
+          }
+          return next;
+        });
+      }
+
+      setKitModalOpen(false);
+      message.success('Kit items added');
+    } catch {
+      message.error('Failed to load kit details');
+    }
+  }
 
   // ── Create loan ─────────────────────────────────────────────────────────────
 
@@ -873,9 +960,15 @@ export default function LoansPage() {
         {createStep === 1 ? (
           <div>
             {/* Asset picker */}
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-              Tap an asset to add it to your cart. Items with 0 available cannot be added.
-            </Text>
+            <Flex justify="space-between" align="center" style={{ marginBottom: 12 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Tap an asset to add it to your cart. Items with 0 available cannot be added.
+              </Text>
+              <Button size="small" icon={<AppstoreAddOutlined />}
+                onClick={() => openKitModal('create')}>
+                Add from Kit
+              </Button>
+            </Flex>
             <List
               dataSource={assets}
               renderItem={(asset: AssetType) => {
@@ -1106,16 +1199,21 @@ export default function LoansPage() {
             </Text>
 
             {/* Add asset picker */}
-            <Select
-              showSearch
-              placeholder="Add another asset…"
-              style={{ width: '100%', marginBottom: 12 }}
-              filterOption={(input, option) =>
-                String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-              options={assetOptions.filter(o => !editCart.find(i => i.asset_type_id === o.value))}
-              onSelect={(_val, option: typeof assetOptions[0]) => editCartAdd(option._asset)}
-              value={null}
-            />
+            <Flex gap={8} style={{ marginBottom: 12 }}>
+              <Select
+                showSearch
+                placeholder="Add another asset…"
+                style={{ flex: 1 }}
+                filterOption={(input, option) =>
+                  String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                options={assetOptions.filter(o => !editCart.find(i => i.asset_type_id === o.value))}
+                onSelect={(_val, option: typeof assetOptions[0]) => editCartAdd(option._asset)}
+                value={null}
+              />
+              <Button icon={<AppstoreAddOutlined />} onClick={() => openKitModal('edit')}>
+                Kit
+              </Button>
+            </Flex>
 
             {renderCartItems(editCart, editCartSetQty, id => setEditCart(prev => prev.filter(i => i.asset_type_id !== id)))}
 
@@ -1165,6 +1263,66 @@ export default function LoansPage() {
           </div>
         )}
       </Drawer>
+
+      {/* ── Kit Selector Modal ────────────────────────────────────────────────── */}
+      <Modal
+        open={kitModalOpen}
+        title="Add from Kit"
+        onCancel={() => setKitModalOpen(false)}
+        footer={null}
+        destroyOnClose
+        width={480}
+      >
+        {kitsLoading ? (
+          <Flex justify="center" style={{ padding: 40 }}>
+            <span>Loading kits…</span>
+          </Flex>
+        ) : kitList.length === 0 ? (
+          <Empty description="No kits available" image={Empty.PRESENTED_IMAGE_SIMPLE}
+            style={{ margin: '24px 0' }} />
+        ) : (
+          <List
+            dataSource={kitList}
+            style={{ marginTop: 8 }}
+            renderItem={(kit: KitListItem) => {
+              const disabled = !kit.is_active;
+              return (
+                <List.Item
+                  style={{ opacity: disabled ? 0.45 : 1 }}
+                  actions={[
+                    disabled ? (
+                      <Tooltip title="Kit is inactive" key="disabled">
+                        <Button size="small" disabled>Select</Button>
+                      </Tooltip>
+                    ) : (
+                      <Button
+                        key="select"
+                        size="small"
+                        type="primary"
+                        onClick={() => handleKitSelect(kit.id, kitModalTarget)}
+                      >
+                        Select
+                      </Button>
+                    ),
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={
+                      <Flex align="center" gap={8}>
+                        <span>{kit.name}</span>
+                        {!kit.is_active && (
+                          <Tag color="default" style={{ fontSize: 11 }}>Inactive</Tag>
+                        )}
+                      </Flex>
+                    }
+                    description={kit.description ?? undefined}
+                  />
+                </List.Item>
+              );
+            }}
+          />
+        )}
+      </Modal>
     </div>
   );
 }

@@ -26,7 +26,7 @@ export interface RegisterUserData {
 }
 
 export const registerClub = (data: RegisterClubData) =>
-  client.post<{ message: string }>('/auth/register', data);
+  client.post<{ message: string }>('/auth/register', data.user);
 
 export const registerUser = (data: RegisterUserData) =>
   client.post<{ message: string }>('/auth/register', {
@@ -49,7 +49,7 @@ export const login = (email: string, password: string) =>
 export const selectClub = (club_id: string) =>
   client.post<{ token: string }>('/auth/select-club', { club_id });
 
-export const createClub = (data: { name: string; sport_type_id: string; address?: string; contact_email: string }) =>
+export const createClub = (data: { club_name: string; sport_type_id: string; address?: string; contact_email: string }) =>
   client.post<{ club_id: string; club_name: string }>('/auth/register-club', data);
 
 export const getMe = () =>

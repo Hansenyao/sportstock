@@ -5,29 +5,42 @@ import {
 } from 'antd';
 import {
   AppstoreOutlined, MailOutlined, LockOutlined, UserOutlined,
-  PhoneOutlined, HomeOutlined, CheckCircleFilled, ReloadOutlined,
+  PhoneOutlined, HomeOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../api/auth';
+import { setToken } from '../../api/client';
 import client from '../../api/client';
+import { useAuth } from '../../contexts/AuthContext';
 
 const { Title, Text, Paragraph } = Typography;
 const { useBreakpoint } = Grid;
 
 interface SportType { id: string; name: string; }
 
-type Step = 'info' | 'verify' | 'done';
+type RegisterStep = 'form' | 'verify';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const { login } = useAuth();
   const screens = useBreakpoint();
 
-  const [step, setStep] = useState<Step>('info');
+  const [step, setStep] = useState<RegisterStep>('form');
   const [loading, setLoading] = useState(false);
+  const [registerLoading, setRegisterLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState('');
   const [sportTypes, setSportTypes] = useState<SportType[]>([]);
+
+  // State preserved across steps
+  const [storedEmail, setStoredEmail] = useState('');
+  const [storedPassword, setStoredPassword] = useState('');
+  const [storedClub, setStoredClub] = useState<{
+    club_name: string;
+    sport_type_id: string;
+    contact_email: string;
+    address?: string;
+  } | null>(null);
 
   const [infoForm] = Form.useForm();
   const [verifyForm] = Form.useForm();
@@ -41,9 +54,9 @@ export default function RegisterPage() {
       .catch(() => { /* silently ignore — user can still type */ });
   }, []);
 
-  const stepIndex = step === 'info' ? 0 : step === 'verify' ? 1 : 2;
+  const stepIndex = step === 'form' ? 0 : 1;
 
-  // ── Step 1: Register ──────────────────────────────────────
+  // ── Step 1: Register (user data only) ────────────────────────
   async function handleRegister(values: {
     club_name: string;
     sport_type_id?: string;
@@ -61,7 +74,7 @@ export default function RegisterPage() {
       return;
     }
 
-    setLoading(true);
+    setRegisterLoading(true);
     try {
       await authApi.registerClub({
         user: {
@@ -78,23 +91,47 @@ export default function RegisterPage() {
           contact_email: values.contact_email,
         },
       });
-      setRegisteredEmail(values.email);
+      // Preserve data needed for later steps
+      setStoredEmail(values.email);
+      setStoredPassword(values.password);
+      setStoredClub({
+        club_name: values.club_name,
+        sport_type_id: values.sport_type_id ?? '',
+        contact_email: values.contact_email,
+        address: values.address,
+      });
       setStep('verify');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? 'Registration failed. Please try again.';
       message.error(msg);
     } finally {
-      setLoading(false);
+      setRegisterLoading(false);
     }
   }
 
-  // ── Step 2: Verify email ──────────────────────────────────
+  // ── Step 2: Verify email → login → create club → navigate ────
   async function handleVerify(values: { code: string }) {
+    if (!storedClub) return;
     setLoading(true);
     try {
-      await authApi.verifyEmail(registeredEmail, values.code);
-      setStep('done');
+      // 1. Verify OTP
+      await authApi.verifyEmail(storedEmail, values.code);
+
+      // 2. Login to get a token
+      const loginRes = await authApi.login(storedEmail, storedPassword);
+
+      // 3. Apply token immediately so the register-club call is authenticated
+      setToken(loginRes.data.token);
+
+      // 4. Create the club
+      const clubRes = await authApi.createClub(storedClub);
+
+      // 5. Fully initialize auth context (fetches /me, selects club, etc.)
+      await login(loginRes.data);
+
+      message.success(`Club "${clubRes.data.club_name}" created!`);
+      navigate('/dashboard');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? 'Invalid or expired code.';
@@ -104,11 +141,11 @@ export default function RegisterPage() {
     }
   }
 
-  // ── Resend code ───────────────────────────────────────────
+  // ── Resend code ───────────────────────────────────────────────
   async function handleResend() {
     setResendLoading(true);
     try {
-      await authApi.resendVerification(registeredEmail);
+      await authApi.resendVerification(storedEmail);
       message.success('A new code has been sent to your email.');
     } catch {
       message.error('Failed to resend. Please wait a moment and try again.');
@@ -153,12 +190,11 @@ export default function RegisterPage() {
         items={[
           { title: 'Club & Account' },
           { title: 'Verify Email' },
-          { title: 'Done' },
         ]}
       />
 
       {/* ── Step 1: Info form ── */}
-      {step === 'info' && (
+      {step === 'form' && (
         <Card
           style={{ maxWidth: 600, margin: '0 auto', borderRadius: 16, border: 'none', boxShadow: '0 4px 40px rgba(0,0,0,0.10)' }}
           styles={{ body: { padding: cardBodyPadding } }}
@@ -265,7 +301,7 @@ export default function RegisterPage() {
               </Col>
             </Row>
 
-            <Button type="primary" htmlType="submit" block loading={loading} style={{ height: 44, marginTop: 8 }}>
+            <Button type="primary" htmlType="submit" block loading={registerLoading} style={{ height: 44, marginTop: 8 }}>
               Register Club
             </Button>
 
@@ -296,7 +332,7 @@ export default function RegisterPage() {
             <Title level={4} style={{ marginBottom: 8 }}>Check your email</Title>
             <Paragraph style={{ color: '#595959', margin: 0 }}>
               We sent a 6-digit code to<br />
-              <Text strong>{registeredEmail}</Text>
+              <Text strong>{storedEmail}</Text>
             </Paragraph>
           </div>
 
@@ -312,46 +348,28 @@ export default function RegisterPage() {
             </Form.Item>
 
             <Button type="primary" htmlType="submit" block size="large" loading={loading} style={{ height: 44 }}>
-              Verify Email
+              Verify &amp; Create Club
             </Button>
 
             <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <Text style={{ color: '#8c8c8c' }}>Didn't receive it? </Text>
-              <Button
-                type="link" style={{ padding: 0 }}
-                icon={<ReloadOutlined />}
-                loading={resendLoading}
-                onClick={handleResend}
-              >
-                Resend code
-              </Button>
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <div>
+                  <Text style={{ color: '#8c8c8c' }}>Didn't receive it? </Text>
+                  <Button
+                    type="link" style={{ padding: 0 }}
+                    icon={<ReloadOutlined />}
+                    loading={resendLoading}
+                    onClick={handleResend}
+                  >
+                    Resend code
+                  </Button>
+                </div>
+                <Button type="link" style={{ padding: 0 }} onClick={() => setStep('form')}>
+                  &larr; Back
+                </Button>
+              </Space>
             </div>
           </Form>
-        </Card>
-      )}
-
-      {/* ── Step 3: Done ── */}
-      {step === 'done' && (
-        <Card
-          style={{ maxWidth: 440, margin: '0 auto', borderRadius: 16, border: 'none', boxShadow: '0 4px 40px rgba(0,0,0,0.10)' }}
-          styles={{ body: { padding: cardBodyPadding } }}
-        >
-          <div style={{ textAlign: 'center' }}>
-            <CheckCircleFilled style={{ fontSize: 64, color: '#52c41a', marginBottom: 20 }} />
-            <Title level={3} style={{ marginBottom: 8 }}>You're all set!</Title>
-            <Paragraph style={{ color: '#595959', marginBottom: 32 }}>
-              Your club and admin account have been created.
-              Sign in to start managing your equipment.
-            </Paragraph>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Button type="primary" block size="large" style={{ height: 44 }} onClick={() => navigate('/login')}>
-                Sign In Now
-              </Button>
-              <Button block size="large" style={{ height: 44 }} onClick={() => navigate('/')}>
-                Back to Home
-              </Button>
-            </Space>
-          </div>
         </Card>
       )}
     </div>

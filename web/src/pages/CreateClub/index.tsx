@@ -28,7 +28,7 @@ export default function CreateClubPage() {
   async function handleSubmit(values: { name: string; sport_type_id: string; address?: string; contact_email: string }) {
     setLoading(true);
     try {
-      const res = await authApi.createClub(values);
+      const res = await authApi.createClub({ club_name: values.name, sport_type_id: values.sport_type_id, address: values.address, contact_email: values.contact_email });
       const newClub: ClubMembership = { club_id: res.data.club_id, club_name: res.data.club_name, role: 'club_admin' };
       updateUserClubs([...(user?.clubs ?? []), newClub]);
       await selectClub(res.data.club_id);

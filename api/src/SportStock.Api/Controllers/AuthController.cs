@@ -137,11 +137,11 @@ public sealed class AuthController(IAuthService auth, SportStockDbContext db) : 
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        var user = await db.Users.FindAsync(new object[] { currentUser.UserId }, ct)
+        var user = await db.Users.FindAsync(currentUser.UserId)
             ?? throw new AppException("User not found", 404);
         if (body.FirstName is not null) user.FirstName = body.FirstName;
         if (body.LastName is not null) user.LastName = body.LastName;
-        user.Phone = body.Phone;
+        if (body.Phone is not null) user.Phone = body.Phone;
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         return Ok(new { message = "Profile updated." });

@@ -16,8 +16,6 @@ public sealed class InvitationsController(SportStockDbContext db) : ControllerBa
     public async Task<IActionResult> GetMine([FromServices] ICurrentUser currentUser, CancellationToken ct)
     {
         var invitations = await db.ClubInvitations
-            .Include(i => i.Club)
-            .Include(i => i.InvitedBy)
             .Where(i => i.InviteeId == currentUser.UserId && i.Status == "pending")
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => new PendingInvitationDto(

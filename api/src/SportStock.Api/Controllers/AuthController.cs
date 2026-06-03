@@ -2,6 +2,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportStock.Api.Auth;
+using SportStock.Api.Data;
 using SportStock.Api.Dtos.Auth;
 using SportStock.Api.Exceptions;
 using SportStock.Api.Integrations;
@@ -11,7 +12,7 @@ namespace SportStock.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
-public sealed class AuthController(IAuthService auth) : ControllerBase
+public sealed class AuthController(IAuthService auth, SportStockDbContext db) : ControllerBase
 {
     // ── Public endpoints ─────────────────────────────────────────────────────
 
@@ -127,5 +128,22 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
         await validator.ValidateAndThrowAsync(body, ct);
         await auth.ChangePasswordAsync(currentUser.UserId, body.CurrentPassword, body.NewPassword, ct);
         return Ok(new { message = "Password changed successfully." });
+    }
+
+    [HttpPut("profile")]
+    [Authorize]
+    public async Task<IActionResult> UpdateProfile(
+        [FromBody] UpdateProfileRequest body,
+        [FromServices] ICurrentUser currentUser,
+        CancellationToken ct)
+    {
+        var user = await db.Users.FindAsync(new object[] { currentUser.UserId }, ct)
+            ?? throw new AppException("User not found", 404);
+        if (body.FirstName is not null) user.FirstName = body.FirstName;
+        if (body.LastName is not null) user.LastName = body.LastName;
+        user.Phone = body.Phone;
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Ok(new { message = "Profile updated." });
     }
 }

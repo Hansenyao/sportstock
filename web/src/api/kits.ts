@@ -3,10 +3,10 @@ import client from './client';
 // Matches backend KitItemDto(Guid Id, Guid AssetTypeId, string AssetTypeName, int Quantity, int AvailableQuantity)
 export interface KitItem {
   id: string;
-  assetTypeId: string;
-  assetTypeName: string;
+  asset_type_id: string;
+  asset_type_name: string;
   quantity: number;
-  availableQuantity: number;
+  available_quantity: number;
 }
 
 // Matches backend KitDetailDto(Guid Id, string Name, string? Description, bool IsAvailable, List<KitItemDto> Items)
@@ -14,7 +14,7 @@ export interface Kit {
   id: string;
   name: string;
   description?: string | null;
-  isAvailable: boolean;
+  is_available: boolean;
   items: KitItem[];
 }
 
@@ -23,7 +23,7 @@ export interface KitListItem {
   id: string;
   name: string;
   description?: string | null;
-  isActive: boolean;
+  is_active: boolean;
 }
 
 // GET /kits → List<KitDto> (plain array)
@@ -45,7 +45,7 @@ export const deleteKit = (id: string) =>
   client.delete(`/kits/${id}`);
 
 // POST /kits/{id}/items → 201 KitItemDto
-export const addKitItem = (kitId: string, data: { assetTypeId: string; quantity: number }) =>
+export const addKitItem = (kitId: string, data: { asset_type_id: string; quantity: number }) =>
   client.post<KitItem>(`/kits/${kitId}/items`, data);
 
 // PUT /kits/{id}/items/{itemId} → 200 KitItemDto

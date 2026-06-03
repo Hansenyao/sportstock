@@ -32,7 +32,7 @@ export const deactivateUser = (id: string) =>
 // GET /clubs/{clubId}/members/search → plain List<UserSearchResult>
 // Matches backend UserSearchResult(Guid Id, string FirstName, string LastName, string Email)
 export const searchUsers = (clubId: string, query: string) =>
-  client.get<Array<{ id: string; firstName: string; lastName: string; email: string }>>(
+  client.get<Array<{ id: string; first_name: string; last_name: string; email: string }>>(
     `/clubs/${clubId}/members/search`,
     { params: { q: query } }
   );

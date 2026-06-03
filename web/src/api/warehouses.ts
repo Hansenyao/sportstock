@@ -10,7 +10,7 @@ export interface Warehouse {
 // Matches backend WarehouseListResult(List<WarehouseDto> Items, bool AutoSelect)
 export interface WarehouseListResult {
   items: Warehouse[];
-  autoSelect: boolean;
+  auto_select: boolean;
 }
 
 export interface CreateWarehouseData {

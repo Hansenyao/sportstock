@@ -99,21 +99,21 @@ export const getBatchDepreciation = (typeId: string, batchId: string) =>
 //   string WarehouseName, string? SerialNumber, string Status, string? Notes, DateTime CreatedAt)
 export interface AssetItem {
   id: string;
-  assetTypeId: string;
-  batchId?: string | null;
-  warehouseId: string;
-  warehouseName: string;
-  serialNumber?: string | null;
+  asset_type_id: string;
+  batch_id?: string | null;
+  warehouse_id: string;
+  warehouse_name: string;
+  serial_number?: string | null;
   status: 'available' | 'on_loan' | 'maintenance' | 'retired' | 'written_off';
   notes?: string | null;
-  createdAt: string;
+  created_at: string;
 }
 
 // GET /assets/{typeId}/items → plain List<AssetItemDto> (not paginated)
 export const getAssetItems = (typeId: string) =>
   client.get<AssetItem[]>(`/assets/${typeId}/items`);
 
-export const updateAssetItem = (itemId: string, data: { warehouseId?: string; serialNumber?: string; notes?: string }) =>
+export const updateAssetItem = (itemId: string, data: { warehouse_id?: string; serial_number?: string; notes?: string }) =>
   client.put<AssetItem>(`/assets/items/${itemId}`, data);
 
 // POST /assets/items/{itemId}/retire → 204 No Content

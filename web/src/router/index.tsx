@@ -14,8 +14,10 @@ import UsersPage from '../pages/Users';
 import TeamsPage from '../pages/Teams';
 import LoansPage from '../pages/Loans';
 import AnalyticsPage from '../pages/Analytics';
+import ReportsPage from '../pages/Reports';
 import AssetNamesPage from '../pages/AssetNames';
 import AssetsPage from '../pages/Assets';
+import InventoryPage from '../pages/Inventory';
 
 import RegisterUserPage from '../pages/RegisterUser';
 
@@ -69,11 +71,11 @@ export default function AppRouter() {
           <Route element={<RequireClub />}>
             <Route path="/dashboard/warehouses"   element={<WarehousesPage />} />
             <Route path="/dashboard/asset-names"  element={<AssetNamesPage />} />
-            <Route path="/dashboard/inventory"    element={<AssetsPage />} />
+            <Route path="/dashboard/inventory"    element={<InventoryPage />} />
             <Route path="/dashboard/kits"         element={<KitsPage />} />
             <Route path="/dashboard/loans"        element={<LoansPage />} />
             <Route path="/dashboard/stock"        element={<StockPage />} />
-            <Route path="/dashboard/reports"      element={<AnalyticsPage />} />
+            <Route path="/dashboard/reports"      element={<ReportsPage />} />
             <Route path="/dashboard/users"        element={<UsersPage />} />
             <Route path="/dashboard/teams"        element={<TeamsPage />} />
             <Route path="/dashboard/audit-logs"   element={<AuditLogsPage />} />

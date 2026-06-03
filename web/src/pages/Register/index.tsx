@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Form, Input, Button, Typography, Card, Steps, Row, Col, Divider,
   Select, App, Grid, Space,
@@ -9,15 +9,12 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../api/auth';
-import type { RegisterData } from '../../api/auth';
+import client from '../../api/client';
 
 const { Title, Text, Paragraph } = Typography;
 const { useBreakpoint } = Grid;
 
-const SPORT_TYPES = [
-  'Football', 'Basketball', 'Swimming', 'Tennis', 'Volleyball',
-  'Baseball', 'Rugby', 'Hockey', 'Athletics', 'Other',
-];
+interface SportType { id: string; name: string; }
 
 type Step = 'info' | 'verify' | 'done';
 
@@ -30,19 +27,30 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState('');
+  const [sportTypes, setSportTypes] = useState<SportType[]>([]);
 
   const [infoForm] = Form.useForm();
   const [verifyForm] = Form.useForm();
+
+  useEffect(() => {
+    client.get<SportType[] | { data: SportType[] }>('/sport-types')
+      .then((res) => {
+        const raw = res.data;
+        setSportTypes(Array.isArray(raw) ? raw : (raw as { data: SportType[] }).data ?? []);
+      })
+      .catch(() => { /* silently ignore — user can still type */ });
+  }, []);
 
   const stepIndex = step === 'info' ? 0 : step === 'verify' ? 1 : 2;
 
   // ── Step 1: Register ──────────────────────────────────────
   async function handleRegister(values: {
     club_name: string;
-    sport_type?: string;
+    sport_type_id?: string;
     address?: string;
     contact_email: string;
-    name: string;
+    first_name: string;
+    last_name: string;
     email: string;
     password: string;
     confirm: string;
@@ -53,24 +61,23 @@ export default function RegisterPage() {
       return;
     }
 
-    const data: RegisterData = {
-      club: {
-        name: values.club_name,
-        sport_type: values.sport_type,
-        address: values.address,
-        contact_email: values.contact_email,
-      },
-      user: {
-        name: values.name,
-        email: values.email,
-        password: values.password,
-        phone: values.phone,
-      },
-    };
-
     setLoading(true);
     try {
-      await authApi.register(data);
+      await authApi.registerClub({
+        user: {
+          first_name: values.first_name,
+          last_name: values.last_name,
+          email: values.email,
+          password: values.password,
+          phone: values.phone,
+        },
+        club: {
+          name: values.club_name,
+          sport_type_id: values.sport_type_id ?? '',
+          address: values.address,
+          contact_email: values.contact_email,
+        },
+      });
       setRegisteredEmail(values.email);
       setStep('verify');
     } catch (err: unknown) {
@@ -172,10 +179,10 @@ export default function RegisterPage() {
                 </Form.Item>
               </Col>
               <Col xs={24} sm={10}>
-                <Form.Item name="sport_type" label="Sport Type" rules={[{ required: true, message: 'Sport type is required' }]}>
-                  <Select placeholder="Select sport">
-                    {SPORT_TYPES.map((s) => (
-                      <Select.Option key={s} value={s}>{s}</Select.Option>
+                <Form.Item name="sport_type_id" label="Sport Type" rules={[{ required: true, message: 'Sport type is required' }]}>
+                  <Select placeholder="Select sport" showSearch optionFilterProp="children">
+                    {sportTypes.map((s) => (
+                      <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
                     ))}
                   </Select>
                 </Form.Item>
@@ -208,12 +215,23 @@ export default function RegisterPage() {
             <Row gutter={16}>
               <Col xs={24} sm={12}>
                 <Form.Item
-                  name="name" label="Your Name"
-                  rules={[{ required: true, message: 'Your name is required' }]}
+                  name="first_name" label="First Name"
+                  rules={[{ required: true, message: 'First name is required' }]}
                 >
-                  <Input prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} placeholder="Full name" />
+                  <Input prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} placeholder="First name" />
                 </Form.Item>
               </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  name="last_name" label="Last Name"
+                  rules={[{ required: true, message: 'Last name is required' }]}
+                >
+                  <Input prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} placeholder="Last name" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
               <Col xs={24} sm={12}>
                 <Form.Item name="phone" label="Phone (optional)">
                   <Input prefix={<PhoneOutlined style={{ color: '#bfbfbf' }} />} placeholder="+1 234 567 8900" />

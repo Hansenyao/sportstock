@@ -28,9 +28,9 @@ export default function WarehousesPage() {
   useEffect(() => { void load(); }, [load]);
 
   function openAdd() { setEditing(null); form.resetFields(); setModalOpen(true); }
-  function openEdit(w: Warehouse) { setEditing(w); form.setFieldsValue({ name: w.name, description: w.description ?? '' }); setModalOpen(true); }
+  function openEdit(w: Warehouse) { setEditing(w); form.setFieldsValue({ name: w.name, description: w.description ?? '', address: w.address ?? '' }); setModalOpen(true); }
 
-  async function handleSave(values: { name: string; description?: string }) {
+  async function handleSave(values: { name: string; description?: string; address?: string }) {
     setSaving(true);
     try {
       if (editing) await api.updateWarehouse(editing.id, values);
@@ -55,6 +55,7 @@ export default function WarehousesPage() {
   const columns: ColumnsType<Warehouse> = [
     { title: 'Name', dataIndex: 'name', key: 'name' },
     { title: 'Description', dataIndex: 'description', key: 'description', render: (d: string | null) => d ?? '—' },
+    { title: 'Address', dataIndex: 'address', key: 'address', render: (a: string | null) => a ?? '—' },
     {
       title: 'Actions', key: 'actions',
       render: (_: unknown, w: Warehouse) => (
@@ -79,6 +80,7 @@ export default function WarehousesPage() {
       <Modal title={editing ? 'Edit Warehouse' : 'Add Warehouse'} open={modalOpen} onCancel={() => setModalOpen(false)} footer={null}>
         <Form form={form} layout="vertical" onFinish={handleSave} style={{ marginTop: 16 }}>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="address" label="Address"><Input placeholder="e.g. Building A, Room 101" /></Form.Item>
           <Form.Item name="description" label="Description"><Input.TextArea rows={2} /></Form.Item>
           <Button type="primary" htmlType="submit" loading={saving} block>Save</Button>
         </Form>

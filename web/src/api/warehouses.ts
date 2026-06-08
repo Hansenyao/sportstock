@@ -5,6 +5,7 @@ export interface Warehouse {
   id: string;
   name: string;
   description?: string | null;
+  address?: string | null;
 }
 
 // Matches backend WarehouseListResult(List<WarehouseDto> Items, bool AutoSelect)
@@ -16,6 +17,7 @@ export interface WarehouseListResult {
 export interface CreateWarehouseData {
   name: string;
   description?: string;
+  address?: string;
 }
 
 // GET /warehouses → WarehouseListResult (plain object, not paginated)

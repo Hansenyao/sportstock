@@ -94,6 +94,7 @@ public partial class SportStockDbContext
             e.Property(x => x.ClubId).HasColumnName("club_id");
             e.Property(x => x.Name).HasColumnName("name");
             e.Property(x => x.Description).HasColumnName("description");
+            e.Property(x => x.Address).HasColumnName("address");
             e.Property(x => x.IsActive).HasColumnName("is_active");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");

@@ -10,4 +10,5 @@ public sealed class CreateBatchRequest
     public decimal? PurchasePrice { get; set; }
     public int? UsefulLifeYears { get; set; }
     public string? Notes { get; set; }
+    public Guid? WarehouseId { get; set; }
 }

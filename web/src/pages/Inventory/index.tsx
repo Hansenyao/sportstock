@@ -406,6 +406,7 @@ export default function InventoryPage() {
           size:                typeVals.size  || null,
           low_stock_threshold: typeVals.low_stock_threshold ?? null,
           total_quantity:      batchVals.total_quantity,
+          warehouse_id:        batchVals.warehouse_id ?? null,
           purchase_date:       batchVals.purchase_date
             ? (batchVals.purchase_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
           purchase_price:      batchVals.purchase_price ?? null,
@@ -438,6 +439,7 @@ export default function InventoryPage() {
       } else if (modalMode === 'addBatch' && targetTypeId) {
         const values = await batchForm.validateFields();
         await addBatch(targetTypeId, {
+          warehouse_id:      values.warehouse_id ?? null,
           total_quantity:    values.total_quantity,
           purchase_date:     values.purchase_date
             ? (values.purchase_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
@@ -767,6 +769,10 @@ export default function InventoryPage() {
   const batchFormContent = (
     <Form form={batchForm} layout="vertical" style={{ marginTop: 8 }}
       initialValues={{ total_quantity: 1 }}>
+      <Form.Item name="warehouse_id" label="Warehouse"
+        rules={[{ required: true, message: 'Please select a warehouse' }]}>
+        <Select placeholder="Select warehouse" options={warehouseOptions} />
+      </Form.Item>
       <Row gutter={16}>
         <Col span={12}>
           <Form.Item name="total_quantity" label="Quantity"

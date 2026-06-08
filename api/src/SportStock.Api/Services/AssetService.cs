@@ -222,12 +222,22 @@ internal sealed class AssetService(
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
 
-        // Auto-select first active warehouse for item creation
-        var warehouse = await db.Warehouses
-            .Where(w => w.ClubId == clubId && w.IsActive)
-            .OrderBy(w => w.CreatedAt)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+        // Resolve warehouse: use caller's choice if provided, else auto-select first active
+        Warehouse warehouse;
+        if (req.WarehouseId.HasValue)
+        {
+            warehouse = await db.Warehouses
+                .FirstOrDefaultAsync(w => w.Id == req.WarehouseId.Value && w.ClubId == clubId && w.IsActive, ct)
+                ?? throw new AppException("Warehouse not found", 404);
+        }
+        else
+        {
+            warehouse = await db.Warehouses
+                .Where(w => w.ClubId == clubId && w.IsActive)
+                .OrderBy(w => w.CreatedAt)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+        }
 
         // Create individual asset items for v2 item-level tracking
         for (int i = 0; i < qty; i++)
@@ -368,12 +378,22 @@ internal sealed class AssetService(
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
 
-        // Auto-select first active warehouse for item creation
-        var warehouse = await db.Warehouses
-            .Where(w => w.ClubId == clubId && w.IsActive)
-            .OrderBy(w => w.CreatedAt)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+        // Resolve warehouse: use caller's choice if provided, else auto-select first active
+        Warehouse warehouse;
+        if (req.WarehouseId.HasValue)
+        {
+            warehouse = await db.Warehouses
+                .FirstOrDefaultAsync(w => w.Id == req.WarehouseId.Value && w.ClubId == clubId && w.IsActive, ct)
+                ?? throw new AppException("Warehouse not found", 404);
+        }
+        else
+        {
+            warehouse = await db.Warehouses
+                .Where(w => w.ClubId == clubId && w.IsActive)
+                .OrderBy(w => w.CreatedAt)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+        }
 
         // Create individual asset items for v2 item-level tracking
         for (int i = 0; i < qty; i++)

@@ -1,2 +1,2 @@
 namespace SportStock.Api.Dtos.Warehouse;
-public record CreateWarehouseRequest(string Name, string? Description);
+public record CreateWarehouseRequest(string Name, string? Description, string? Address);

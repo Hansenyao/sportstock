@@ -10,6 +10,7 @@ public partial class Warehouse
     public Guid ClubId { get; set; }
     public string Name { get; set; } = null!;
     public string? Description { get; set; }
+    public string? Address { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

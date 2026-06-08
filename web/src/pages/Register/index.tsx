@@ -127,8 +127,11 @@ export default function RegisterPage() {
       // 4. Create the club
       const clubRes = await authApi.createClub(storedClub);
 
-      // 5. Fully initialize auth context (fetches /me, selects club, etc.)
-      await login(loginRes.data);
+      // 5. Re-login to get a fresh token that includes the newly created club
+      const freshLoginRes = await authApi.login(storedEmail, storedPassword);
+
+      // 6. Fully initialize auth context (fetches /me, selects club, etc.)
+      await login(freshLoginRes.data);
 
       message.success(`Club "${clubRes.data.club_name}" created!`);
       navigate('/dashboard');
@@ -206,7 +209,7 @@ export default function RegisterPage() {
             </Text>
 
             <Row gutter={16}>
-              <Col xs={24} sm={14}>
+              <Col xs={24} sm={12}>
                 <Form.Item
                   name="club_name" label="Club Name"
                   rules={[{ required: true, message: 'Club name is required' }]}
@@ -214,7 +217,7 @@ export default function RegisterPage() {
                   <Input prefix={<HomeOutlined style={{ color: '#bfbfbf' }} />} placeholder="e.g. City Youth FC" />
                 </Form.Item>
               </Col>
-              <Col xs={24} sm={10}>
+              <Col xs={24} sm={12}>
                 <Form.Item name="sport_type_id" label="Sport Type" rules={[{ required: true, message: 'Sport type is required' }]}>
                   <Select placeholder="Select sport" showSearch optionFilterProp="children">
                     {sportTypes.map((s) => (
@@ -269,18 +272,19 @@ export default function RegisterPage() {
 
             <Row gutter={16}>
               <Col xs={24} sm={12}>
+                <Form.Item
+                  name="email" label="Your Email"
+                  rules={[{ required: true, type: 'email', message: 'Enter a valid email' }]}
+                >
+                  <Input prefix={<MailOutlined style={{ color: '#bfbfbf' }} />} placeholder="you@example.com" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
                 <Form.Item name="phone" label="Phone (optional)">
                   <Input prefix={<PhoneOutlined style={{ color: '#bfbfbf' }} />} placeholder="+1 234 567 8900" />
                 </Form.Item>
               </Col>
             </Row>
-
-            <Form.Item
-              name="email" label="Your Email"
-              rules={[{ required: true, type: 'email', message: 'Enter a valid email' }]}
-            >
-              <Input prefix={<MailOutlined style={{ color: '#bfbfbf' }} />} placeholder="you@example.com" />
-            </Form.Item>
 
             <Row gutter={16}>
               <Col xs={24} sm={12}>

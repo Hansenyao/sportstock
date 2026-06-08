@@ -23,6 +23,7 @@ import { listUsers, getUser, type ClubUser } from '../../api/users';
 import { listTeams, type Team, type UserTeamMembership } from '../../api/teams';
 import * as kitsApi from '../../api/kits';
 import type { KitListItem } from '../../api/kits';
+import { listWarehouses, type Warehouse } from '../../api/warehouses';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -122,7 +123,15 @@ export default function LoansPage() {
   const [createForm] = Form.useForm();
   const [creating, setCreating]     = useState(false);
 
+  // Warehouses for approve modal
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+
   // Action modals
+  const [approveOpen, setApproveOpen]     = useState(false);
+  const [approvingLoan, setApprovingLoan] = useState<Loan | null>(null);
+  const [approveForm] = Form.useForm();
+  const [approving, setApproving]         = useState(false);
+
   const [rejectOpen, setRejectOpen]   = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejecting, setRejecting]     = useState(false);
@@ -202,6 +211,7 @@ export default function LoansPage() {
     if (isManager) {
       listUsers({ role: 'coach', limit: 200 }).then(r => setCoaches(r.data.data)).catch(() => {});
       listTeams().then(r => setTeams(r.data)).catch(() => {});
+      listWarehouses().then(r => setWarehouses(r.data.items)).catch(() => {});
     }
     if (isCoach && user?.id) {
       getUser(user.id).then(r => setCreateCoachTeams(r.data.teams ?? [])).catch(() => {});
@@ -376,15 +386,25 @@ export default function LoansPage() {
 
   // ── Approve / Reject ────────────────────────────────────────────────────────
 
-  async function handleApprove(loan: Loan) {
-    setAL(loan.id + '_approve', true);
+  function handleApprove(loan: Loan) {
+    approveForm.resetFields();
+    if (warehouses.length === 1) approveForm.setFieldsValue({ warehouse_id: warehouses[0].id });
+    setApprovingLoan(loan);
+    setApproveOpen(true);
+  }
+
+  async function handleApproveConfirm() {
+    if (!approvingLoan) return;
+    const { warehouse_id } = approveForm.getFieldsValue();
+    setApproving(true);
     try {
-      await approveLoan(loan.id);
+      await approveLoan(approvingLoan.id, warehouse_id);
       message.success('Loan approved');
+      setApproveOpen(false);
       fetchLoans();
     } catch (err: unknown) {
       message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to approve');
-    } finally { setAL(loan.id + '_approve', false); }
+    } finally { setApproving(false); }
   }
 
   function openReject(loan: Loan) {
@@ -561,6 +581,15 @@ export default function LoansPage() {
       <div style={{ padding: '4px 0 12px 40px' }}>
 
         {/* Loan-level notes */}
+        {loan.warehouse_name && (loan.status === 'approved' || loan.status === 'checked_out') && (
+          <div style={{ marginBottom: 8 }}>
+            <Text style={{ fontSize: 12 }}>
+              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>Pick up from: </Text>
+              <Text strong style={{ fontSize: 12 }}>{loan.warehouse_name}</Text>
+            </Text>
+          </div>
+        )}
+
         {(loan.reason || loan.rejection_reason || loan.return_notes) && (
           <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
             {loan.reason && (
@@ -1068,6 +1097,26 @@ export default function LoansPage() {
           </div>
         )}
       </Drawer>
+
+      {/* ── Approve Modal ─────────────────────────────────────────────────────── */}
+      <Modal open={approveOpen} title="Approve Loan Request" onCancel={() => setApproveOpen(false)}
+        footer={null} destroyOnClose width={400}>
+        <Form form={approveForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="warehouse_id" label="Issue from Warehouse"
+            rules={[{ required: true, message: 'Please select a warehouse' }]}>
+            <Select
+              placeholder="Select warehouse"
+              options={warehouses.map(w => ({ value: w.id, label: w.name }))}
+            />
+          </Form.Item>
+          <Flex gap={8} justify="flex-end">
+            <Button onClick={() => setApproveOpen(false)}>Cancel</Button>
+            <Button type="primary" icon={<CheckOutlined />} loading={approving} onClick={handleApproveConfirm}>
+              Approve
+            </Button>
+          </Flex>
+        </Form>
+      </Modal>
 
       {/* ── Reject Modal ──────────────────────────────────────────────────────── */}
       <Modal open={rejectOpen} title="Reject Loan Request" onCancel={() => setRejectOpen(false)}

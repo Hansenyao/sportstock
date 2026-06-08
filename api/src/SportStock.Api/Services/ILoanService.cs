@@ -22,7 +22,7 @@ public interface ILoanService
         Guid loanId, Guid clubId, Guid userId, ClubRole? role, CancellationToken ct = default);
 
     Task<LoanResponse> ApproveAsync(
-        Guid loanId, Guid approverId, Guid clubId, CancellationToken ct = default);
+        Guid loanId, Guid approverId, Guid clubId, Guid? warehouseId, CancellationToken ct = default);
 
     Task<LoanResponse> RejectAsync(
         Guid loanId, Guid approverId, Guid clubId, string? reason, CancellationToken ct = default);

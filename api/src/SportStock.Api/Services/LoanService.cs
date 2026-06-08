@@ -56,6 +56,8 @@ internal sealed class LoanService(
         OverdueNotifiedAt = l.OverdueNotifiedAt,
         CreatedAt = l.CreatedAt,
         UpdatedAt = l.UpdatedAt,
+        WarehouseId   = l.WarehouseId,
+        WarehouseName = l.Warehouse != null ? l.Warehouse.Name : null,
         CoachName = l.Coach.FirstName + " " + l.Coach.LastName,
         CoachEmail = l.Coach.Email,
         CreatedByName = l.CreatedByNavigation != null
@@ -377,11 +379,11 @@ internal sealed class LoanService(
     // ── Approve / Reject / Checkout (SPs) ────────────────────────────────────
 
     public async Task<LoanResponse> ApproveAsync(
-        Guid loanId, Guid approverId, Guid clubId, CancellationToken ct = default)
+        Guid loanId, Guid approverId, Guid clubId, Guid? warehouseId, CancellationToken ct = default)
     {
         try
         {
-            await db.ApproveLoanAsync(loanId, approverId, ct);
+            await db.ApproveLoanAsync(loanId, approverId, warehouseId, ct);
         }
         catch (PostgresException ex) when (ex.SqlState == RaiseExceptionSqlState
             && ex.MessageText.Contains("not in pending status", StringComparison.Ordinal))

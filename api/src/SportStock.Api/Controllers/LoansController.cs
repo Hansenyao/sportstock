@@ -88,12 +88,16 @@ public sealed class LoansController(ILoanService service) : ControllerBase
     [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Approve(
         Guid id,
+        [FromBody] ApproveLoanRequest? body,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
         if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var loan = await service.ApproveAsync(id, currentUser.UserId, currentUser.ActiveClubId.Value, ct);
+        var loan = await service.ApproveAsync(
+            id, currentUser.UserId, currentUser.ActiveClubId.Value,
+            body?.WarehouseId == Guid.Empty ? null : body?.WarehouseId,
+            ct);
         return Ok(loan);
     }
 

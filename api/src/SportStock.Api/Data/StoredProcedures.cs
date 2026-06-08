@@ -16,9 +16,10 @@ public static class StoredProcedures
         this SportStockDbContext db,
         Guid loanId,
         Guid approverId,
+        Guid? warehouseId,
         CancellationToken ct = default) =>
         db.Database.ExecuteSqlAsync(
-            $"CALL approve_loan({loanId}, {approverId})", ct);
+            $"CALL approve_loan({loanId}, {approverId}, {warehouseId})", ct);
 
     public static Task<int> RejectLoanAsync(
         this SportStockDbContext db,

@@ -366,6 +366,7 @@ CREATE TABLE loans (
     approved_by          UUID        REFERENCES users(id) ON DELETE SET NULL,
     checkout_by          UUID        REFERENCES users(id) ON DELETE SET NULL,
     return_confirmed_by  UUID        REFERENCES users(id) ON DELETE SET NULL,
+    warehouse_id         UUID        REFERENCES warehouses(id) ON DELETE SET NULL,
     reason               TEXT,
     status               loan_status NOT NULL DEFAULT 'pending',
     due_date             DATE        NOT NULL,
@@ -714,13 +715,15 @@ CREATE TRIGGER trg_kits_updated_at
 
 -- Approve a pending loan request
 CREATE OR REPLACE PROCEDURE approve_loan(
-    p_loan_id     UUID,
-    p_approver_id UUID
+    p_loan_id      UUID,
+    p_approver_id  UUID,
+    p_warehouse_id UUID DEFAULT NULL
 ) LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE loans
-    SET status      = 'approved',
-        approved_by = p_approver_id
+    SET status       = 'approved',
+        approved_by  = p_approver_id,
+        warehouse_id = p_warehouse_id
     WHERE id = p_loan_id AND status = 'pending';
 
     IF NOT FOUND THEN
@@ -757,7 +760,10 @@ DECLARE
     v_item           RECORD;
     v_li             RECORD;
     v_assigned_count INT;
+    v_warehouse_id   UUID;
 BEGIN
+    SELECT warehouse_id INTO v_warehouse_id FROM loans WHERE id = p_loan_id;
+
     FOR v_li IN
         SELECT li.id, li.asset_type_id, li.quantity
         FROM   loan_items li
@@ -769,6 +775,7 @@ BEGIN
             WHERE  ai.asset_type_id = v_li.asset_type_id
               AND  ai.status        = 'available'
               AND  ai.club_id       = (SELECT club_id FROM loans WHERE id = p_loan_id)
+              AND  (v_warehouse_id IS NULL OR ai.warehouse_id = v_warehouse_id)
             ORDER BY ai.created_at
             LIMIT  v_li.quantity
         LOOP

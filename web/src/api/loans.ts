@@ -37,6 +37,8 @@ export interface Loan {
   checkout_by_name?: string | null;
   return_confirmed_by?: string | null;
   return_confirmed_by_name?: string | null;
+  warehouse_id?: string | null;
+  warehouse_name?: string | null;
   reason?: string | null;
   status: LoanStatus;
   due_date: string;
@@ -116,8 +118,8 @@ export const updateLoan = (id: string, data: UpdateLoanPayload) =>
 export const deleteLoan = (id: string) =>
   client.delete(`/loans/${id}`);
 
-export const approveLoan = (id: string) =>
-  client.post<Loan>(`/loans/${id}/approve`);
+export const approveLoan = (id: string, warehouseId?: string) =>
+  client.post<Loan>(`/loans/${id}/approve`, warehouseId ? { warehouse_id: warehouseId } : {});
 
 export const rejectLoan = (id: string, reason?: string) =>
   client.post<Loan>(`/loans/${id}/reject`, { reason });

@@ -173,8 +173,12 @@ public partial class SportStockDbContext
         modelBuilder.Entity<AuditLog>()
             .Property(a => a.Meta).HasColumnType("jsonb");
 
-        modelBuilder.Entity<Loan>()
-            .Property(l => l.Status).HasColumnName("status").HasColumnType("loan_status");
+        modelBuilder.Entity<Loan>(e =>
+        {
+            e.Property(l => l.Status).HasColumnName("status").HasColumnType("loan_status");
+            e.Property(l => l.WarehouseId).HasColumnName("warehouse_id");
+            e.HasOne(l => l.Warehouse).WithMany().HasForeignKey(l => l.WarehouseId).OnDelete(DeleteBehavior.SetNull);
+        });
 
         modelBuilder.Entity<WriteOffOrder>()
             .Property(w => w.Source).HasColumnName("source").HasColumnType("write_off_source");

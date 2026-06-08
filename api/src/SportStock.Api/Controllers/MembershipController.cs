@@ -11,6 +11,11 @@ namespace SportStock.Api.Controllers;
 [Authorize]
 public sealed class MembershipController(IMembershipService svc, ICurrentUser me) : ControllerBase
 {
+    [HttpGet("api/v1/clubs/{clubId:guid}/invitations")]
+    [RequireRole(ClubRole.ClubAdmin)]
+    public async Task<IActionResult> ListInvitations(Guid clubId)
+        => Ok(await svc.ListClubInvitationsAsync(clubId));
+
     [HttpPost("api/v1/clubs/{clubId:guid}/invitations")]
     [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> Invite(Guid clubId, [FromBody] InviteUserRequest req)

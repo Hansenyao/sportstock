@@ -54,17 +54,31 @@ public sealed class MembershipService(SportStockDbContext db, IAuditLogService a
         invitation.Status      = "accepted";
         invitation.RespondedAt = DateTime.UtcNow;
 
-        var membership = new ClubMembership
+        // Reactivate existing inactive membership if present; otherwise create a new one
+        var membership = await db.ClubMemberships
+            .FirstOrDefaultAsync(m => m.ClubId == clubId && m.UserId == userId && !m.IsActive);
+
+        if (membership is not null)
         {
-            Id        = Guid.NewGuid(),
-            ClubId    = clubId,
-            UserId    = userId,
-            Role      = invitation.Role,
-            IsActive  = true,
-            InvitedBy = invitation.InvitedById,
-            JoinedAt  = DateTime.UtcNow,
-        };
-        db.ClubMemberships.Add(membership);
+            membership.IsActive  = true;
+            membership.Role      = invitation.Role;
+            membership.JoinedAt  = DateTime.UtcNow;
+            membership.InvitedBy = invitation.InvitedById;
+        }
+        else
+        {
+            membership = new ClubMembership
+            {
+                Id        = Guid.NewGuid(),
+                ClubId    = clubId,
+                UserId    = userId,
+                Role      = invitation.Role,
+                IsActive  = true,
+                InvitedBy = invitation.InvitedById,
+                JoinedAt  = DateTime.UtcNow,
+            };
+            db.ClubMemberships.Add(membership);
+        }
         await db.SaveChangesAsync();
 
         await audit.LogAsync("membership.accept", clubId, userId, "club_membership", membership.Id);
@@ -105,6 +119,17 @@ public sealed class MembershipService(SportStockDbContext db, IAuditLogService a
             .Where(m => m.ClubId == clubId && m.IsActive)
             .OrderBy(m => m.User.LastName).ThenBy(m => m.User.FirstName)
             .Select(m => new MemberDto(m.UserId, m.User.FirstName, m.User.LastName, m.User.Email, m.Role, m.JoinedAt, m.IsActive))
+            .ToListAsync();
+
+    public async Task<List<ClubInvitationListItem>> ListClubInvitationsAsync(Guid clubId)
+        => await db.ClubInvitations
+            .Include(i => i.Invitee)
+            .Where(i => i.ClubId == clubId && i.Status == "pending")
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => new ClubInvitationListItem(
+                i.Id, i.InviteeId,
+                i.Invitee.FirstName, i.Invitee.LastName, i.Invitee.Email,
+                i.Role, i.Status, i.CreatedAt))
             .ToListAsync();
 
     public async Task<List<UserSearchResult>> SearchUsersAsync(Guid clubId, string query)

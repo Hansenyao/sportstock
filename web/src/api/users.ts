@@ -36,3 +36,9 @@ export const searchUsers = (clubId: string, query: string) =>
     `/clubs/${clubId}/members/search`,
     { params: { q: query } }
   );
+
+export const updateMemberRole = (clubId: string, userId: string, role: ClubRole) =>
+  client.put(`/clubs/${clubId}/members/${userId}/role`, { role });
+
+export const removeMember = (clubId: string, userId: string) =>
+  client.delete(`/clubs/${clubId}/members/${userId}`);

@@ -7,8 +7,8 @@ import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import * as api from '../../api/kits';
 import type { KitListItem, Kit, KitItem } from '../../api/kits';
-import { listAssetNames } from '../../api/asset-names';
-import type { AssetName } from '../../api/asset-names';
+import { listAssets } from '../../api/assets';
+import type { AssetType } from '../../api/assets';
 
 const { Title, Text } = Typography;
 
@@ -31,7 +31,7 @@ export default function KitsPage() {
   // Add item form (inside detail modal)
   const [addItemForm] = Form.useForm();
   const [addingItem, setAddingItem] = useState(false);
-  const [assetNames, setAssetNames] = useState<AssetName[]>([]);
+  const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,7 +46,7 @@ export default function KitsPage() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    listAssetNames().then(r => setAssetNames(r.data)).catch(() => {});
+    listAssets({ limit: 1000 }).then(r => setAssetTypes(r.data.data)).catch(() => {});
   }, []);
 
   // ── Create / Edit ──────────────────────────────────────────────
@@ -228,7 +228,7 @@ export default function KitsPage() {
                   style={{ minWidth: 200 }}
                   filterOption={(input, option) =>
                     String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-                  options={assetNames.map(a => ({ value: a.id, label: a.name }))}
+                  options={assetTypes.map(a => ({ value: a.id, label: a.name }))}
                 />
               </Form.Item>
               <Form.Item name="quantity" initialValue={1} rules={[{ required: true }]}>

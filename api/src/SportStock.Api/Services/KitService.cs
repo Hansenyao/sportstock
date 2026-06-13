@@ -37,7 +37,7 @@ public sealed class KitService(SportStockDbContext db) : IKitService
             itemDtos.Add(new KitItemDto(
                 ki.Id, ki.AssetTypeId,
                 ki.AssetType.AssetName?.Name ?? ki.AssetType.Id.ToString(),
-                ki.Quantity, available));
+                ki.Quantity, available, ki.AssetType.ImageUrl));
         }
 
         return new KitDetailDto(kit.Id, kit.Name, kit.Description, isAvailable, itemDtos);
@@ -110,13 +110,15 @@ public sealed class KitService(SportStockDbContext db) : IKitService
         var available = await db.AssetItems
             .CountAsync(i => i.AssetTypeId == req.AssetTypeId && i.ClubId == clubId && i.Status == AssetItemStatus.Available);
 
-        return new KitItemDto(ki.Id, ki.AssetTypeId, req.AssetTypeId.ToString(), req.Quantity, available);
+        var assetType = await db.AssetTypes.FindAsync(req.AssetTypeId);
+        return new KitItemDto(ki.Id, ki.AssetTypeId, req.AssetTypeId.ToString(), req.Quantity, available, assetType?.ImageUrl);
     }
 
     public async Task<KitItemDto> UpdateItemAsync(Guid kitId, Guid kitItemId, Guid clubId, UpdateKitItemRequest req)
     {
         var ki = await db.KitItems
             .Include(ki => ki.Kit)
+            .Include(ki => ki.AssetType)
             .FirstOrDefaultAsync(ki => ki.Id == kitItemId && ki.KitId == kitId && ki.Kit.ClubId == clubId)
             ?? throw new AppException("Kit item not found", 404);
 
@@ -126,7 +128,7 @@ public sealed class KitService(SportStockDbContext db) : IKitService
         var available = await db.AssetItems
             .CountAsync(i => i.AssetTypeId == ki.AssetTypeId && i.ClubId == clubId && i.Status == AssetItemStatus.Available);
 
-        return new KitItemDto(ki.Id, ki.AssetTypeId, ki.AssetTypeId.ToString(), ki.Quantity, available);
+        return new KitItemDto(ki.Id, ki.AssetTypeId, ki.AssetTypeId.ToString(), ki.Quantity, available, ki.AssetType.ImageUrl);
     }
 
     public async Task RemoveItemAsync(Guid kitId, Guid kitItemId, Guid clubId)

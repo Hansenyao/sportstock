@@ -1,12 +1,13 @@
 import client from './client';
 
-// Matches backend KitItemDto(Guid Id, Guid AssetTypeId, string AssetTypeName, int Quantity, int AvailableQuantity)
+// Matches backend KitItemDto(Guid Id, Guid AssetTypeId, string AssetTypeName, int Quantity, int AvailableQuantity, string? ImageUrl)
 export interface KitItem {
   id: string;
   asset_type_id: string;
   asset_type_name: string;
   quantity: number;
   available_quantity: number;
+  image_url?: string | null;
 }
 
 // Matches backend KitDetailDto(Guid Id, string Name, string? Description, bool IsAvailable, List<KitItemDto> Items)

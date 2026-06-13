@@ -3,6 +3,7 @@ import {
   Table, Button, Tag, Modal, Form, Input, Select, Typography, Flex, App,
   Space, Tabs, DatePicker, Popconfirm, InputNumber, Drawer, Badge,
   Avatar, Card, List, Divider, Empty, Grid, Tooltip, Row, Col,
+  Collapse, Spin,
 } from 'antd';
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
@@ -16,7 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   listLoans, createLoan, updateLoan, deleteLoan, approveLoan, rejectLoan,
   checkoutLoan, confirmReturn,
-  type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload, type LoanFilters,
+  type Loan, type LoanStatus, type LoanItem, type CartEntry, type KitCartEntry, type AssetCartEntry, type ReturnItemPayload, type LoanFilters,
 } from '../../api/loans';
 import { listAssets, type AssetType } from '../../api/assets';
 import { listUsers, getUser, type ClubUser } from '../../api/users';
@@ -62,14 +63,20 @@ const PAGE_SIZE = 20;
 
 // ── Cart helpers ──────────────────────────────────────────────────────────────
 
-function cartKey(userId: string | undefined) {
-  return `sportstock_loan_cart_${userId ?? 'anon'}`;
+function loadCart(userId: string | undefined): CartEntry[] {
+  if (!userId) return [];
+  try {
+    const raw = localStorage.getItem(`cart_${userId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as CartEntry[];
+    if (parsed.length > 0 && !('type' in parsed[0])) return [];
+    return parsed;
+  } catch { return []; }
 }
-function loadCart(userId: string | undefined): CartItem[] {
-  try { return JSON.parse(localStorage.getItem(cartKey(userId)) ?? '[]'); } catch { return []; }
-}
-function saveCart(userId: string | undefined, items: CartItem[]) {
-  localStorage.setItem(cartKey(userId), JSON.stringify(items));
+
+function saveCart(userId: string | undefined, items: CartEntry[]) {
+  if (!userId) return;
+  localStorage.setItem(`cart_${userId}`, JSON.stringify(items));
 }
 
 // ── Asset thumbnail ───────────────────────────────────────────────────────────
@@ -117,7 +124,7 @@ export default function LoansPage() {
   const [editCoachTeams, setEditCoachTeams] = useState<UserTeamMembership[]>([]);
 
   // Cart & create drawer state
-  const [cart, setCart]             = useState<CartItem[]>(() => loadCart(user?.id));
+  const [cart, setCart]             = useState<CartEntry[]>(() => loadCart(user?.id));
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [createForm] = Form.useForm();
@@ -144,7 +151,7 @@ export default function LoansPage() {
 
   const [editOpen, setEditOpen]       = useState(false);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
-  const [editCart, setEditCart]       = useState<CartItem[]>([]);
+  const [editCart, setEditCart]       = useState<CartEntry[]>([]);
   const [editing, setEditing]         = useState(false);
 
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
@@ -222,41 +229,72 @@ export default function LoansPage() {
 
   function cartAdd(asset: AssetType) {
     setCart(prev => {
-      const existing = prev.find(i => i.asset_type_id === asset.id);
-      const next = existing
-        ? prev.map(i => i.asset_type_id === asset.id
-            ? { ...i, quantity: Math.min(i.quantity + 1, asset.available_quantity) }
-            : i)
-        : [...prev, {
-            asset_type_id: asset.id,
-            asset_name: asset.name,
-            asset_image: asset.image_url,
-            brand: asset.brand,
-            model: asset.model,
-            size: asset.size,
-            available_quantity: asset.available_quantity,
-            quantity: 1,
-          }];
+      if (prev.find(e => e.type === 'asset' && e.asset_type_id === asset.id)) return prev;
+      const next: CartEntry[] = [...prev, {
+        type: 'asset',
+        asset_type_id: asset.id,
+        asset_name: asset.name,
+        asset_image: asset.image_url ?? null,
+        brand: asset.brand ?? null,
+        model: asset.model ?? null,
+        size: asset.size ?? null,
+        available_quantity: asset.available_quantity,
+        quantity: 1,
+      }];
       saveCart(user?.id, next);
       return next;
     });
   }
 
-  function cartSetQty(assetTypeId: string, qty: number) {
+  function cartRemove(type: 'kit' | 'asset', id: string) {
     setCart(prev => {
-      const next = qty < 1
-        ? prev.filter(i => i.asset_type_id !== assetTypeId)
-        : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i);
+      const next = type === 'kit'
+        ? prev.filter(e => !(e.type === 'kit' && e.kit_id === id))
+        : prev.filter(e => !(e.type === 'asset' && e.asset_type_id === id));
       saveCart(user?.id, next);
       return next;
     });
   }
 
-  function cartRemove(assetTypeId: string) {
-    setCart(prev => { const next = prev.filter(i => i.asset_type_id !== assetTypeId); saveCart(user?.id, next); return next; });
+  function cartSetQty(type: 'kit' | 'asset', id: string, qty: number) {
+    setCart(prev => {
+      const next = prev.map(e => {
+        if (type === 'asset' && e.type === 'asset' && e.asset_type_id === id)
+          return qty < 1 ? null : { ...e, quantity: qty };
+        if (type === 'kit' && e.type === 'kit' && e.kit_id === id)
+          return qty < 1 ? null : { ...e, kit_quantity: qty };
+        return e;
+      }).filter((e): e is CartEntry => e !== null);
+      saveCart(user?.id, next);
+      return next;
+    });
   }
 
-  function clearCart() { setCart([]); saveCart(user?.id, []); }
+  function clearCart() {
+    setCart([]);
+    saveCart(user?.id, []);
+  }
+
+  function expandCartToItems(entries: CartEntry[]) {
+    return entries.flatMap(e => {
+      if (e.type === 'kit') {
+        return e.items.map(i => ({
+          asset_type_id: i.asset_type_id,
+          quantity: i.per_kit_quantity * e.kit_quantity,
+          kit_id: e.kit_id,
+          kit_name: e.kit_name,
+          kit_quantity: e.kit_quantity,
+        }));
+      }
+      return [{
+        asset_type_id: e.asset_type_id,
+        quantity: e.quantity,
+        kit_id: null as string | null,
+        kit_name: null as string | null,
+        kit_quantity: null as number | null,
+      }];
+    });
+  }
 
   // ── Kit selector ─────────────────────────────────────────────────────────────
 
@@ -274,65 +312,46 @@ export default function LoansPage() {
     }
   }
 
-  async function handleKitSelect(kitId: string, target: 'create' | 'edit') {
+  async function handleKitAdd(kitId: string, kitQty: number, target: 'create' | 'edit') {
     try {
       const res = await kitsApi.getKit(kitId);
-      const kitItems = res.data.items;
-
+      const kit = res.data;
+      const entry: KitCartEntry = {
+        type: 'kit',
+        kit_id: kitId,
+        kit_name: kit.name,
+        kit_quantity: kitQty,
+        items: kit.items.map(ki => ({
+          asset_type_id: ki.asset_type_id,
+          asset_name: ki.asset_type_name,
+          asset_image: ki.image_url ?? null,
+          brand: null,
+          model: null,
+          size: null,
+          per_kit_quantity: ki.quantity,
+          available_quantity: ki.available_quantity,
+        })),
+      };
       if (target === 'create') {
         setCart(prev => {
-          const next = [...prev];
-          for (const ki of kitItems) {
-            const existing = next.find(c => c.asset_type_id === ki.asset_type_id);
-            if (existing) {
-              existing.quantity = Math.min(
-                existing.quantity + ki.quantity,
-                existing.available_quantity
-              );
-            } else {
-              next.push({
-                asset_type_id: ki.asset_type_id,
-                asset_name: ki.asset_type_name,
-                asset_image: null,
-                brand: null,
-                model: null,
-                size: null,
-                available_quantity: ki.available_quantity,
-                quantity: ki.quantity,
-              });
-            }
-          }
+          const exists = prev.find(e => e.type === 'kit' && e.kit_id === kitId);
+          const next = exists
+            ? prev.map(e => e.type === 'kit' && e.kit_id === kitId ? entry : e)
+            : [...prev, entry];
           saveCart(user?.id, next);
           return next;
         });
       } else {
         setEditCart(prev => {
-          const next = [...prev];
-          for (const ki of kitItems) {
-            const existing = next.find(c => c.asset_type_id === ki.asset_type_id);
-            if (existing) {
-              existing.quantity += ki.quantity;
-            } else {
-              next.push({
-                asset_type_id: ki.asset_type_id,
-                asset_name: ki.asset_type_name,
-                asset_image: null,
-                brand: null,
-                model: null,
-                size: null,
-                available_quantity: ki.available_quantity,
-                quantity: ki.quantity,
-              });
-            }
-          }
-          return next;
+          const exists = prev.find(e => e.type === 'kit' && e.kit_id === kitId);
+          return exists
+            ? prev.map(e => e.type === 'kit' && e.kit_id === kitId ? entry : e)
+            : [...prev, entry];
         });
       }
-
-      setKitModalOpen(false);
-      message.success('Kit items added');
+      message.success('Kit added');
     } catch {
-      message.error('Failed to load kit details');
+      message.error('Failed to load kit');
     }
   }
 
@@ -368,7 +387,7 @@ export default function LoansPage() {
     setCreating(true);
     try {
       await createLoan({
-        items: cart.map(i => ({ asset_type_id: i.asset_type_id, quantity: i.quantity })),
+        items: expandCartToItems(cart),
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
@@ -506,16 +525,46 @@ export default function LoansPage() {
       coach_id: loan.coach_id,
       team_id:  loan.team_id ?? undefined,
     });
-    setEditCart(loan.items.map(item => ({
-      asset_type_id: item.asset_type_id,
-      asset_name: item.asset_name,
-      asset_image: item.asset_image,
-      brand: item.brand,
-      model: item.model,
-      size: item.size,
-      available_quantity: 9999,
-      quantity: item.quantity,
-    })));
+    // Reconstruct CartEntry[] from loan items
+    const kitMap = new Map<string, KitCartEntry>();
+    const standaloneItems: AssetCartEntry[] = [];
+
+    for (const item of loan.items) {
+      if (item.kit_id && item.kit_name && item.kit_quantity) {
+        if (!kitMap.has(item.kit_id)) {
+          kitMap.set(item.kit_id, {
+            type: 'kit',
+            kit_id: item.kit_id,
+            kit_name: item.kit_name,
+            kit_quantity: item.kit_quantity,
+            items: [],
+          });
+        }
+        kitMap.get(item.kit_id)!.items.push({
+          asset_type_id: item.asset_type_id,
+          asset_name: item.asset_name,
+          asset_image: item.asset_image ?? null,
+          brand: item.brand ?? null,
+          model: item.model ?? null,
+          size: item.size ?? null,
+          per_kit_quantity: item.quantity / item.kit_quantity,
+          available_quantity: 9999,
+        });
+      } else {
+        standaloneItems.push({
+          type: 'asset',
+          asset_type_id: item.asset_type_id,
+          asset_name: item.asset_name,
+          asset_image: item.asset_image ?? null,
+          brand: item.brand ?? null,
+          model: item.model ?? null,
+          size: item.size ?? null,
+          available_quantity: 9999,
+          quantity: item.quantity,
+        });
+      }
+    }
+    setEditCart([...kitMap.values(), ...standaloneItems]);
     // Load teams for this loan's coach
     if (isCoach) {
       setEditCoachTeams(createCoachTeams);
@@ -530,19 +579,41 @@ export default function LoansPage() {
     setEditOpen(true);
   }
 
-  function editCartSetQty(assetTypeId: string, qty: number) {
-    setEditCart(prev => qty < 1 ? prev.filter(i => i.asset_type_id !== assetTypeId) : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i));
-  }
-
   function editCartAdd(asset: AssetType) {
     setEditCart(prev => {
-      if (prev.find(i => i.asset_type_id === asset.id)) return prev;
+      if (prev.find(e => e.type === 'asset' && e.asset_type_id === asset.id)) return prev;
       return [...prev, {
-        asset_type_id: asset.id, asset_name: asset.name, asset_image: asset.image_url,
-        brand: asset.brand, model: asset.model, size: asset.size,
-        available_quantity: asset.available_quantity, quantity: 1,
+        type: 'asset' as const,
+        asset_type_id: asset.id,
+        asset_name: asset.name,
+        asset_image: asset.image_url ?? null,
+        brand: asset.brand ?? null,
+        model: asset.model ?? null,
+        size: asset.size ?? null,
+        available_quantity: 9999,
+        quantity: 1,
       }];
     });
+  }
+
+  function editCartSetQty(type: 'kit' | 'asset', id: string, qty: number) {
+    setEditCart(prev =>
+      prev.map(e => {
+        if (type === 'asset' && e.type === 'asset' && e.asset_type_id === id)
+          return qty < 1 ? null : { ...e, quantity: qty };
+        if (type === 'kit' && e.type === 'kit' && e.kit_id === id)
+          return qty < 1 ? null : { ...e, kit_quantity: qty };
+        return e;
+      }).filter((e): e is CartEntry => e !== null)
+    );
+  }
+
+  function editCartRemove(type: 'kit' | 'asset', id: string) {
+    setEditCart(prev =>
+      type === 'kit'
+        ? prev.filter(e => !(e.type === 'kit' && e.kit_id === id))
+        : prev.filter(e => !(e.type === 'asset' && e.asset_type_id === id))
+    );
   }
 
   async function handleEdit(values: Record<string, unknown>) {
@@ -551,7 +622,7 @@ export default function LoansPage() {
     setEditing(true);
     try {
       await updateLoan(editingLoan.id, {
-        items:    editCart.map(i => ({ asset_type_id: i.asset_type_id, quantity: i.quantity })),
+        items:    expandCartToItems(editCart),
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
@@ -1348,7 +1419,7 @@ export default function LoansPage() {
                         key="select"
                         size="small"
                         type="primary"
-                        onClick={() => handleKitSelect(kit.id, kitModalTarget)}
+                        onClick={() => handleKitAdd(kit.id, 1, kitModalTarget)}
                       >
                         Select
                       </Button>

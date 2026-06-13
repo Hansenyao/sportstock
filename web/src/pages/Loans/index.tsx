@@ -802,12 +802,21 @@ export default function LoansPage() {
                 )}
               </Flex>
               {/* Coach name — no "Borrower:" prefix on mobile */}
-              <Text style={{
-                fontSize: 12, color: '#8c8c8c',
-                display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-              }}>
-                {isMobile ? loan.coach_name : `Borrower: ${loan.coach_name}`}
-              </Text>
+              <Flex align="center" gap={4} style={{ overflow: 'hidden' }}>
+                <Avatar
+                  size={20}
+                  src={loan.coach_avatar_url ?? undefined}
+                  style={{ flexShrink: 0, backgroundColor: '#1677ff' }}
+                >
+                  {!loan.coach_avatar_url && loan.coach_name.charAt(0).toUpperCase()}
+                </Avatar>
+                <Text style={{
+                  fontSize: 12, color: '#8c8c8c',
+                  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                }}>
+                  {isMobile ? loan.coach_name : `Borrower: ${loan.coach_name}`}
+                </Text>
+              </Flex>
               {loan.team_name && (
                 <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', marginTop: 2 }}>
                   {loan.team_name}

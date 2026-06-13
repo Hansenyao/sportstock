@@ -163,6 +163,8 @@ export default function LoansPage() {
   const [kitModalTarget, setKitModalTarget] = useState<'create' | 'edit'>('create');
   const [kitList, setKitList]             = useState<KitListItem[]>([]);
   const [kitsLoading, setKitsLoading]     = useState(false);
+  const [drawerTab, setDrawerTab]         = useState<'assets' | 'kits'>('assets');
+  const [kitQtyMap, setKitQtyMap]         = useState<Record<string, number>>({});
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -359,12 +361,18 @@ export default function LoansPage() {
 
   function openCreate() {
     setCreateStep(1);
+    setDrawerTab('assets');
     createForm.resetFields();
     // Pre-select team for coaches already in exactly one team
     if (isCoach && createCoachTeams.length === 1) {
       createForm.setFieldValue('team_id', createCoachTeams[0].team_id);
     }
     setCartDrawerOpen(true);
+    setKitsLoading(true);
+    kitsApi.listKits()
+      .then(r => setKitList(r.data))
+      .catch(() => {})
+      .finally(() => setKitsLoading(false));
   }
 
   async function handleCoachSelect(coachId: string) {
@@ -648,6 +656,61 @@ export default function LoansPage() {
   // ── Expandable row: item list ────────────────────────────────────────────────
 
   function renderExpandedRow(loan: Loan) {
+    // ── Group items by kit ──────────────────────────────────────────
+    const kitGroups = new Map<string, { name: string; qty: number; items: LoanItem[] }>();
+    const standalone: LoanItem[] = [];
+    for (const item of loan.items) {
+      if (item.kit_id && item.kit_name && item.kit_quantity) {
+        if (!kitGroups.has(item.kit_id))
+          kitGroups.set(item.kit_id, { name: item.kit_name, qty: item.kit_quantity, items: [] });
+        kitGroups.get(item.kit_id)!.items.push(item);
+      } else {
+        standalone.push(item);
+      }
+    }
+
+    // ── Item row renderer ───────────────────────────────────────────
+    function renderLoanItemRow(item: LoanItem) {
+      return (
+        <div key={item.id} style={{ padding: '6px 0' }}>
+          <Flex align="center" gap={10} style={{ width: '100%' }}>
+            <AssetThumb src={item.asset_image} size={40} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Text strong style={{ display: 'block', fontSize: 13 }}>{item.asset_name}</Text>
+              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
+                {[item.brand, item.model, item.size && `Size: ${item.size}`]
+                  .filter(Boolean).join(' · ')}
+              </Text>
+              {item.return_notes && (
+                <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                  Note: {item.return_notes}
+                </Text>
+              )}
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <Text strong>×{item.quantity}</Text>
+              {item.good_quantity != null && (
+                <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+                  {item.good_quantity > 0 && (
+                    <Text style={{ color: '#52c41a', display: 'block' }}>{item.good_quantity} good</Text>
+                  )}
+                  {(item.minor_damage_quantity ?? 0) > 0 && (
+                    <Text style={{ color: '#faad14', display: 'block' }}>{item.minor_damage_quantity} minor dmg</Text>
+                  )}
+                  {(item.write_off_quantity ?? 0) > 0 && (
+                    <Text style={{ color: '#ff7a45', display: 'block' }}>{item.write_off_quantity} written off</Text>
+                  )}
+                  {(item.lost_quantity ?? 0) > 0 && (
+                    <Text style={{ color: '#ff4d4f', display: 'block' }}>{item.lost_quantity} lost</Text>
+                  )}
+                </div>
+              )}
+            </div>
+          </Flex>
+        </div>
+      );
+    }
+
     return (
       <div style={{ padding: '4px 0 12px 40px' }}>
 
@@ -684,49 +747,27 @@ export default function LoansPage() {
           </div>
         )}
 
-        {/* Asset items */}
-        <List
-          size="small"
-          dataSource={loan.items}
-          renderItem={(item: LoanItem) => (
-            <List.Item style={{ padding: '6px 0', border: 'none' }}>
-              <Flex align="center" gap={10} style={{ width: '100%' }}>
-                <AssetThumb src={item.asset_image} size={40} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong style={{ display: 'block', fontSize: 13 }}>{item.asset_name}</Text>
-                  <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
-                    {[item.brand, item.model, item.size && `Size: ${item.size}`]
-                      .filter(Boolean).join(' · ')}
-                  </Text>
-                  {item.return_notes && (
-                    <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
-                      Note: {item.return_notes}
-                    </Text>
-                  )}
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <Text strong>×{item.quantity}</Text>
-                  {item.good_quantity != null && (
-                    <div style={{ fontSize: 11, lineHeight: 1.4 }}>
-                      {item.good_quantity > 0 && (
-                        <Text style={{ color: '#52c41a', display: 'block' }}>{item.good_quantity} good</Text>
-                      )}
-                      {(item.minor_damage_quantity ?? 0) > 0 && (
-                        <Text style={{ color: '#faad14', display: 'block' }}>{item.minor_damage_quantity} minor dmg</Text>
-                      )}
-                      {(item.write_off_quantity ?? 0) > 0 && (
-                        <Text style={{ color: '#ff7a45', display: 'block' }}>{item.write_off_quantity} written off</Text>
-                      )}
-                      {(item.lost_quantity ?? 0) > 0 && (
-                        <Text style={{ color: '#ff4d4f', display: 'block' }}>{item.lost_quantity} lost</Text>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </Flex>
-            </List.Item>
-          )}
-        />
+        {/* Kit groups */}
+        {kitGroups.size > 0 && (
+          <Collapse
+            size="small"
+            style={{ marginBottom: 8 }}
+            defaultActiveKey={[...kitGroups.keys()]}
+            items={[...kitGroups.entries()].map(([kitId, group]) => ({
+              key: kitId,
+              label: (
+                <Text strong style={{ fontSize: 13 }}>
+                  {group.name}{' '}
+                  <Text type="secondary" style={{ fontSize: 12 }}>×{group.qty}</Text>
+                </Text>
+              ),
+              children: <div>{group.items.map(item => renderLoanItemRow(item))}</div>,
+            }))}
+          />
+        )}
+
+        {/* Standalone items */}
+        {standalone.map(item => renderLoanItemRow(item))}
       </div>
     );
   }
@@ -902,38 +943,90 @@ export default function LoansPage() {
     _asset: a,
   }));
 
-  const renderCartItems = (cartItems: CartItem[], setQty: (id: string, q: number) => void, remove: (id: string) => void) => (
-    cartItems.length === 0
-      ? <Empty description="No items" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '20px 0' }} />
-      : <List
-          dataSource={cartItems}
-          renderItem={item => (
-            <List.Item style={{ padding: '8px 0' }}>
+  const renderCartEntries = (
+    entries: CartEntry[],
+    setQty: (type: 'kit' | 'asset', id: string, q: number) => void,
+    remove: (type: 'kit' | 'asset', id: string) => void,
+  ) => {
+    if (entries.length === 0)
+      return <Empty description="No items" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '20px 0' }} />;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {entries.map(entry => {
+          if (entry.type === 'kit') {
+            return (
+              <Collapse
+                key={`kit_${entry.kit_id}`}
+                size="small"
+                defaultActiveKey={[entry.kit_id]}
+                items={[{
+                  key: entry.kit_id,
+                  label: (
+                    <Flex align="center" gap={8} style={{ width: '100%' }}>
+                      <Text strong style={{ flex: 1, fontSize: 13 }}>{entry.kit_name}</Text>
+                      <Flex align="center" gap={4} onClick={e => e.stopPropagation()}>
+                        <Button size="small" icon={<MinusOutlined />}
+                          onClick={() => setQty('kit', entry.kit_id, entry.kit_quantity - 1)} />
+                        <InputNumber
+                          size="small" min={1} value={entry.kit_quantity}
+                          onChange={v => setQty('kit', entry.kit_id, v ?? 1)}
+                          style={{ width: 48 }} controls={false} />
+                        <Button size="small" icon={<PlusOutlined />}
+                          onClick={() => setQty('kit', entry.kit_id, entry.kit_quantity + 1)} />
+                        <Button size="small" danger icon={<DeleteOutlined />}
+                          onClick={() => remove('kit', entry.kit_id)} />
+                      </Flex>
+                    </Flex>
+                  ),
+                  children: (
+                    <div style={{ paddingLeft: 8 }}>
+                      {entry.items.map(i => (
+                        <Flex key={i.asset_type_id} align="center" gap={8} style={{ padding: '4px 0' }}>
+                          <AssetThumb src={i.asset_image} size={28} />
+                          <Text style={{ flex: 1, fontSize: 12 }}>{i.asset_name}</Text>
+                          <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
+                            ×{i.per_kit_quantity * entry.kit_quantity}
+                          </Text>
+                        </Flex>
+                      ))}
+                    </div>
+                  ),
+                }]}
+              />
+            );
+          }
+
+          return (
+            <List.Item key={`asset_${entry.asset_type_id}`} style={{ padding: '8px 0' }}>
               <Flex align="center" gap={8} style={{ width: '100%' }}>
-                <AssetThumb src={item.asset_image} size={36} />
+                <AssetThumb src={entry.asset_image} size={36} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong style={{ fontSize: 13, display: 'block' }}>{item.asset_name}</Text>
+                  <Text strong style={{ fontSize: 13, display: 'block' }}>{entry.asset_name}</Text>
                   <Text style={{ fontSize: 11, color: '#8c8c8c' }}>
-                    {[item.size && `Size: ${item.size}`, item.brand].filter(Boolean).join(' · ')}
+                    {[entry.size && `Size: ${entry.size}`, entry.brand].filter(Boolean).join(' · ')}
                   </Text>
                 </div>
                 <Flex align="center" gap={4}>
-                  <Button size="small" icon={<MinusOutlined />} onClick={() => setQty(item.asset_type_id, item.quantity - 1)} />
+                  <Button size="small" icon={<MinusOutlined />}
+                    onClick={() => setQty('asset', entry.asset_type_id, entry.quantity - 1)} />
                   <InputNumber
-                    size="small" min={1} max={item.available_quantity} value={item.quantity}
-                    onChange={v => setQty(item.asset_type_id, v ?? 1)}
-                    style={{ width: 48 }} controls={false}
-                  />
+                    size="small" min={1} max={entry.available_quantity} value={entry.quantity}
+                    onChange={v => setQty('asset', entry.asset_type_id, v ?? 1)}
+                    style={{ width: 48 }} controls={false} />
                   <Button size="small" icon={<PlusOutlined />}
-                    disabled={item.quantity >= item.available_quantity}
-                    onClick={() => setQty(item.asset_type_id, item.quantity + 1)} />
-                  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(item.asset_type_id)} />
+                    disabled={entry.quantity >= entry.available_quantity}
+                    onClick={() => setQty('asset', entry.asset_type_id, entry.quantity + 1)} />
+                  <Button size="small" danger icon={<DeleteOutlined />}
+                    onClick={() => remove('asset', entry.asset_type_id)} />
                 </Flex>
               </Flex>
             </List.Item>
-          )}
-        />
-  );
+          );
+        })}
+      </div>
+    );
+  };
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -1059,55 +1152,107 @@ export default function LoansPage() {
       >
         {createStep === 1 ? (
           <div>
-            {/* Asset picker */}
-            <Flex justify="space-between" align="center" style={{ marginBottom: 12 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Tap an asset to add it to your cart. Items with 0 available cannot be added.
-              </Text>
-              <Button size="small" icon={<AppstoreAddOutlined />}
-                onClick={() => openKitModal('create')}>
-                Add from Kit
-              </Button>
-            </Flex>
-            <List
-              dataSource={assets}
-              renderItem={(asset: AssetType) => {
-                const inCart = cart.find(i => i.asset_type_id === asset.id);
-                const disabled = asset.available_quantity === 0;
-                return (
-                  <List.Item
-                    style={{ padding: '8px 0', opacity: disabled ? 0.45 : 1 }}
-                    actions={[
-                      inCart
-                        ? <Tag color="blue">×{inCart.quantity}</Tag>
-                        : <Button size="small" type="primary" icon={<PlusOutlined />}
-                            disabled={disabled} onClick={() => cartAdd(asset)}>
-                            Add
-                          </Button>
-                    ]}
-                  >
-                    <Flex align="center" gap={10}>
-                      <AssetThumb src={asset.image_url} size={40} />
-                      <div>
-                        <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
-                        <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
-                          {[asset.brand, asset.size && `Size: ${asset.size}`].filter(Boolean).join(' · ')}
-                          {' '}· {asset.available_quantity} available
-                        </Text>
-                      </div>
-                    </Flex>
-                  </List.Item>
-                );
-              }}
+            <Tabs
+              activeKey={drawerTab}
+              onChange={k => setDrawerTab(k as 'assets' | 'kits')}
+              items={[
+                {
+                  key: 'assets',
+                  label: 'Assets',
+                  children: (
+                    <List
+                      dataSource={assets}
+                      renderItem={(asset: AssetType) => {
+                        const inCart = cart.find(e => e.type === 'asset' && e.asset_type_id === asset.id) as AssetCartEntry | undefined;
+                        const disabled = asset.available_quantity === 0;
+                        return (
+                          <List.Item
+                            style={{ padding: '8px 0', opacity: disabled ? 0.45 : 1 }}
+                            actions={[
+                              inCart
+                                ? <Tag color="blue">×{inCart.quantity}</Tag>
+                                : <Button size="small" type="primary" icon={<PlusOutlined />}
+                                    disabled={disabled} onClick={() => cartAdd(asset)}>
+                                    Add
+                                  </Button>
+                            ]}
+                          >
+                            <Flex align="center" gap={10}>
+                              <AssetThumb src={asset.image_url} size={40} />
+                              <div>
+                                <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
+                                <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                                  {[asset.brand, asset.size && `Size: ${asset.size}`].filter(Boolean).join(' · ')}
+                                  {' '}· {asset.available_quantity} available
+                                </Text>
+                              </div>
+                            </Flex>
+                          </List.Item>
+                        );
+                      }}
+                    />
+                  ),
+                },
+                {
+                  key: 'kits',
+                  label: 'Kits',
+                  children: kitsLoading
+                    ? <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+                    : kitList.length === 0
+                      ? <Empty description="No kits" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      : (
+                        <List
+                          dataSource={kitList}
+                          renderItem={(kit: KitListItem) => {
+                            const inCart = cart.find(e => e.type === 'kit' && e.kit_id === kit.id) as KitCartEntry | undefined;
+                            const qty = kitQtyMap[kit.id] ?? 1;
+                            return (
+                              <List.Item style={{ padding: '8px 0' }}>
+                                <Flex align="center" gap={8} style={{ width: '100%' }}>
+                                  <div style={{ flex: 1 }}>
+                                    <Text strong style={{ fontSize: 13 }}>{kit.name}</Text>
+                                    {kit.description && (
+                                      <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                                        {kit.description}
+                                      </Text>
+                                    )}
+                                    {inCart && (
+                                      <Tag color="blue" style={{ marginTop: 2 }}>
+                                        In cart ×{inCart.kit_quantity}
+                                      </Tag>
+                                    )}
+                                  </div>
+                                  <Flex align="center" gap={4}>
+                                    <InputNumber
+                                      size="small" min={1} value={qty}
+                                      onChange={v => setKitQtyMap(m => ({ ...m, [kit.id]: v ?? 1 }))}
+                                      style={{ width: 48 }} controls={false}
+                                    />
+                                    <Button
+                                      size="small" type="primary" icon={<PlusOutlined />}
+                                      onClick={() => { void handleKitAdd(kit.id, qty, 'create'); }}
+                                    >
+                                      Add
+                                    </Button>
+                                  </Flex>
+                                </Flex>
+                              </List.Item>
+                            );
+                          }}
+                        />
+                      ),
+                },
+              ]}
             />
+
             {cart.length > 0 && (
               <>
                 <Divider style={{ margin: '12px 0' }} />
                 <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
-                  <Text strong>Cart ({cart.length} item{cart.length > 1 ? 's' : ''})</Text>
+                  <Text strong>Cart</Text>
                   <Button size="small" danger onClick={clearCart}>Clear</Button>
                 </Flex>
-                {renderCartItems(cart, cartSetQty, cartRemove)}
+                {renderCartEntries(cart, cartSetQty, cartRemove)}
                 <Button type="primary" block style={{ marginTop: 12 }} onClick={() => setCreateStep(2)}>
                   Continue →
                 </Button>
@@ -1117,7 +1262,7 @@ export default function LoansPage() {
         ) : (
           <div>
             <Card size="small" style={{ marginBottom: 16 }} title="Cart Summary">
-              {renderCartItems(cart, cartSetQty, cartRemove)}
+              {renderCartEntries(cart, cartSetQty, cartRemove)}
             </Card>
 
             <Form form={createForm} layout="vertical" onFinish={handleCreate}>
@@ -1326,7 +1471,7 @@ export default function LoansPage() {
                 style={{ flex: 1 }}
                 filterOption={(input, option) =>
                   String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-                options={assetOptions.filter(o => !editCart.find(i => i.asset_type_id === o.value))}
+                options={assetOptions.filter(o => !editCart.find(e => e.type === 'asset' && e.asset_type_id === o.value))}
                 onSelect={(_val, option: typeof assetOptions[0]) => editCartAdd(option._asset)}
                 value={null}
               />
@@ -1335,7 +1480,7 @@ export default function LoansPage() {
               </Button>
             </Flex>
 
-            {renderCartItems(editCart, editCartSetQty, id => setEditCart(prev => prev.filter(i => i.asset_type_id !== id)))}
+            {renderCartEntries(editCart, editCartSetQty, editCartRemove)}
 
             <Divider style={{ margin: '12px 0' }} />
 
@@ -1387,61 +1532,39 @@ export default function LoansPage() {
       {/* ── Kit Selector Modal ────────────────────────────────────────────────── */}
       <Modal
         open={kitModalOpen}
-        title="Add from Kit"
+        title="Add Kit"
         onCancel={() => setKitModalOpen(false)}
         footer={null}
-        destroyOnClose
-        width={480}
+        width={400}
       >
-        {kitsLoading ? (
-          <Flex justify="center" style={{ padding: 40 }}>
-            <span>Loading kits…</span>
-          </Flex>
-        ) : kitList.length === 0 ? (
-          <Empty description="No kits available" image={Empty.PRESENTED_IMAGE_SIMPLE}
-            style={{ margin: '24px 0' }} />
-        ) : (
-          <List
-            dataSource={kitList}
-            style={{ marginTop: 8 }}
-            renderItem={(kit: KitListItem) => {
-              const disabled = !kit.is_active;
-              return (
-                <List.Item
-                  style={{ opacity: disabled ? 0.45 : 1 }}
-                  actions={[
-                    disabled ? (
-                      <Tooltip title="Kit is inactive" key="disabled">
-                        <Button size="small" disabled>Select</Button>
-                      </Tooltip>
-                    ) : (
-                      <Button
-                        key="select"
-                        size="small"
-                        type="primary"
-                        onClick={() => handleKitAdd(kit.id, 1, kitModalTarget)}
-                      >
-                        Select
+        {kitsLoading
+          ? <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+          : <List
+              dataSource={kitList}
+              renderItem={(kit: KitListItem) => {
+                const qty = kitQtyMap[kit.id] ?? 1;
+                return (
+                  <List.Item>
+                    <Flex align="center" gap={8} style={{ width: '100%' }}>
+                      <Text style={{ flex: 1 }}>{kit.name}</Text>
+                      <InputNumber
+                        size="small" min={1} value={qty}
+                        onChange={v => setKitQtyMap(m => ({ ...m, [kit.id]: v ?? 1 }))}
+                        style={{ width: 48 }} controls={false}
+                      />
+                      <Button size="small" type="primary"
+                        onClick={() => {
+                          void handleKitAdd(kit.id, qty, kitModalTarget);
+                          setKitModalOpen(false);
+                        }}>
+                        Add
                       </Button>
-                    ),
-                  ]}
-                >
-                  <List.Item.Meta
-                    title={
-                      <Flex align="center" gap={8}>
-                        <span>{kit.name}</span>
-                        {!kit.is_active && (
-                          <Tag color="default" style={{ fontSize: 11 }}>Inactive</Tag>
-                        )}
-                      </Flex>
-                    }
-                    description={kit.description ?? undefined}
-                  />
-                </List.Item>
-              );
-            }}
-          />
-        )}
+                    </Flex>
+                  </List.Item>
+                );
+              }}
+            />
+        }
       </Modal>
     </div>
   );

@@ -14,6 +14,9 @@ public sealed class LoanItemInfo
     public int? WriteOffQuantity { get; set; }
     public int? LostQuantity { get; set; }
     public string? ReturnNotes { get; set; }
+    public Guid? KitId { get; set; }
+    public string? KitName { get; set; }
+    public int? KitQuantity { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

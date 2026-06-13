@@ -5,6 +5,7 @@ using SportStock.Api.Data.Enums;
 using SportStock.Api.Dtos.Common;
 using SportStock.Api.Dtos.Users;
 using SportStock.Api.Exceptions;
+using SportStock.Api.Integrations;
 
 namespace SportStock.Api.Services;
 
@@ -18,7 +19,8 @@ namespace SportStock.Api.Services;
 //   - super_admin is created out-of-band and is not returned here.
 internal sealed class UserService(
     SportStockDbContext db,
-    ILogger<UserService> log) : IUserService
+    ILogger<UserService> log,
+    ISupabaseStorage storage) : IUserService
 {
     private static readonly ClubRole[] ClubRoles =
     {
@@ -67,6 +69,7 @@ internal sealed class UserService(
                 Role = m.Role,
                 IsActive = m.IsActive,
                 CreatedAt = m.User.CreatedAt,
+                AvatarUrl = m.User.AvatarUrl,
             })
             .ToListAsync(ct);
 
@@ -93,6 +96,7 @@ internal sealed class UserService(
                 Role = m.Role,
                 IsActive = m.IsActive,
                 CreatedAt = m.User.CreatedAt,
+                AvatarUrl = m.User.AvatarUrl,
             })
             .FirstOrDefaultAsync(ct);
 
@@ -192,6 +196,7 @@ internal sealed class UserService(
             Role = role,
             IsActive = true,
             CreatedAt = user.CreatedAt,
+            AvatarUrl = user.AvatarUrl,
         };
     }
 
@@ -244,6 +249,7 @@ internal sealed class UserService(
             Role = membership.Role,
             IsActive = membership.IsActive,
             CreatedAt = membership.User.CreatedAt,
+            AvatarUrl = membership.User.AvatarUrl,
         };
     }
 
@@ -258,6 +264,23 @@ internal sealed class UserService(
             .Where(m => m.UserId == targetId && m.ClubId == clubId)
             .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsActive, false), ct);
         if (rows == 0) throw new AppException("User not found", 404);
+    }
+
+    public async Task<UploadAvatarResponse> UploadAvatarAsync(
+        Guid userId, Guid clubId, Stream content,
+        string contentType, string fileName, CancellationToken ct = default)
+    {
+        var ext = Path.GetExtension(fileName).TrimStart('.');
+        var path = $"avatars/{clubId}/{userId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
+        var url = await storage.UploadAsync(path, content, contentType, ct);
+
+        await db.Users
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.AvatarUrl, url)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow), ct);
+
+        return new UploadAvatarResponse { AvatarUrl = url };
     }
 
     private static bool TryParseRole(string? value, out ClubRole role)

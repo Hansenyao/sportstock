@@ -195,6 +195,7 @@ internal sealed class AuthService(
             Role          = membership?.Role,
             ClubName      = membership?.Club?.Name,
             ClubLogo      = membership?.Club?.LogoUrl,
+            AvatarUrl     = user.AvatarUrl,
         };
     }
 

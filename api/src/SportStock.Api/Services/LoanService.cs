@@ -60,6 +60,7 @@ internal sealed class LoanService(
         WarehouseName = l.Warehouse != null ? l.Warehouse.Name : null,
         CoachName = l.Coach.FirstName + " " + l.Coach.LastName,
         CoachEmail = l.Coach.Email,
+        CoachAvatarUrl = l.Coach.AvatarUrl,
         CreatedByName = l.CreatedByNavigation != null
             ? l.CreatedByNavigation.FirstName + " " + l.CreatedByNavigation.LastName : null,
         ApprovedByName = l.ApprovedByNavigation != null

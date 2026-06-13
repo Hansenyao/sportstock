@@ -13,6 +13,9 @@ export interface LoanItem {
   model?: string | null;
   size?: string | null;
   quantity: number;
+  kit_id?: string | null;
+  kit_name?: string | null;
+  kit_quantity?: number | null;
   returned_quantity?: number | null;
   good_quantity?: number | null;
   minor_damage_quantity?: number | null;
@@ -62,7 +65,25 @@ export interface LoanFilters {
   limit?: number;
 }
 
-export interface CartItem {
+export interface KitCartEntry {
+  type: 'kit';
+  kit_id: string;
+  kit_name: string;
+  kit_quantity: number;
+  items: {
+    asset_type_id: string;
+    asset_name: string;
+    asset_image?: string | null;
+    brand?: string | null;
+    model?: string | null;
+    size?: string | null;
+    per_kit_quantity: number;
+    available_quantity: number;
+  }[];
+}
+
+export interface AssetCartEntry {
+  type: 'asset';
   asset_type_id: string;
   asset_name: string;
   asset_image?: string | null;
@@ -73,16 +94,30 @@ export interface CartItem {
   quantity: number;
 }
 
+export type CartEntry = KitCartEntry | AssetCartEntry;
+
 export interface CreateLoanPayload {
-  items: { asset_type_id: string; quantity: number }[];
+  items: {
+    asset_type_id: string;
+    quantity: number;
+    kit_id?: string | null;
+    kit_name?: string | null;
+    kit_quantity?: number | null;
+  }[];
   due_date: string;
   reason?: string;
   coach_id?: string;
-  team_id?: string;
+  team_id?: string | null;
 }
 
 export interface UpdateLoanPayload {
-  items?: { asset_type_id: string; quantity: number }[];
+  items?: {
+    asset_type_id: string;
+    quantity: number;
+    kit_id?: string | null;
+    kit_name?: string | null;
+    kit_quantity?: number | null;
+  }[];
   due_date?: string;
   reason?: string;
   coach_id?: string;

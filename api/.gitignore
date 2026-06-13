@@ -480,4 +480,5 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-migrations/
+# migrations/ are intentionally tracked in git
+# migrations/

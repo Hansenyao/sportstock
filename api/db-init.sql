@@ -386,6 +386,9 @@ CREATE TABLE loan_items (
     loan_id               UUID        NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
     asset_type_id         UUID        NOT NULL REFERENCES asset_types(id),
     quantity              INT         NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    kit_id                UUID        REFERENCES kits(id) ON DELETE SET NULL,
+    kit_name              VARCHAR(100),
+    kit_quantity          INT         CHECK (kit_quantity > 0),
     -- 4-bucket return breakdown (set on return; must sum to quantity)
     good_quantity         INT,
     minor_damage_quantity INT,

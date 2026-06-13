@@ -430,11 +430,20 @@ public partial class SportStockDbContext : DbContext
             entity.Property(e => e.Quantity)
                 .HasDefaultValue(1)
                 .HasColumnName("quantity");
+            entity.Property(e => e.KitId).HasColumnName("kit_id");
+            entity.Property(e => e.KitName).HasColumnName("kit_name").HasMaxLength(100);
+            entity.Property(e => e.KitQuantity).HasColumnName("kit_quantity");
             entity.Property(e => e.ReturnNotes).HasColumnName("return_notes");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("now()")
                 .HasColumnName("updated_at");
             entity.Property(e => e.WriteOffQuantity).HasColumnName("write_off_quantity");
+
+            entity.HasOne(d => d.Kit)
+                .WithMany()
+                .HasForeignKey(d => d.KitId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("loan_items_kit_id_fkey");
 
             entity.HasOne(d => d.AssetType).WithMany(p => p.LoanItems)
                 .HasForeignKey(d => d.AssetTypeId)

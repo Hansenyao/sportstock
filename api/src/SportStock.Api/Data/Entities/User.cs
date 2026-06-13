@@ -13,6 +13,7 @@ public partial class User
     public string FirstName { get; set; } = null!;
     public string LastName { get; set; } = null!;
     public string? Phone { get; set; }
+    public string? AvatarUrl { get; set; }
     public bool IsSupAdmin { get; set; }
     public bool EmailVerified { get; set; }
     public bool IsActive { get; set; }

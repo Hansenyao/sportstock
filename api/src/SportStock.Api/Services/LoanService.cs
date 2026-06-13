@@ -249,10 +249,13 @@ internal sealed class LoanService(
         {
             db.LoanItems.Add(new LoanItem
             {
-                Id = Guid.NewGuid(),
-                LoanId = loan.Id,
+                Id          = Guid.NewGuid(),
+                LoanId      = loan.Id,
                 AssetTypeId = item.AssetTypeId!.Value,
-                Quantity = item.Quantity!.Value,
+                Quantity    = item.Quantity!.Value,
+                KitId       = item.KitId,
+                KitName     = item.KitName,
+                KitQuantity = item.KitQuantity,
             });
         }
         await db.SaveChangesAsync(ct);
@@ -343,10 +346,13 @@ internal sealed class LoanService(
             {
                 db.LoanItems.Add(new LoanItem
                 {
-                    Id = Guid.NewGuid(),
-                    LoanId = loanId,
+                    Id          = Guid.NewGuid(),
+                    LoanId      = loanId,
                     AssetTypeId = item.AssetTypeId!.Value,
-                    Quantity = item.Quantity!.Value,
+                    Quantity    = item.Quantity!.Value,
+                    KitId       = item.KitId,
+                    KitName     = item.KitName,
+                    KitQuantity = item.KitQuantity,
                 });
             }
         }
@@ -646,6 +652,9 @@ internal sealed class LoanService(
                 WriteOffQuantity = li.WriteOffQuantity,
                 LostQuantity = li.LostQuantity,
                 ReturnNotes = li.ReturnNotes,
+                KitId       = li.KitId,
+                KitName     = li.KitName,
+                KitQuantity = li.KitQuantity,
                 CreatedAt = li.CreatedAt,
                 UpdatedAt = li.UpdatedAt,
                 ReturnedQuantity = (li.GoodQuantity ?? 0) + (li.MinorDamageQuantity ?? 0),

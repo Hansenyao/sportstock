@@ -173,6 +173,7 @@ CREATE TABLE users (
     first_name     VARCHAR(100) NOT NULL,
     last_name      VARCHAR(100) NOT NULL,
     phone          VARCHAR(50),
+    avatar_url     VARCHAR(255),
     is_super_admin BOOLEAN      NOT NULL DEFAULT false,
     email_verified BOOLEAN      NOT NULL DEFAULT false,
     is_active      BOOLEAN      NOT NULL DEFAULT true,

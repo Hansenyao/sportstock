@@ -21,4 +21,5 @@ public sealed class MeResult
     public ClubRole? Role { get; set; }
     public string? ClubName { get; set; }
     public string? ClubLogo { get; set; }
+    public string? AvatarUrl { get; set; }
 }

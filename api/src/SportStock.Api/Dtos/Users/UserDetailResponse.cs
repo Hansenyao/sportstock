@@ -13,6 +13,7 @@ public sealed class UserDetailResponse
     public ClubRole Role { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string? AvatarUrl { get; set; }
     public IReadOnlyList<UserTeamMembership> Teams { get; set; } = Array.Empty<UserTeamMembership>();
 }
 

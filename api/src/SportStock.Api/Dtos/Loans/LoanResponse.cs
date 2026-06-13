@@ -31,6 +31,7 @@ public sealed class LoanResponse
 
     public string CoachName { get; set; } = string.Empty;
     public string CoachEmail { get; set; } = string.Empty;
+    public string? CoachAvatarUrl { get; set; }
     public string? CreatedByName { get; set; }
     public string? ApprovedByName { get; set; }
     public string? CheckoutByName { get; set; }

@@ -96,4 +96,23 @@ public sealed class UsersController(IUserService users) : ControllerBase
         await users.DeactivateAsync(id, currentUser.ActiveClubId.Value, currentUser.UserId, ct);
         return NoContent();
     }
+
+    [HttpPut("me/avatar")]
+    [RequestSizeLimit(5 * 1024 * 1024)]
+    public async Task<IActionResult> UploadAvatar(
+        IFormFile? avatar,
+        [FromServices] ICurrentUser currentUser,
+        CancellationToken ct)
+    {
+        if (avatar is null || avatar.Length == 0)
+            throw new AppException("No file provided", 400);
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+
+        await using var stream = avatar.OpenReadStream();
+        var result = await users.UploadAvatarAsync(
+            currentUser.UserId, currentUser.ActiveClubId.Value,
+            stream, avatar.ContentType, avatar.FileName, ct);
+        return Ok(result);
+    }
 }

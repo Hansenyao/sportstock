@@ -11,6 +11,7 @@ export interface ClubUser {
   role: ClubRole;
   is_active: boolean;
   created_at: string;
+  avatar_url?: string | null;
   teams?: UserTeamMembership[];
 }
 
@@ -42,3 +43,11 @@ export const updateMemberRole = (clubId: string, userId: string, role: ClubRole)
 
 export const removeMember = (clubId: string, userId: string) =>
   client.delete(`/clubs/${clubId}/members/${userId}`);
+
+export const uploadMyAvatar = (file: File) => {
+  const form = new FormData();
+  form.append('avatar', file);
+  return client.put<{ avatar_url: string }>('/users/me/avatar', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};

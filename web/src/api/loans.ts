@@ -30,6 +30,7 @@ export interface Loan {
   coach_id: string;
   coach_name: string;
   coach_email?: string;
+  coach_avatar_url?: string | null;
   team_id?: string | null;
   team_name?: string | null;
   created_by?: string | null;

@@ -49,6 +49,7 @@ export interface MeResult {
   active_club_id?: string | null;
   role?: ClubRole | null;
   club_name?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface PendingInvitation {

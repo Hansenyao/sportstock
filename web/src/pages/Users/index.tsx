@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   Table, Button, Tag, Modal, Form, Select,
-  Typography, Flex, App, Popconfirm, Space, Divider, Empty, Input, Spin,
+  Typography, Flex, App, Popconfirm, Space, Divider, Empty, Input, Spin, Avatar,
 } from 'antd';
 import {
   UserAddOutlined, EditOutlined, StopOutlined, InfoCircleOutlined, CloseOutlined,
@@ -222,6 +222,24 @@ export default function UsersPage() {
   // ── Table columns ─────────────────────────────────────────────────────────
 
   const columns = [
+    {
+      title: '',
+      key: 'avatar',
+      width: 48,
+      render: (_: unknown, row: TableRow) => {
+        const name = row._type === 'member' ? row.name : `${row.first_name} ${row.last_name}`;
+        const avatarUrl = row._type === 'member' ? (row as ClubUser).avatar_url : undefined;
+        return (
+          <Avatar
+            size={32}
+            src={avatarUrl ?? undefined}
+            style={{ backgroundColor: '#1677ff', flexShrink: 0 }}
+          >
+            {!avatarUrl && name.charAt(0).toUpperCase()}
+          </Avatar>
+        );
+      },
+    },
     {
       title: 'Name',
       key: 'name',

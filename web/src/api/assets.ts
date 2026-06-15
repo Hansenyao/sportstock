@@ -131,3 +131,7 @@ export const retireByQuantity = (typeId: string, quantity: number, notes?: strin
 // POST /assets/{typeId}/items/write-off → 204 No Content (body: { quantity, reason })
 export const writeOffByQuantity = (typeId: string, quantity: number, reason: string) =>
   client.post<void>(`/assets/${typeId}/items/write-off`, { quantity, reason });
+
+// DELETE /assets/items/{itemId} → 204 No Content (only for available items, correction use)
+export const deleteItem = (itemId: string) =>
+  client.delete<void>(`/assets/items/${itemId}`);

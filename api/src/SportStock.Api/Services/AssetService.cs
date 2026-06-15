@@ -28,7 +28,8 @@ namespace SportStock.Api.Services;
 //     status filter into a CASE expression mapped via FromSqlInterpolated.
 internal sealed class AssetService(
     SportStockDbContext db,
-    ISupabaseStorage storage) : IAssetService
+    ISupabaseStorage storage,
+    IAuditLogService audit) : IAssetService
 {
     private static readonly HashSet<string> ValidStatusFilter = new(StringComparer.Ordinal)
     {
@@ -429,7 +430,7 @@ internal sealed class AssetService(
     }
 
     public async Task<AssetTypeResponse> UpdateBatchAsync(
-        Guid batchId, Guid typeId, Guid clubId, UpdateBatchRequest req, CancellationToken ct = default)
+        Guid batchId, Guid typeId, Guid clubId, Guid operatorId, UpdateBatchRequest req, CancellationToken ct = default)
     {
         var batch = await (
             from b in db.AssetBatches.IgnoreQueryFilters()
@@ -438,6 +439,11 @@ internal sealed class AssetService(
             select b
         ).FirstOrDefaultAsync(ct);
         if (batch is null) throw new AppException("Batch not found", 404);
+
+        var oldPrice = batch.PurchasePrice;
+        var oldDate  = batch.PurchaseDate;
+        var oldLife  = batch.UsefulLifeYears;
+        var oldNotes = batch.Notes;
 
         ApplyNullableDate(req.PurchaseDate, v => batch.PurchaseDate = v);
         ApplyNullableDecimal(req.PurchasePrice, v => batch.PurchasePrice = v);
@@ -449,6 +455,17 @@ internal sealed class AssetService(
         batch.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
+
+        var changes = new Dictionary<string, object?>();
+        if (batch.PurchasePrice != oldPrice)    changes["purchase_price"]    = new { from = oldPrice, to = batch.PurchasePrice };
+        if (batch.PurchaseDate  != oldDate)     changes["purchase_date"]     = new { from = oldDate?.ToString(), to = batch.PurchaseDate?.ToString() };
+        if (batch.UsefulLifeYears != oldLife)   changes["useful_life_years"] = new { from = oldLife, to = batch.UsefulLifeYears };
+        if (batch.Notes         != oldNotes)    changes["notes"]             = new { from = oldNotes, to = batch.Notes };
+
+        if (changes.Count > 0)
+            await audit.LogAsync("asset_batch.updated", clubId, operatorId,
+                "asset_batch", batchId, new { batch_id = batchId, asset_type_id = typeId, changes });
+
         return await GetAsync(typeId, clubId, ct);
     }
 
@@ -604,6 +621,29 @@ internal sealed class AssetService(
             item.UpdatedAt = DateTime.UtcNow;
         }
         await db.SaveChangesAsync();
+    }
+
+    public async Task DeleteItemAsync(Guid itemId, Guid clubId, Guid operatorId)
+    {
+        var item = await db.AssetItems
+            .FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+
+        if (item.Status != AssetItemStatus.Available)
+            throw new AppException("Only available items can be deleted (correction use only)", 409);
+
+        var hasLoanHistory = await db.LoanItemAssignments
+            .AnyAsync(a => a.AssetItemId == itemId);
+        if (hasLoanHistory)
+            throw new AppException("Item has loan history and cannot be deleted", 409);
+
+        db.AssetItems.Remove(item);
+        await db.SaveChangesAsync();
+
+        await audit.LogAsync("asset_item.deleted", clubId, operatorId,
+            "asset_item", itemId,
+            new { item_id = itemId, asset_type_id = item.AssetTypeId, batch_id = item.BatchId,
+                  serial_number = item.SerialNumber, warehouse_id = item.WarehouseId });
     }
 
     private static string AssetItemStatusToSnakeCase(AssetItemStatus status) => status switch

@@ -166,7 +166,7 @@ public sealed class AssetsController(IAssetService service) : ControllerBase
         if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var result = await service.UpdateBatchAsync(
-            batchId, id, currentUser.ActiveClubId.Value, body, ct);
+            batchId, id, currentUser.ActiveClubId.Value, currentUser.UserId, body, ct);
         return Ok(result);
     }
 
@@ -242,6 +242,18 @@ public sealed class AssetsController(IAssetService service) : ControllerBase
         if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         await service.RetireItemAsync(itemId, currentUser.ActiveClubId.Value);
+        return NoContent();
+    }
+
+    [HttpDelete("items/{itemId:guid}")]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
+    public async Task<IActionResult> DeleteItem(
+        Guid itemId,
+        [FromServices] ICurrentUser currentUser)
+    {
+        if (currentUser.ActiveClubId is null)
+            throw new AppException("You have not joined a club yet", 404);
+        await service.DeleteItemAsync(itemId, currentUser.ActiveClubId.Value, currentUser.UserId);
         return NoContent();
     }
 

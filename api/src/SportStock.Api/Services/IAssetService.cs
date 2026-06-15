@@ -19,7 +19,7 @@ public interface IAssetService
 
     // Batches
     Task<AssetTypeResponse> AddBatchAsync(Guid typeId, Guid clubId, Guid operatorId, CreateBatchRequest req, CancellationToken ct = default);
-    Task<AssetTypeResponse> UpdateBatchAsync(Guid batchId, Guid typeId, Guid clubId, UpdateBatchRequest req, CancellationToken ct = default);
+    Task<AssetTypeResponse> UpdateBatchAsync(Guid batchId, Guid typeId, Guid clubId, Guid operatorId, UpdateBatchRequest req, CancellationToken ct = default);
 
     // Depreciation
     Task<DepreciationResponse> GetDepreciationAsync(Guid batchId, Guid clubId, CancellationToken ct = default);
@@ -32,4 +32,5 @@ public interface IAssetService
     Task RetireItemsByQuantityAsync(Guid assetTypeId, int quantity, string? notes, Guid clubId);
     Task WriteOffItemAsync(Guid itemId, string reason, Guid clubId);
     Task WriteOffItemsByQuantityAsync(Guid assetTypeId, int quantity, string reason, Guid clubId);
+    Task DeleteItemAsync(Guid itemId, Guid clubId, Guid operatorId);
 }

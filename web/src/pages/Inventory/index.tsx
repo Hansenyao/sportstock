@@ -18,7 +18,7 @@ import {
   listCategories, uploadAssetImage,
   addBatch, updateBatch,
   getAssetItems, updateAssetItem, retireItem, writeOffItem,
-  retireByQuantity, writeOffByQuantity,
+  retireByQuantity, writeOffByQuantity, deleteItem,
   type AssetType, type AssetBatch, type AssetStatus, type Category,
   type AssetFilters, type AssetItem,
 } from '../../api/assets';
@@ -260,6 +260,19 @@ export default function InventoryPage() {
         }
       },
     });
+  }
+
+  async function handleDeleteItem(item: AssetItem) {
+    try {
+      await deleteItem(item.id);
+      message.success('Item deleted');
+      reloadItems();
+      fetchAssets();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? 'Failed to delete item';
+      message.error(msg);
+    }
   }
 
   // Count items without serial numbers that are available for batch actions
@@ -870,6 +883,19 @@ export default function InventoryPage() {
                 style={{ color: '#ff4d4f' }}
                 onClick={() => handleWriteOffItem(item)} />
             </Tooltip>
+          )}
+          {item.status === 'available' && (
+            <Popconfirm
+              title="Delete this item?"
+              description="Use only to correct data entry errors. This cannot be undone."
+              onConfirm={() => handleDeleteItem(item)}
+              okText="Delete"
+              okButtonProps={{ danger: true }}
+            >
+              <Tooltip title="Delete (correction only)">
+                <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+              </Tooltip>
+            </Popconfirm>
           )}
         </Space>
       ),

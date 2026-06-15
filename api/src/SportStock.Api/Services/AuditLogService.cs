@@ -65,7 +65,8 @@ public sealed class AuditLogService(SportStockDbContext db, ILogger<AuditLogServ
                 l.EntityType, l.EntityId, l.CreatedAt,
                 db.Users.Where(u => u.Id == l.UserId)
                     .Select(u => u.FirstName + " " + u.LastName)
-                    .FirstOrDefault()))
+                    .FirstOrDefault(),
+                l.Meta))
             .ToListAsync();
 
         return new PaginatedResult<AuditLogDto>

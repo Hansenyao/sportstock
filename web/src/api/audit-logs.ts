@@ -8,7 +8,7 @@ export interface AuditLog {
   user_id?: string | null;
   performed_by?: string | null;
   ip_address?: string | null;
-  meta?: unknown;
+  meta?: Record<string, unknown> | null;
   created_at: string;
 }
 

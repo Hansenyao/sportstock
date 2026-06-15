@@ -41,9 +41,10 @@ public static class StoredProcedures
         this SportStockDbContext db,
         Guid loanItemId,
         string condition,
+        Guid? warehouseId = null,
         CancellationToken ct = default) =>
         db.Database.ExecuteSqlAsync(
-            $"CALL return_loan_item({loanItemId}, {condition})", ct);
+            $"CALL return_loan_item({loanItemId}, {condition}, {warehouseId})", ct);
 
     public static Task<int> CompleteMaintenanceAsync(
         this SportStockDbContext db,

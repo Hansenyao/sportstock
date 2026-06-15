@@ -477,6 +477,7 @@ export default function LoansPage() {
       minor_damage_quantity: 0,
       write_off_quantity: 0,
       lost_quantity: 0,
+      warehouse_id: loan.warehouse_id ?? null,
     })));
     setReturnNotes('');
     setReturnOpen(true);
@@ -501,7 +502,10 @@ export default function LoansPage() {
     if (!returningLoan) return;
     setConfirming(true);
     try {
-      await confirmReturn(returningLoan.id, { items: returnItems, notes: returnNotes || undefined });
+      await confirmReturn(returningLoan.id, {
+        items: returnItems,
+        notes: returnNotes || undefined,
+      });
       message.success('Return confirmed');
       setReturnOpen(false);
       fetchLoans();
@@ -1359,108 +1363,137 @@ export default function LoansPage() {
 
       {/* ── Confirm Return Modal ──────────────────────────────────────────────── */}
       <Modal open={returnOpen} title="Confirm Return" onCancel={() => setReturnOpen(false)}
-        footer={null} width={isMobile ? '95vw' : 580} destroyOnClose>
-        {returningLoan && (
-          <div style={{ marginTop: 12 }}>
-            {returningLoan.items.map((item) => {
-              const ri = returnItems.find(r => r.loan_item_id === item.id);
-              if (!ri) return null;
-              const total = ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity;
-              const isValid = total === item.quantity;
-              const autoNote = buildReturnNote(ri);
-              return (
-                <Card key={item.id} size="small" style={{ marginBottom: 12 }}>
-                  <Flex align="center" gap={10} style={{ marginBottom: 10 }}>
-                    <AssetThumb src={item.asset_image} size={36} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text strong>{item.asset_name}</Text>
-                      <Text style={{ fontSize: 12, color: '#8c8c8c', display: 'block' }}>
-                        {[item.brand, item.size && `Size: ${item.size}`]
-                          .filter(Boolean).join(' · ')}
-                        {' '}· Loaned: <Text strong>{item.quantity}</Text>
-                      </Text>
-                    </div>
-                  </Flex>
+        footer={null} width={isMobile ? '95vw' : 600} destroyOnClose>
+        {returningLoan && (() => {
+          // Group items by kit (same logic as expanded row)
+          const kitGroups = new Map<string, { name: string; qty: number; items: LoanItem[] }>();
+          const standalone: LoanItem[] = [];
+          for (const item of returningLoan.items) {
+            if (item.kit_id && item.kit_name && item.kit_quantity) {
+              if (!kitGroups.has(item.kit_id))
+                kitGroups.set(item.kit_id, { name: item.kit_name, qty: item.kit_quantity, items: [] });
+              kitGroups.get(item.kit_id)!.items.push(item);
+            } else {
+              standalone.push(item);
+            }
+          }
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#52c41a', display: 'block', marginBottom: 4 }}>Good</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.good_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'good_quantity', v ?? 0)}
-                      />
-                    </div>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#faad14', display: 'block', marginBottom: 4 }}>Minor Damage</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.minor_damage_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'minor_damage_quantity', v ?? 0)}
-                      />
-                    </div>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#ff7a45', display: 'block', marginBottom: 4 }}>Write-off</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.write_off_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'write_off_quantity', v ?? 0)}
-                      />
-                    </div>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#ff4d4f', display: 'block', marginBottom: 4 }}>Lost</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.lost_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'lost_quantity', v ?? 0)}
-                      />
+          const isAllValid = !returnItems.some(ri => {
+            const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
+            return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
+          });
+
+          function renderReturnItemCard(item: LoanItem) {
+            const ri = returnItems.find(r => r.loan_item_id === item.id);
+            if (!ri) return null;
+            const total = ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity;
+            const isValid = total === item.quantity;
+            const autoNote = buildReturnNote(ri);
+            return (
+              <Card key={item.id} size="small" style={{ marginBottom: 8 }}>
+                <Flex align="center" gap={10} style={{ marginBottom: 10 }}>
+                  <AssetThumb src={item.asset_image} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Text strong>{item.asset_name}</Text>
+                    <Text style={{ fontSize: 12, color: '#8c8c8c', display: 'block' }}>
+                      {[item.brand, item.size && `Size: ${item.size}`].filter(Boolean).join(' · ')}
+                      {' '}· Loaned: <Text strong>{item.quantity}</Text>
+                    </Text>
+                  </div>
+                </Flex>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#52c41a', display: 'block', marginBottom: 4 }}>Good</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.good_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'good_quantity', v ?? 0)} />
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#faad14', display: 'block', marginBottom: 4 }}>Minor Damage</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.minor_damage_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'minor_damage_quantity', v ?? 0)} />
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#ff7a45', display: 'block', marginBottom: 4 }}>Write-off</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.write_off_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'write_off_quantity', v ?? 0)} />
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#ff4d4f', display: 'block', marginBottom: 4 }}>Lost</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.lost_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'lost_quantity', v ?? 0)} />
+                  </div>
+                </div>
+
+                <Flex align="center" gap={8} style={{ marginBottom: 6 }}>
+                  <Text style={{ fontSize: 11, color: '#8c8c8c', flexShrink: 0 }}>Return to:</Text>
+                  <Select
+                    size="small" style={{ flex: 1 }}
+                    value={ri.warehouse_id ?? undefined}
+                    onChange={v => updateReturnItem(item.id, 'warehouse_id', v)}
+                    options={warehouses.map(w => ({ value: w.id, label: w.name }))}
+                    placeholder="Select warehouse"
+                  />
+                </Flex>
+
+                <div style={{ marginBottom: 4 }}>
+                  {isValid
+                    ? <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Summary: {autoNote}</Text>
+                    : <Text type="danger" style={{ fontSize: 11 }}>⚠ Total must equal {item.quantity} (currently {total})</Text>
+                  }
+                </div>
+
+                <Input.TextArea rows={1} placeholder="Additional notes (optional)"
+                  value={ri.notes ?? ''} onChange={e => updateReturnItem(item.id, 'notes', e.target.value)} />
+              </Card>
+            );
+          }
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '70vh', marginTop: 12 }}>
+              {/* Scrollable items area */}
+              <div style={{ overflowY: 'auto', flex: 1, paddingRight: 4 }}>
+                {/* Kit groups */}
+                {[...kitGroups.entries()].map(([kitId, group]) => (
+                  <div key={kitId} style={{ marginBottom: 12 }}>
+                    <Flex align="center" gap={6} style={{ marginBottom: 6 }}>
+                      <Text strong style={{ fontSize: 13 }}>{group.name}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>×{group.qty}</Text>
+                    </Flex>
+                    <div style={{ paddingLeft: 12, borderLeft: '2px solid #f0f0f0' }}>
+                      {group.items.map(renderReturnItemCard)}
                     </div>
                   </div>
+                ))}
 
-                  <div style={{ marginTop: 8 }}>
-                    {isValid ? (
-                      <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Summary: {autoNote}</Text>
-                    ) : (
-                      <Text type="danger" style={{ fontSize: 11 }}>
-                        ⚠ Total must equal {item.quantity} (currently {total})
-                      </Text>
-                    )}
-                  </div>
+                {/* Standalone items */}
+                {standalone.map(renderReturnItemCard)}
+              </div>
 
-                  <Input.TextArea rows={1} placeholder="Additional notes (optional)" style={{ marginTop: 6 }}
-                    value={ri.notes ?? ''} onChange={e => updateReturnItem(item.id, 'notes', e.target.value)} />
-                </Card>
-              );
-            })}
-
-            <Form.Item label="Overall return notes (optional)" style={{ marginBottom: 12 }}>
-              <TextArea rows={2} value={returnNotes} onChange={e => setReturnNotes(e.target.value)} />
-            </Form.Item>
-            <Flex gap={8} justify="flex-end">
-              <Button onClick={() => setReturnOpen(false)}>Cancel</Button>
-              <Popconfirm
-                title="Confirm Return"
-                description="This action cannot be undone. Write-offs and lost items will be recorded immediately."
-                onConfirm={handleConfirmReturn}
-                okText="Confirm"
-                disabled={returnItems.some(ri => {
-                  const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
-                  return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
-                })}
-              >
-                <Button
-                  type="primary" loading={confirming}
-                  disabled={returnItems.some(ri => {
-                    const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
-                    return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
-                  })}
-                >
-                  Confirm Return
-                </Button>
-              </Popconfirm>
-            </Flex>
-          </div>
-        )}
+              {/* Fixed footer */}
+              <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, marginTop: 8, flexShrink: 0 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <Text style={{ display: 'block', marginBottom: 4, fontSize: 14 }}>Overall return notes (optional)</Text>
+                  <TextArea rows={2} value={returnNotes} onChange={e => setReturnNotes(e.target.value)} />
+                </div>
+                <Flex gap={8} justify="flex-end">
+                  <Button onClick={() => setReturnOpen(false)}>Cancel</Button>
+                  <Popconfirm
+                    title="Confirm Return"
+                    description="This action cannot be undone. Write-offs and lost items will be recorded immediately."
+                    onConfirm={handleConfirmReturn}
+                    okText="Confirm"
+                    disabled={!isAllValid}
+                  >
+                    <Button type="primary" loading={confirming} disabled={!isAllValid}>
+                      Confirm Return
+                    </Button>
+                  </Popconfirm>
+                </Flex>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* ── Edit Loan Drawer ──────────────────────────────────────────────────── */}

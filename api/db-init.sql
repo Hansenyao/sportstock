@@ -42,6 +42,7 @@ DROP VIEW IF EXISTS asset_batch_summary;
 
 -- Functions and procedures
 DROP PROCEDURE IF EXISTS return_loan_item(UUID, VARCHAR);
+DROP PROCEDURE IF EXISTS return_loan_item(UUID, VARCHAR, UUID);
 DROP PROCEDURE IF EXISTS checkout_loan(UUID);
 DROP PROCEDURE IF EXISTS complete_maintenance(UUID, UUID, INT, TEXT);
 DROP PROCEDURE IF EXISTS retire_batch(UUID, UUID, INT, TEXT);
@@ -815,7 +816,8 @@ $$;
 --   p_condition: 'good' -> available, 'damaged' -> maintenance, anything else -> written_off
 CREATE OR REPLACE PROCEDURE return_loan_item(
     p_loan_item_id UUID,
-    p_condition    VARCHAR
+    p_condition    VARCHAR,
+    p_warehouse_id UUID DEFAULT NULL
 ) LANGUAGE plpgsql AS $$
 DECLARE
     v_new_status asset_item_status;
@@ -827,8 +829,9 @@ BEGIN
     END;
 
     UPDATE asset_items ai
-    SET    status     = v_new_status,
-           updated_at = NOW()
+    SET    status       = v_new_status,
+           warehouse_id = COALESCE(p_warehouse_id, ai.warehouse_id),
+           updated_at   = NOW()
     FROM   loan_item_assignments lia
     WHERE  lia.loan_item_id  = p_loan_item_id
       AND  lia.asset_item_id = ai.id;

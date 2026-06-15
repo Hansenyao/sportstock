@@ -12,4 +12,5 @@ public sealed class ReturnItemInput
     public int WriteOffQuantity { get; set; }
     public int LostQuantity { get; set; }
     public string? Notes { get; set; }
+    public Guid? WarehouseId { get; set; }
 }

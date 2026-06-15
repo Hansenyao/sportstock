@@ -141,7 +141,7 @@ internal sealed class AuthService(
             user.IsSupAdmin,
             activeClubId,
             activeRole,
-            memberships.Select(m => new ClubSummary(m.ClubId, m.Club.Name, m.Role)).ToList());
+            memberships.Select(m => new ClubSummary(m.ClubId, m.Club.Name, m.Role, m.Club.LogoUrl)).ToList());
     }
 
     // ── Select club: exchange unscoped token for scoped ───────────────────────

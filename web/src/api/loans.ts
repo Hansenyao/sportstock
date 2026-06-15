@@ -132,6 +132,7 @@ export interface ReturnItemPayload {
   write_off_quantity: number;
   lost_quantity: number;
   notes?: string;
+  warehouse_id?: string | null;
 }
 
 export interface ConfirmReturnPayload {

@@ -36,13 +36,15 @@ public sealed class ClubSummary
     public Guid ClubId { get; set; }
     public string ClubName { get; set; } = string.Empty;
     public ClubRole Role { get; set; }
+    public string? LogoUrl { get; set; }
 
     public ClubSummary() { }
 
-    public ClubSummary(Guid clubId, string clubName, ClubRole role)
+    public ClubSummary(Guid clubId, string clubName, ClubRole role, string? logoUrl = null)
     {
         ClubId = clubId;
         ClubName = clubName;
         Role = role;
+        LogoUrl = logoUrl;
     }
 }

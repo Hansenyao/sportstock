@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Tag, Typography, Card, Empty, Space, App } from 'antd';
+import { Table, Button, Tag, Typography, Card, Empty, Space, App, Avatar, Flex } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useAuth } from '../../contexts/AuthContext';
 import * as membershipsApi from '../../api/memberships';
@@ -8,7 +8,7 @@ import type { PendingInvitation, ClubMembership } from '../../types';
 const { Title } = Typography;
 
 export default function MyClubsPage() {
-  const { user, selectClub, refreshInvitationCount, updateUserClubs } = useAuth();
+  const { user, activeClub, selectClub, refreshInvitationCount, updateUserClubs } = useAuth();
   const { message } = App.useApp();
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loadingInv, setLoadingInv] = useState(false);
@@ -68,9 +68,24 @@ export default function MyClubsPage() {
   ];
 
   const clubColumns: ColumnsType<ClubMembership> = [
-    { title: 'Club', dataIndex: 'club_name', key: 'club_name' },
+    {
+      title: 'Club', key: 'club_name',
+      render: (_: unknown, m: ClubMembership) => (
+        <Flex align="center" gap={10}>
+          <Avatar shape="square" size={32} src={m.logo_url ?? undefined}
+            style={{ background: '#1677ff', flexShrink: 0, fontSize: 14 }}>
+            {!m.logo_url && m.club_name.charAt(0).toUpperCase()}
+          </Avatar>
+          <span>{m.club_name}</span>
+        </Flex>
+      ),
+    },
     { title: 'Role', dataIndex: 'role', key: 'role', render: (r: string) => <Tag>{r.replace(/_/g, ' ')}</Tag> },
-    { title: 'Action', key: 'action', render: (_: unknown, m: ClubMembership) => <Button size="small" onClick={() => void selectClub(m.club_id)}>Switch to this club</Button> },
+    { title: 'Action', key: 'action', render: (_: unknown, m: ClubMembership) =>
+      m.club_id === activeClub?.club_id
+        ? null
+        : <Button size="small" onClick={() => void selectClub(m.club_id)}>Switch to this club</Button>
+    },
   ];
 
   return (

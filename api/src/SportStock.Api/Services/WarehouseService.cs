@@ -13,7 +13,8 @@ public sealed class WarehouseService(SportStockDbContext db) : IWarehouseService
         var items = await db.Warehouses
             .Where(w => w.ClubId == clubId && w.IsActive)
             .OrderBy(w => w.Name)
-            .Select(w => new WarehouseDto(w.Id, w.Name, w.Description, w.Address))
+            .Select(w => new WarehouseDto(w.Id, w.Name, w.Description, w.Address,
+                db.AssetItems.Count(i => i.WarehouseId == w.Id)))
             .ToListAsync();
 
         return new WarehouseListResult(items, AutoSelect: items.Count == 1);
@@ -35,7 +36,7 @@ public sealed class WarehouseService(SportStockDbContext db) : IWarehouseService
         };
         db.Warehouses.Add(w);
         await db.SaveChangesAsync();
-        return new WarehouseDto(w.Id, w.Name, w.Description, w.Address);
+        return new WarehouseDto(w.Id, w.Name, w.Description, w.Address, AssetCount: 0);
     }
 
     public async Task UpdateAsync(Guid clubId, Guid warehouseId, UpdateWarehouseRequest req)

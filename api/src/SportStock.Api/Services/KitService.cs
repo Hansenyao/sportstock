@@ -13,7 +13,14 @@ public sealed class KitService(SportStockDbContext db) : IKitService
         => await db.Kits
             .Where(k => k.ClubId == clubId && k.IsActive)
             .OrderBy(k => k.Name)
-            .Select(k => new KitDto(k.Id, k.Name, k.Description, k.IsActive))
+            .Select(k => new KitDto(k.Id, k.Name, k.Description, k.IsActive,
+                db.LoanItems
+                    .Where(li => li.KitId == k.Id
+                        && li.Loan.Status != LoanStatus.Returned
+                        && li.Loan.Status != LoanStatus.Rejected)
+                    .Select(li => li.Loan.Id)
+                    .Distinct()
+                    .Count()))
             .ToListAsync();
 
     public async Task<KitDetailDto> GetAsync(Guid kitId, Guid clubId)
@@ -59,7 +66,7 @@ public sealed class KitService(SportStockDbContext db) : IKitService
         };
         db.Kits.Add(kit);
         await db.SaveChangesAsync();
-        return new KitDto(kit.Id, kit.Name, kit.Description, kit.IsActive);
+        return new KitDto(kit.Id, kit.Name, kit.Description, kit.IsActive, ActiveLoanCount: 0);
     }
 
     public async Task UpdateAsync(Guid kitId, Guid clubId, UpdateKitRequest req)

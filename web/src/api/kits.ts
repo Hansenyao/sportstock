@@ -25,6 +25,7 @@ export interface KitListItem {
   name: string;
   description?: string | null;
   is_active: boolean;
+  active_loan_count: number;
 }
 
 // GET /kits → List<KitDto> (plain array)

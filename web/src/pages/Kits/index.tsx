@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Typography, Space, Popconfirm, App,
-  Badge, InputNumber, Divider, Descriptions, Select,
+  Badge, InputNumber, Divider, Descriptions, Select, Tooltip,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -140,9 +140,11 @@ export default function KitsPage() {
         <Space>
           <Button size="small" onClick={() => void openDetail(k)}>Details</Button>
           <Button size="small" onClick={() => openEdit(k)}>Edit</Button>
-          <Popconfirm title="Delete this kit?" onConfirm={() => void handleDelete(k.id)}>
-            <Button size="small" danger>Delete</Button>
-          </Popconfirm>
+          <Tooltip title={k.active_loan_count > 0 ? 'Cannot delete: kit is used in active loans' : undefined}>
+            <Popconfirm title="Delete this kit?" onConfirm={() => void handleDelete(k.id)} disabled={k.active_loan_count > 0}>
+              <Button size="small" danger disabled={k.active_loan_count > 0}>Delete</Button>
+            </Popconfirm>
+          </Tooltip>
         </Space>
       ),
     },

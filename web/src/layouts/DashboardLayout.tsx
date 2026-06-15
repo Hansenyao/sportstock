@@ -126,8 +126,14 @@ export default function DashboardLayout() {
     ...(user?.clubs ?? []).map(c => ({
       key: c.club_id,
       label: (
-        <Flex justify="space-between" gap={8}>
-          <span>{c.club_name}</span>
+        <Flex align="center" justify="space-between" gap={8}>
+          <Flex align="center" gap={8}>
+            <Avatar shape="square" size={20} src={c.logo_url ?? undefined}
+              style={{ background: '#1677ff', flexShrink: 0, fontSize: 11 }}>
+              {!c.logo_url && c.club_name.charAt(0).toUpperCase()}
+            </Avatar>
+            <span>{c.club_name}</span>
+          </Flex>
           <Tag style={{ margin: 0, fontSize: 10 }}>{c.role.replace(/_/g, ' ')}</Tag>
         </Flex>
       ),
@@ -252,7 +258,7 @@ export default function DashboardLayout() {
             {/* User avatar dropdown */}
             <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenu }} trigger={['click']}>
               <Flex align="center" gap={8} style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: 6, border: '1px solid #f0f0f0' }}>
-                <Avatar size={32} style={{ background: '#1677ff', flexShrink: 0 }}>
+                <Avatar size={32} src={user?.avatar_url ?? undefined} style={{ background: '#1677ff', flexShrink: 0 }}>
                   {user?.first_name?.[0]?.toUpperCase()}
                 </Avatar>
                 {!isMobile && (

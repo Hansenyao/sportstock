@@ -8,7 +8,7 @@ import { uploadMyAvatar } from '../../api/users';
 const { Title, Text } = Typography;
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { message } = App.useApp();
   const [profileForm] = Form.useForm();
   const [pwForm] = Form.useForm();
@@ -40,6 +40,7 @@ export default function ProfilePage() {
         try {
           const res = await uploadMyAvatar(avatarFile);
           setAvatarPreview(res.data.avatar_url);
+          await refreshUser();
         } catch {
           message.warning('Profile saved, but avatar upload failed.');
         }

@@ -6,6 +6,7 @@ export interface ClubMembership {
   club_id: string;
   club_name: string;
   role: ClubRole;
+  logo_url?: string | null;
 }
 
 // Stored in localStorage after login. clubs[] comes from LoginResult.
@@ -16,6 +17,7 @@ export interface AuthUser {
   email: string;
   phone?: string | null;
   is_sup_admin: boolean;
+  avatar_url?: string | null;
   clubs: ClubMembership[];
 }
 

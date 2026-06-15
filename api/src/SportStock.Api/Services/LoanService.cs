@@ -553,7 +553,7 @@ internal sealed class LoanService(
 
             // The SP updates asset_item.status for all assignments and removes
             // the loan_item_assignments rows for this loan_item.
-            await db.ReturnLoanItemAsync(ri.LoanItemId, condition, ct);
+            await db.ReturnLoanItemAsync(ri.LoanItemId, condition, ri.WarehouseId, ct);
 
             // Write-off / lost orders are still tracked at the application
             // layer so the inventory audit trail remains complete.

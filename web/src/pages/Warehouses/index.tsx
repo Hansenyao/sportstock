@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Modal, Form, Input, Typography, Space, Popconfirm, App } from 'antd';
+import { Table, Button, Modal, Form, Input, Typography, Space, Popconfirm, App, Tooltip } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import * as api from '../../api/warehouses';
@@ -61,9 +61,11 @@ export default function WarehousesPage() {
       render: (_: unknown, w: Warehouse) => (
         <Space>
           <Button size="small" onClick={() => openEdit(w)}>Edit</Button>
-          <Popconfirm title="Delete this warehouse?" onConfirm={() => void handleDelete(w.id)}>
-            <Button size="small" danger>Delete</Button>
-          </Popconfirm>
+          <Tooltip title={w.asset_count > 0 ? 'Cannot delete: warehouse has asset items' : undefined}>
+            <Popconfirm title="Delete this warehouse?" onConfirm={() => void handleDelete(w.id)} disabled={w.asset_count > 0}>
+              <Button size="small" danger disabled={w.asset_count > 0}>Delete</Button>
+            </Popconfirm>
+          </Tooltip>
         </Space>
       ),
     },

@@ -1,11 +1,12 @@
 import client from './client';
 
-// Matches backend WarehouseDto(Guid Id, string Name, string? Description)
+// Matches backend WarehouseDto(Guid Id, string Name, string? Description, string? Address, int AssetCount)
 export interface Warehouse {
   id: string;
   name: string;
   description?: string | null;
   address?: string | null;
+  asset_count: number;
 }
 
 // Matches backend WarehouseListResult(List<WarehouseDto> Items, bool AutoSelect)

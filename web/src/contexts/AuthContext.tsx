@@ -17,6 +17,7 @@ interface AuthContextValue {
   logout: () => void;
   refreshInvitationCount: () => Promise<void>;
   updateUserClubs: (clubs: ClubMembership[]) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -80,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: me.email,
       phone: me.phone,
       is_sup_admin: me.is_sup_admin,
+      avatar_url: me.avatar_url,
       clubs: result.clubs,
     };
     localStorage.setItem('user', JSON.stringify(authUser));
@@ -117,6 +119,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const meRes = await authApi.getMe();
+    const me = meRes.data;
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated: AuthUser = { ...prev, first_name: me.first_name, last_name: me.last_name, email: me.email, phone: me.phone, avatar_url: me.avatar_url };
+      localStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
   // Startup: validate stored token
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
@@ -136,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: me.email,
           phone: me.phone,
           is_sup_admin: me.is_sup_admin,
+          avatar_url: me.avatar_url,
           clubs: storedUser?.clubs ?? [],
         };
         localStorage.setItem('user', JSON.stringify(authUser));
@@ -160,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       token, user, activeClub, pendingInvitationCount,
       isValidating, isAuthenticated: !!token,
-      login, selectClub, logout, refreshInvitationCount, updateUserClubs,
+      login, selectClub, logout, refreshInvitationCount, updateUserClubs, refreshUser,
     }}>
       {children}
     </AuthContext.Provider>

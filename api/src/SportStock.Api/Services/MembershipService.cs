@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SportStock.Api.Audit;
 using SportStock.Api.Data;
 using SportStock.Api.Data.Entities;
 using SportStock.Api.Data.Enums;
@@ -7,7 +8,7 @@ using SportStock.Api.Exceptions;
 
 namespace SportStock.Api.Services;
 
-public sealed class MembershipService(SportStockDbContext db, IAuditLogService audit) : IMembershipService
+public sealed class MembershipService(SportStockDbContext db, AuditContext auditContext) : IMembershipService
 {
     public async Task<InvitationDto> InviteUserAsync(Guid clubId, Guid inviterId, InviteUserRequest req)
     {
@@ -17,7 +18,6 @@ public sealed class MembershipService(SportStockDbContext db, IAuditLogService a
         if (await db.ClubMemberships.AnyAsync(m => m.ClubId == clubId && m.UserId == req.InviteeId && m.IsActive))
             throw new AppException("User is already a member of this club", 409);
 
-        // Cancel any existing pending invitation
         var existing = await db.ClubInvitations.FirstOrDefaultAsync(
             i => i.ClubId == clubId && i.InviteeId == req.InviteeId && i.Status == "pending");
         if (existing is not null) existing.Status = "cancelled";
@@ -33,12 +33,21 @@ public sealed class MembershipService(SportStockDbContext db, IAuditLogService a
             CreatedAt   = DateTime.UtcNow,
         };
         db.ClubInvitations.Add(invitation);
+
+        // ClubInvitation is not IAuditableEntity — use standalone override so the
+        // interceptor writes a log even though no auditable entity is being saved.
+        auditContext.Override(
+            "membership.invite",
+            entityType: "user",
+            entityId:   req.InviteeId,
+            clubId:     clubId,
+            meta:       new { role = req.Role.ToString() });
+
         await db.SaveChangesAsync();
 
         // TODO: send email notification to invitee (reserved — not implemented in current stage)
         // await emailService.SendInvitationEmailAsync(invitee.Email, ...);
 
-        await audit.LogAsync("membership.invite", clubId, inviterId, "user", req.InviteeId, new { role = req.Role.ToString() });
         return MapToDto(invitation);
     }
 
@@ -54,7 +63,6 @@ public sealed class MembershipService(SportStockDbContext db, IAuditLogService a
         invitation.Status      = "accepted";
         invitation.RespondedAt = DateTime.UtcNow;
 
-        // Reactivate existing inactive membership if present; otherwise create a new one
         var membership = await db.ClubMemberships
             .FirstOrDefaultAsync(m => m.ClubId == clubId && m.UserId == userId && !m.IsActive);
 
@@ -79,9 +87,12 @@ public sealed class MembershipService(SportStockDbContext db, IAuditLogService a
             };
             db.ClubMemberships.Add(membership);
         }
+
+        // ClubMembership implements IAuditableEntity — override gives it the semantic name.
+        auditContext.Override("membership.accept");
+
         await db.SaveChangesAsync();
 
-        await audit.LogAsync("membership.accept", clubId, userId, "club_membership", membership.Id);
         return new MembershipDto(membership.Id, membership.ClubId, membership.UserId, membership.Role, membership.JoinedAt);
     }
 

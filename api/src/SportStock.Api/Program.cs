@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using Npgsql.NameTranslation;
 using Serilog;
+using SportStock.Api.Audit;
 using SportStock.Api.Auth;
 using SportStock.Api.Configuration;
 using SportStock.Api.Data;
@@ -81,7 +82,10 @@ Log.Logger = new LoggerConfiguration()
         return dsb.Build();
     });
 
-    builder.Services.AddDbContextPool<SportStockDbContext>((sp, opt) =>
+    builder.Services.AddScoped<AuditContext>();
+    builder.Services.AddScoped<AuditInterceptor>();
+
+    builder.Services.AddDbContext<SportStockDbContext>((sp, opt) =>
     {
         var ds = sp.GetRequiredService<NpgsqlDataSource>();
         var snake = new NpgsqlSnakeCaseNameTranslator();
@@ -99,6 +103,7 @@ Log.Logger = new LoggerConfiguration()
             npg.MapEnum<StockMovementType>("stock_movement_type", nameTranslator: snake);
             npg.MapEnum<NotificationType>("notification_type", nameTranslator: snake);
         });
+        opt.AddInterceptors(sp.GetRequiredService<AuditInterceptor>());
         if (builder.Environment.IsDevelopment())
             opt.EnableSensitiveDataLogging();
     });

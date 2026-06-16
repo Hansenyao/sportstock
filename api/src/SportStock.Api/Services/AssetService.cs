@@ -28,8 +28,7 @@ namespace SportStock.Api.Services;
 //     status filter into a CASE expression mapped via FromSqlInterpolated.
 internal sealed class AssetService(
     SportStockDbContext db,
-    ISupabaseStorage storage,
-    IAuditLogService audit) : IAssetService
+    ISupabaseStorage storage) : IAssetService
 {
     private static readonly HashSet<string> ValidStatusFilter = new(StringComparer.Ordinal)
     {
@@ -608,6 +607,8 @@ internal sealed class AssetService(
     public async Task DeleteItemAsync(Guid itemId, Guid clubId, Guid operatorId)
     {
         var item = await db.AssetItems
+            .Include(i => i.AssetType).ThenInclude(t => t.AssetName)
+            .Include(i => i.Warehouse)
             .FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
             ?? throw new AppException("Item not found", 404);
 
@@ -621,11 +622,6 @@ internal sealed class AssetService(
 
         db.AssetItems.Remove(item);
         await db.SaveChangesAsync();
-
-        await audit.LogAsync("asset_item.deleted", clubId, operatorId,
-            "asset_item", itemId,
-            new { item_id = itemId, asset_type_id = item.AssetTypeId, batch_id = item.BatchId,
-                  serial_number = item.SerialNumber, warehouse_id = item.WarehouseId });
     }
 
     private static string AssetItemStatusToSnakeCase(AssetItemStatus status) => status switch

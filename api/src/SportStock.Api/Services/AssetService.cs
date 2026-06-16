@@ -432,39 +432,21 @@ internal sealed class AssetService(
     public async Task<AssetTypeResponse> UpdateBatchAsync(
         Guid batchId, Guid typeId, Guid clubId, Guid operatorId, UpdateBatchRequest req, CancellationToken ct = default)
     {
-        var batch = await (
-            from b in db.AssetBatches.IgnoreQueryFilters()
-            join at in db.AssetTypes.IgnoreQueryFilters() on b.AssetTypeId equals at.Id
-            where b.Id == batchId && b.AssetTypeId == typeId && at.ClubId == clubId
-            select b
-        ).FirstOrDefaultAsync(ct);
+        var batch = await db.AssetBatches
+            .IgnoreQueryFilters()
+            .Include(b => b.AssetType).ThenInclude(t => t.AssetName)
+            .Where(b => b.Id == batchId && b.AssetTypeId == typeId && b.AssetType.ClubId == clubId)
+            .FirstOrDefaultAsync(ct);
         if (batch is null) throw new AppException("Batch not found", 404);
-
-        var oldPrice = batch.PurchasePrice;
-        var oldDate  = batch.PurchaseDate;
-        var oldLife  = batch.UsefulLifeYears;
-        var oldNotes = batch.Notes;
 
         ApplyNullableDate(req.PurchaseDate, v => batch.PurchaseDate = v);
         ApplyNullableDecimal(req.PurchasePrice, v => batch.PurchasePrice = v);
         ApplyNullableInt(req.UsefulLifeYears, v => batch.UsefulLifeYears = v);
         ApplyNullableString(req.Notes, v => batch.Notes = v);
 
-        // Note: batch-level status is not tracked in v2 (status is per asset_item).
-        // Batch status update requests are silently ignored for backwards compatibility.
         batch.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-
-        var changes = new Dictionary<string, object?>();
-        if (batch.PurchasePrice != oldPrice)    changes["purchase_price"]    = new { from = oldPrice, to = batch.PurchasePrice };
-        if (batch.PurchaseDate  != oldDate)     changes["purchase_date"]     = new { from = oldDate?.ToString(), to = batch.PurchaseDate?.ToString() };
-        if (batch.UsefulLifeYears != oldLife)   changes["useful_life_years"] = new { from = oldLife, to = batch.UsefulLifeYears };
-        if (batch.Notes         != oldNotes)    changes["notes"]             = new { from = oldNotes, to = batch.Notes };
-
-        if (changes.Count > 0)
-            await audit.LogAsync("asset_batch.updated", clubId, operatorId,
-                "asset_batch", batchId, new { batch_id = batchId, asset_type_id = typeId, changes });
 
         return await GetAsync(typeId, clubId, ct);
     }

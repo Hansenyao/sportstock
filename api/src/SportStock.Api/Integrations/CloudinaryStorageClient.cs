@@ -20,12 +20,15 @@ public sealed class CloudinaryStorageClient : IStorageService
         string objectPath, Stream content, string contentType, CancellationToken ct = default)
     {
         var publicId = PathToPublicId(objectPath);
+        var folder   = Path.GetDirectoryName(publicId)?.Replace('\\', '/') ?? string.Empty;
+        var fileName = Path.GetFileName(publicId);
 
         var uploadParams = new ImageUploadParams
         {
-            File       = new FileDescription(publicId, content),
-            PublicId   = publicId,
-            Overwrite  = true,
+            File      = new FileDescription(fileName, content),
+            PublicId  = fileName,
+            Folder    = folder,
+            Overwrite = true,
         };
 
         var result = await _cloudinary.UploadAsync(uploadParams, ct);

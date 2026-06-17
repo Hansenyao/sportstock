@@ -27,7 +27,5 @@ export const updateMyClub = (
 export const uploadLogo = (file: File) => {
   const form = new FormData();
   form.append('logo', file);
-  return client.put<{ logo_url: string }>('/clubs/me/logo', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  return client.put<{ logo_url: string }>('/clubs/me/logo', form);
 };

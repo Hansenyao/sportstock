@@ -106,12 +106,10 @@ public sealed class UsersController(IUserService users) : ControllerBase
     {
         if (avatar is null || avatar.Length == 0)
             throw new AppException("No file provided", 400);
-        if (currentUser.ActiveClubId is null)
-            throw new AppException("You have not joined a club yet", 404);
 
         await using var stream = avatar.OpenReadStream();
         var result = await users.UploadAvatarAsync(
-            currentUser.UserId, currentUser.ActiveClubId.Value,
+            currentUser.UserId,
             stream, avatar.ContentType, avatar.FileName, ct);
         return Ok(result);
     }

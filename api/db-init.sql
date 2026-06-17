@@ -299,6 +299,7 @@ CREATE TABLE warehouses (
     club_id     UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
     name        VARCHAR(100) NOT NULL,
     description TEXT,
+    address     TEXT,
     is_active   BOOLEAN      NOT NULL DEFAULT true,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),

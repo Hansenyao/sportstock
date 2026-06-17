@@ -18,6 +18,6 @@ public interface IUserService
     Task DeactivateAsync(Guid targetId, Guid clubId, Guid requesterId, CancellationToken ct = default);
 
     Task<UploadAvatarResponse> UploadAvatarAsync(
-        Guid userId, Guid clubId, Stream content,
+        Guid userId, Stream content,
         string contentType, string fileName, CancellationToken ct = default);
 }

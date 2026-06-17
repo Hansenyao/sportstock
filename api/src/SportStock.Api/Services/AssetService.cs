@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using SportStock.Api.Audit;
 using SportStock.Api.Data;
 using SportStock.Api.Data.Entities;
 using SportStock.Api.Data.Enums;
@@ -28,7 +29,8 @@ namespace SportStock.Api.Services;
 //     status filter into a CASE expression mapped via FromSqlInterpolated.
 internal sealed class AssetService(
     SportStockDbContext db,
-    ISupabaseStorage storage) : IAssetService
+    ISupabaseStorage storage,
+    AuditContext auditContext) : IAssetService
 {
     private static readonly HashSet<string> ValidStatusFilter = new(StringComparer.Ordinal)
     {
@@ -158,11 +160,13 @@ internal sealed class AssetService(
         if (qty < 1)
             throw new AppException("total_quantity must be at least 1", 400);
 
-        // Verify asset_name belongs to this club.
-        var nameExists = await db.AssetNames
+        // Verify asset_name belongs to this club and fetch name for audit log.
+        var assetNameStr = await db.AssetNames
             .IgnoreQueryFilters()
-            .AnyAsync(an => an.Id == req.AssetNameId.Value && an.ClubId == clubId, ct);
-        if (!nameExists)
+            .Where(an => an.Id == req.AssetNameId.Value && an.ClubId == clubId)
+            .Select(an => an.Name)
+            .FirstOrDefaultAsync(ct);
+        if (assetNameStr is null)
             throw new AppException("Asset name not found in this club", 404);
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -208,6 +212,14 @@ internal sealed class AssetService(
             await db.SaveChangesAsync(ct);
             typeId = type.Id;
         }
+
+        // Set override before batch save so the interceptor logs one clean entry
+        // covering the full create operation (whether type is new or existing).
+        auditContext.Override("asset_type.create",
+            entityType: "asset_type",
+            entityId:   typeId,
+            clubId:     clubId,
+            meta: new { asset_name = assetNameStr, brand = req.Brand, model = req.Model, size = req.Size, quantity = qty });
 
         var batch = new AssetBatch
         {
@@ -287,8 +299,14 @@ internal sealed class AssetService(
 
         var type = await db.AssetTypes
             .IgnoreQueryFilters()
+            .Include(at => at.AssetName)
             .FirstOrDefaultAsync(at => at.Id == typeId && at.ClubId == clubId && at.IsActive, ct);
         if (type is null) throw new AppException("Asset not found", 404);
+
+        var oldBrand = type.Brand;
+        var oldModel = type.Model;
+        var oldSize  = type.Size;
+        var oldThreshold = type.LowStockThreshold;
 
         if (req.AssetNameId is { } newName) type.AssetNameId = newName;
         ApplyNullableString(req.Brand, v => type.Brand = v);
@@ -296,6 +314,23 @@ internal sealed class AssetService(
         ApplyNullableString(req.Size, v => type.Size = v);
         ApplyNullableInt(req.LowStockThreshold, v => type.LowStockThreshold = v);
         type.UpdatedAt = DateTime.UtcNow;
+
+        var changes = new Dictionary<string, object?>();
+        if (!string.Equals(type.Brand, oldBrand, StringComparison.Ordinal))
+            changes["brand"] = new { from = oldBrand, to = type.Brand };
+        if (!string.Equals(type.Model, oldModel, StringComparison.Ordinal))
+            changes["model"] = new { from = oldModel, to = type.Model };
+        if (!string.Equals(type.Size, oldSize, StringComparison.Ordinal))
+            changes["size"] = new { from = oldSize, to = type.Size };
+        if (type.LowStockThreshold != oldThreshold)
+            changes["low_stock_threshold"] = new { from = oldThreshold, to = type.LowStockThreshold };
+
+        if (changes.Count > 0)
+            auditContext.Override("asset_type.update",
+                entityType: "asset_type",
+                entityId:   typeId,
+                clubId:     type.ClubId,
+                meta: new { asset_name = type.AssetName?.Name, brand = type.Brand, model = type.Model, size = type.Size, changes });
 
         await db.SaveChangesAsync(ct);
 
@@ -619,6 +654,18 @@ internal sealed class AssetService(
             .AnyAsync(a => a.AssetItemId == itemId);
         if (hasLoanHistory)
             throw new AppException("Item has loan history and cannot be deleted", 409);
+
+        var nameParts = new[] { item.AssetType?.AssetName?.Name, item.AssetType?.Brand, item.AssetType?.Model, item.AssetType?.Size }
+            .Where(s => !string.IsNullOrEmpty(s));
+        auditContext.Override("asset_item.deleted",
+            entityType: "asset_item",
+            entityId:   item.Id,
+            clubId:     item.ClubId,
+            meta: new {
+                serial_number  = item.SerialNumber,
+                asset          = string.Join(" · ", nameParts),
+                warehouse_name = item.Warehouse?.Name,
+            });
 
         db.AssetItems.Remove(item);
         await db.SaveChangesAsync();

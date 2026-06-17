@@ -83,12 +83,16 @@ Log.Logger = new LoggerConfiguration()
     });
 
     builder.Services.AddScoped<AuditContext>();
-    builder.Services.AddScoped<AuditInterceptor>();
+    builder.Services.AddSingleton<AuditInterceptor>();
 
+    // Must be created once outside the factory so EF Core always sees the same
+    // instance in DbContextOptions — a new object per request causes EF Core to
+    // build a new internal ServiceProvider on every request
+    // (ManyServiceProvidersCreatedWarning → InvalidOperationException).
+    var snake = new NpgsqlSnakeCaseNameTranslator();
     builder.Services.AddDbContext<SportStockDbContext>((sp, opt) =>
     {
         var ds = sp.GetRequiredService<NpgsqlDataSource>();
-        var snake = new NpgsqlSnakeCaseNameTranslator();
         opt.UseNpgsql(ds, npg =>
         {
             // EF Core needs its own enum mapping in addition to what the

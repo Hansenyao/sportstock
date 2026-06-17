@@ -17,8 +17,7 @@ namespace SportStock.Api.Services;
 // stock_movements and write_off_orders.
 internal sealed class LoanService(
     SportStockDbContext db,
-    INotificationService notifications,
-    IAuditLogService audit) : ILoanService
+    INotificationService notifications) : ILoanService
 {
     private const string RaiseExceptionSqlState = "P0001";
 
@@ -406,7 +405,6 @@ internal sealed class LoanService(
             "Loan Request Approved",
             "Your loan request has been approved. Please confirm receipt when you pick up the items.",
             new { loan_id = loan.Id }, ct);
-        await audit.LogAsync("loan.approve", loan.ClubId, approverId, "loan", loan.Id, new { loan_id = loan.Id });
         return loan;
     }
 
@@ -479,7 +477,6 @@ internal sealed class LoanService(
         }
 
         DetachLoan(loanId);
-        await audit.LogAsync("loan.checkout", clubId, operatorId, "loan", loanId, new { loan_id = loanId });
         return await GetAsync(loanId, clubId, operatorId, ClubRole.ClubAdmin, ct);
     }
 
@@ -606,7 +603,6 @@ internal sealed class LoanService(
             clubId, loan.CoachId, NotificationType.ReturnInitiated,
             "Return Confirmed", "Your loan return has been confirmed.",
             new { loan_id = loanId }, ct);
-        await audit.LogAsync("loan.return", clubId, operatorId, "loan", loanId, new { loan_id = loanId });
 
         DetachLoan(loanId);
         return await GetAsync(loanId, clubId, operatorId, ClubRole.ClubAdmin, ct);

@@ -41,7 +41,11 @@ public sealed class MembershipService(SportStockDbContext db, AuditContext audit
             entityType: "user",
             entityId:   req.InviteeId,
             clubId:     clubId,
-            meta:       new { role = req.Role.ToString() });
+            meta: new {
+                user_name = invitee.FirstName + " " + invitee.LastName,
+                email     = invitee.Email,
+                role      = req.Role.ToString(),
+            });
 
         await db.SaveChangesAsync();
 
@@ -88,8 +92,16 @@ public sealed class MembershipService(SportStockDbContext db, AuditContext audit
             db.ClubMemberships.Add(membership);
         }
 
-        // ClubMembership implements IAuditableEntity — override gives it the semantic name.
-        auditContext.Override("membership.accept");
+        var user = await db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => new { Name = u.FirstName + " " + u.LastName })
+            .FirstOrDefaultAsync();
+
+        auditContext.Override("membership.accept",
+            meta: new {
+                user_name = user?.Name,
+                role      = invitation.Role.ToString(),
+            });
 
         await db.SaveChangesAsync();
 
@@ -163,20 +175,37 @@ public sealed class MembershipService(SportStockDbContext db, AuditContext audit
     public async Task UpdateMemberRoleAsync(Guid clubId, Guid userId, ClubRole newRole, Guid updatedBy)
     {
         var membership = await db.ClubMemberships
+            .Include(m => m.User)
             .FirstOrDefaultAsync(m => m.ClubId == clubId && m.UserId == userId && m.IsActive)
             ?? throw new AppException("Member not found", 404);
 
+        var oldRole = membership.Role;
         membership.Role = newRole;
+
+        auditContext.Override("membership.role_change",
+            meta: new {
+                user_name = membership.User.FirstName + " " + membership.User.LastName,
+                from_role = oldRole.ToString(),
+                to_role   = newRole.ToString(),
+            });
+
         await db.SaveChangesAsync();
     }
 
     public async Task DeactivateMemberAsync(Guid clubId, Guid userId, Guid removedBy)
     {
         var membership = await db.ClubMemberships
+            .Include(m => m.User)
             .FirstOrDefaultAsync(m => m.ClubId == clubId && m.UserId == userId && m.IsActive)
             ?? throw new AppException("Member not found", 404);
 
         membership.IsActive = false;
+
+        auditContext.Override("membership.remove",
+            meta: new {
+                user_name = membership.User.FirstName + " " + membership.User.LastName,
+            });
+
         await db.SaveChangesAsync();
     }
 

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using SportStock.Api.Audit;
 using SportStock.Api.Data;
 using SportStock.Api.Data.Entities;
 using SportStock.Api.Data.Enums;
@@ -17,7 +18,7 @@ namespace SportStock.Api.Services;
 //     a 1-to-1 relationship from it (see Team.TeamMember singular nav). We
 //     keep that quirk untouched and route every member query through the
 //     TeamMembers DbSet directly — no navigation traversal anywhere.
-internal sealed class TeamService(SportStockDbContext db) : ITeamService
+internal sealed class TeamService(SportStockDbContext db, AuditContext auditContext) : ITeamService
 {
     private static readonly HashSet<string> ValidGenders = new(StringComparer.Ordinal)
     {
@@ -136,6 +137,21 @@ internal sealed class TeamService(SportStockDbContext db) : ITeamService
             if (hasHeadCoach) throw new AppException("This team already has a Head Coach", 409);
         }
 
+        var userName = await db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.FirstName + " " + u.LastName)
+            .FirstOrDefaultAsync(ct) ?? userId.ToString();
+        var teamName = await db.Teams.IgnoreQueryFilters()
+            .Where(t => t.Id == teamId)
+            .Select(t => t.Name)
+            .FirstOrDefaultAsync(ct) ?? teamId.ToString();
+
+        auditContext.Override("team.member_add",
+            entityType: "team",
+            entityId:   teamId,
+            clubId:     clubId,
+            meta: new { user_name = userName, team_name = teamName, role = teamRole });
+
         var member = new TeamMember
         {
             Id = Guid.NewGuid(),
@@ -185,10 +201,28 @@ internal sealed class TeamService(SportStockDbContext db) : ITeamService
         Guid teamId, Guid clubId, Guid userId, CancellationToken ct = default)
     {
         await AssertTeamBelongsToClubAsync(teamId, clubId, ct);
-        var rows = await db.TeamMembers
-            .Where(tm => tm.TeamId == teamId && tm.UserId == userId)
-            .ExecuteDeleteAsync(ct);
-        if (rows == 0) throw new AppException("Team member not found", 404);
+
+        var member = await db.TeamMembers
+            .FirstOrDefaultAsync(tm => tm.TeamId == teamId && tm.UserId == userId, ct);
+        if (member is null) throw new AppException("Team member not found", 404);
+
+        var userName = await db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.FirstName + " " + u.LastName)
+            .FirstOrDefaultAsync(ct) ?? userId.ToString();
+        var teamName = await db.Teams.IgnoreQueryFilters()
+            .Where(t => t.Id == teamId)
+            .Select(t => t.Name)
+            .FirstOrDefaultAsync(ct) ?? teamId.ToString();
+
+        auditContext.Override("team.member_remove",
+            entityType: "team",
+            entityId:   teamId,
+            clubId:     clubId,
+            meta: new { user_name = userName, team_name = teamName });
+
+        db.TeamMembers.Remove(member);
+        await db.SaveChangesAsync(ct);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

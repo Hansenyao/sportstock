@@ -1,31 +1,37 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, DatePicker, Select, Button, Typography, Flex, Tag, Tooltip } from 'antd';
+import { Table, DatePicker, Select, Button, Typography, Flex, Tag, List, Grid } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import * as api from '../../api/audit-logs';
 import type { AuditLog } from '../../api/audit-logs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
+const { useBreakpoint } = Grid;
 
 const ACTION_OPTIONS = [
-  'auth.login','auth.register','club.create','membership.invite','membership.accept',
-  'asset_type.create','asset_type.update','asset_item.retire','asset_item.write_off',
-  'asset_item.deleted','asset_batch.updated',
-  'loan.create','loan.approve','loan.reject','loan.checkout','loan.return',
-  'kit.create','kit.delete',
+  'asset_type.create', 'asset_type.update',
+  'asset_batch.updated',
+  'asset_item.deleted',
+  'membership.invite', 'membership.accept', 'membership.role_change', 'membership.remove',
+  'team.member_add', 'team.member_remove',
 ].map(a => ({ value: a, label: a }));
 
 // ── Human-readable meta renderer ─────────────────────────────────────────────
 
 type ChangeEntry = { from?: unknown; to?: unknown };
 
+const FIELD_LABEL: Record<string, string> = {
+  purchase_price:    'Price',
+  purchase_date:     'Purchase Date',
+  useful_life_years: 'Useful Life (yrs)',
+  notes:             'Notes',
+  brand:             'Brand',
+  model:             'Model',
+  size:              'Size',
+  low_stock_threshold: 'Low Stock Threshold',
+};
+
 function renderChanges(changes: Record<string, ChangeEntry>) {
-  const FIELD_LABEL: Record<string, string> = {
-    purchase_price:    'Price',
-    purchase_date:     'Purchase Date',
-    useful_life_years: 'Useful Life (yrs)',
-    notes:             'Notes',
-  };
   return (
     <Flex vertical gap={2}>
       {Object.entries(changes).map(([field, { from, to }]) => (
@@ -40,32 +46,112 @@ function renderChanges(changes: Record<string, ChangeEntry>) {
   );
 }
 
+function assetLabel(meta: Record<string, unknown>): string | null {
+  const parts = [meta.asset_name, meta.brand, meta.model, meta.size].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 function renderMeta(action: string, meta: Record<string, unknown> | null | undefined) {
   if (!meta) return null;
 
   if (action === 'asset_batch.updated') {
     const changes = meta.changes as Record<string, ChangeEntry> | undefined;
-    if (changes && Object.keys(changes).length > 0) return renderChanges(changes);
+    const label = assetLabel(meta);
+    return (
+      <Flex vertical gap={4}>
+        {label && <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>}
+        {changes && Object.keys(changes).length > 0 && renderChanges(changes)}
+      </Flex>
+    );
+  }
+
+  if (action === 'asset_type.create') {
+    const label = assetLabel(meta);
+    const qty = meta.quantity != null ? ` · qty ${meta.quantity}` : '';
+    return <Text style={{ fontSize: 12 }}>{label ?? '—'}{qty}</Text>;
+  }
+
+  if (action === 'asset_type.update') {
+    const changes = meta.changes as Record<string, ChangeEntry> | undefined;
+    const label = assetLabel(meta);
+    return (
+      <Flex vertical gap={4}>
+        {label && <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>}
+        {changes && Object.keys(changes).length > 0 && renderChanges(changes)}
+      </Flex>
+    );
   }
 
   if (action === 'asset_item.deleted') {
+    const sn = meta.serial_number ? `SN: ${meta.serial_number}` : null;
+    const asset = meta.asset as string | undefined;
+    const wh = meta.warehouse_name ? `@ ${meta.warehouse_name}` : null;
     return (
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {meta.serial_number ? `SN: ${meta.serial_number}` : 'No serial number'}
+      <Flex vertical gap={2}>
+        {asset && <Text style={{ fontSize: 12 }}>{asset}</Text>}
+        <Text type="secondary" style={{ fontSize: 12 }}>{[sn, wh].filter(Boolean).join(' ')}</Text>
+      </Flex>
+    );
+  }
+
+  if (action === 'membership.invite') {
+    const name = meta.user_name as string | undefined;
+    const email = meta.email as string | undefined;
+    const role = meta.role as string | undefined;
+    return (
+      <Text style={{ fontSize: 12 }}>
+        {name ?? email ?? '—'}{email && name ? ` (${email})` : ''}{role ? ` invited as ${role}` : ''}
       </Text>
     );
   }
 
-  // Fallback: show raw JSON in tooltip
-  const json = JSON.stringify(meta, null, 2);
-  if (json === '{}') return null;
-  return (
-    <Tooltip title={<pre style={{ fontSize: 11, margin: 0, maxWidth: 400, whiteSpace: 'pre-wrap' }}>{json}</pre>}>
-      <Text type="secondary" style={{ fontSize: 12, cursor: 'pointer', textDecoration: 'underline dotted' }}>
-        details
+  if (action === 'membership.accept') {
+    const name = meta.user_name as string | undefined;
+    const role = meta.role as string | undefined;
+    return <Text style={{ fontSize: 12 }}>{name ?? '—'} joined as {role ?? '—'}</Text>;
+  }
+
+  if (action === 'membership.role_change') {
+    const name = meta.user_name as string | undefined;
+    const from = meta.from_role as string | undefined;
+    const to   = meta.to_role   as string | undefined;
+    return (
+      <Text style={{ fontSize: 12 }}>
+        {name ?? '—'}: <Text delete style={{ fontSize: 12, color: '#ff4d4f' }}>{from ?? '—'}</Text>
+        {' → '}
+        <Text style={{ fontSize: 12, color: '#52c41a' }}>{to ?? '—'}</Text>
       </Text>
-    </Tooltip>
-  );
+    );
+  }
+
+  if (action === 'membership.remove') {
+    const name = meta.user_name as string | undefined;
+    return <Text style={{ fontSize: 12 }}>{name ?? '—'} removed from club</Text>;
+  }
+
+  if (action === 'team.member_add') {
+    const name = meta.user_name as string | undefined;
+    const team = meta.team_name as string | undefined;
+    const role = meta.role      as string | undefined;
+    return (
+      <Text style={{ fontSize: 12 }}>
+        {name ?? '—'} added to <Text strong style={{ fontSize: 12 }}>{team ?? '—'}</Text>
+        {role ? ` as ${role}` : ''}
+      </Text>
+    );
+  }
+
+  if (action === 'team.member_remove') {
+    const name = meta.user_name as string | undefined;
+    const team = meta.team_name as string | undefined;
+    return (
+      <Text style={{ fontSize: 12 }}>
+        {name ?? '—'} removed from <Text strong style={{ fontSize: 12 }}>{team ?? '—'}</Text>
+      </Text>
+    );
+  }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,6 +163,7 @@ export default function AuditLogsPage() {
   const [page, setPage] = useState(1);
   const [action, setAction] = useState<string | undefined>();
   const [dateRange, setDateRange] = useState<[string, string] | null>(null);
+  const screens = useBreakpoint();
 
   const load = useCallback(async (p = page) => {
     setLoading(true);
@@ -89,10 +176,12 @@ export default function AuditLogsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const onPageChange = (p: number) => { setPage(p); void load(p); };
+
   const columns: ColumnsType<AuditLog> = [
-    { title: 'Time', dataIndex: 'created_at', key: 'created_at', width: 160, render: (d: string) => new Date(d).toLocaleString() },
-    { title: 'Action', dataIndex: 'action', key: 'action', width: 200, render: (a: string) => <Tag>{a}</Tag> },
-    { title: 'Entity', key: 'entity', width: 180, render: (_: unknown, r: AuditLog) => r.entity_type ? `${r.entity_type} / ${r.entity_id?.slice(0, 8) ?? ''}` : '—' },
+    { title: 'Time', dataIndex: 'created_at', key: 'created_at', width: 180, render: (d: string) => new Date(d).toLocaleString() },
+    { title: 'Action', dataIndex: 'action', key: 'action', width: 220, render: (a: string) => <Tag style={{ whiteSpace: 'nowrap' }}>{a}</Tag> },
+    { title: 'Entity', key: 'entity', width: 220, render: (_: unknown, r: AuditLog) => r.entity_type ? `${r.entity_type} / ${r.entity_id?.slice(0, 8) ?? ''}` : '—' },
     { title: 'Performed By', dataIndex: 'performed_by', key: 'performed_by', width: 140, render: (v: string | null) => v ?? '—' },
     {
       title: 'Details',
@@ -102,18 +191,67 @@ export default function AuditLogsPage() {
     { title: 'IP', dataIndex: 'ip_address', key: 'ip_address', width: 120, render: (v: string | null) => v ?? '—' },
   ];
 
+  const filters = (
+    <Flex gap={12} style={{ marginBottom: 16 }} wrap="wrap">
+      <RangePicker
+        style={{ width: screens.md ? undefined : '100%' }}
+        onChange={v => setDateRange(v ? [v[0]!.toISOString(), v[1]!.toISOString()] : null)}
+      />
+      <Select
+        allowClear placeholder="Filter by action"
+        style={{ width: screens.md ? 200 : '100%' }}
+        options={ACTION_OPTIONS}
+        onChange={(v: string | undefined) => setAction(v)}
+      />
+      <Button onClick={() => { setPage(1); void load(1); }}>Search</Button>
+    </Flex>
+  );
+
+  // ── Mobile: card list ──────────────────────────────────────────────────────
+  if (!screens.md) {
+    return (
+      <div>
+        <Title level={4} style={{ marginBottom: 16 }}>Audit Logs</Title>
+        {filters}
+        <List
+          loading={loading}
+          dataSource={data}
+          rowKey="id"
+          pagination={{
+            current: page, total, pageSize: 20, size: 'small',
+            onChange: onPageChange,
+            style: { textAlign: 'center', marginTop: 12 },
+          }}
+          renderItem={(r: AuditLog) => (
+            <List.Item style={{ padding: '10px 0', alignItems: 'flex-start' }}>
+              <Flex vertical gap={6} style={{ width: '100%' }}>
+                <Flex justify="space-between" align="center" gap={8}>
+                  <Tag style={{ whiteSpace: 'nowrap', margin: 0 }}>{r.action}</Tag>
+                  <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+                    {new Date(r.created_at).toLocaleString()}
+                  </Text>
+                </Flex>
+                {r.performed_by && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>By {r.performed_by}</Text>
+                )}
+                {renderMeta(r.action, r.meta)}
+              </Flex>
+            </List.Item>
+          )}
+        />
+      </div>
+    );
+  }
+
+  // ── Desktop: table ─────────────────────────────────────────────────────────
   return (
     <div>
       <Title level={4} style={{ marginBottom: 16 }}>Audit Logs</Title>
-      <Flex gap={12} style={{ marginBottom: 16 }} wrap="wrap">
-        <RangePicker onChange={v => setDateRange(v ? [v[0]!.toISOString(), v[1]!.toISOString()] : null)} />
-        <Select allowClear placeholder="Filter by action" style={{ width: 200 }} options={ACTION_OPTIONS} onChange={(v: string | undefined) => setAction(v)} />
-        <Button onClick={() => { setPage(1); void load(1); }}>Search</Button>
-      </Flex>
+      {filters}
       <Table
         rowKey="id" dataSource={data} columns={columns} loading={loading}
-        scroll={{ x: 800 }}
-        pagination={{ current: page, total, pageSize: 20, onChange: (p: number) => { setPage(p); void load(p); } }}
+        scroll={{ x: 900 }}
+        pagination={{ current: page, total, pageSize: 20, onChange: onPageChange }}
       />
     </div>
   );

@@ -14,6 +14,7 @@ public partial class AssetBatch : IAuditableEntity
         ["asset_name"]        = AssetType?.AssetName?.Name,
         ["brand"]             = AssetType?.Brand,
         ["model"]             = AssetType?.Model,
+        ["size"]              = AssetType?.Size,
         ["purchase_price"]    = PurchasePrice,
         ["purchase_date"]     = PurchaseDate?.ToString("yyyy-MM-dd"),
         ["useful_life_years"] = UsefulLifeYears,

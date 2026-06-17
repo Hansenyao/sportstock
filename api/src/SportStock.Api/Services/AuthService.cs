@@ -23,7 +23,7 @@ namespace SportStock.Api.Services;
 //   - GenerateCode returns "123456" (no real random until Resend is wired).
 //   - email is always lowercased before storage / lookup.
 //   - forgot-password is silent when the email is unknown (anti-enumeration).
-//   - login returns a single 401 for wrong email or password.
+//   - login distinguishes "email not registered" (401) from "wrong password" (401).
 internal sealed class AuthService(
     SportStockDbContext _db,
     IEmailSender _emailSender,
@@ -103,7 +103,7 @@ internal sealed class AuthService(
     public async Task<LoginResult> LoginAsync(LoginRequest req)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == req.Email.ToLowerInvariant())
-            ?? throw new AppException("Invalid credentials", 401);
+            ?? throw new AppException("No account found with this email address", 401);
 
         if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
             throw new AppException("Invalid credentials", 401);

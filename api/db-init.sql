@@ -356,6 +356,27 @@ FROM asset_batches b
 LEFT JOIN asset_items i ON i.batch_id = b.id
 GROUP BY b.id;
 
+-- KITS: named bundles of asset types for quick loan creation
+CREATE TABLE kits (
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id     UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    name        VARCHAR(100) NOT NULL,
+    description TEXT,
+    is_active   BOOLEAN      NOT NULL DEFAULT true,
+    created_by  UUID         REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (club_id, name)
+);
+
+CREATE TABLE kit_items (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    kit_id        UUID NOT NULL REFERENCES kits(id) ON DELETE CASCADE,
+    asset_type_id UUID NOT NULL REFERENCES asset_types(id) ON DELETE RESTRICT,
+    quantity      INT  NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    UNIQUE (kit_id, asset_type_id)
+);
+
 -- ── Loan lifecycle ────────────────────────────────────────────────────────────
 
 -- LOANS: borrow/return transaction (multi-item; see loan_items)
@@ -495,27 +516,6 @@ CREATE TABLE stocktake_items (
     notes             TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (session_id, asset_type_id)
-);
-
--- KITS: named bundles of asset types for quick loan creation
-CREATE TABLE kits (
-    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    club_id     UUID         NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-    name        VARCHAR(100) NOT NULL,
-    description TEXT,
-    is_active   BOOLEAN      NOT NULL DEFAULT true,
-    created_by  UUID         REFERENCES users(id) ON DELETE SET NULL,
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    UNIQUE (club_id, name)
-);
-
-CREATE TABLE kit_items (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    kit_id        UUID NOT NULL REFERENCES kits(id) ON DELETE CASCADE,
-    asset_type_id UUID NOT NULL REFERENCES asset_types(id) ON DELETE RESTRICT,
-    quantity      INT  NOT NULL DEFAULT 1 CHECK (quantity > 0),
-    UNIQUE (kit_id, asset_type_id)
 );
 
 -- AUDIT_LOGS: immutable record of every significant action

@@ -47,7 +47,5 @@ export const removeMember = (clubId: string, userId: string) =>
 export const uploadMyAvatar = (file: File) => {
   const form = new FormData();
   form.append('avatar', file);
-  return client.put<{ avatar_url: string }>('/users/me/avatar', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  return client.put<{ avatar_url: string }>('/users/me/avatar', form);
 };

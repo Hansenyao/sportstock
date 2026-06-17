@@ -81,9 +81,7 @@ export const deleteAsset = (id: string) =>
 export const uploadAssetImage = (id: string, file: File) => {
   const form = new FormData();
   form.append('image', file);
-  return client.put<{ id: string; image_url: string }>(`/assets/${id}/image`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  return client.put<{ id: string; image_url: string }>(`/assets/${id}/image`, form);
 };
 
 export const addBatch = (typeId: string, data: Record<string, unknown>) =>

@@ -271,7 +271,7 @@ internal sealed class UserService(
         string contentType, string fileName, CancellationToken ct = default)
     {
         var ext = Path.GetExtension(fileName).TrimStart('.');
-        var path = $"avatars/{clubId}/{userId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
+        var path = $"sportstock/avatars/{clubId}/{userId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
         var url = await storage.UploadAsync(path, content, contentType, ct);
 
         await db.Users

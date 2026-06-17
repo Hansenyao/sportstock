@@ -39,7 +39,7 @@ public sealed class CloudinaryStorageClient : IStorageService
     public async Task DeleteAsync(string objectPath, CancellationToken ct = default)
     {
         var publicId    = PathToPublicId(objectPath);
-        var deleteParams = new DeletionParams(publicId) { ResourceType = ResourceType.Raw };
+        var deleteParams = new DeletionParams(publicId) { ResourceType = ResourceType.Image };
         var result      = await _cloudinary.DestroyAsync(deleteParams);
 
         if (result.Result is not ("ok" or "not found"))
@@ -49,7 +49,9 @@ public sealed class CloudinaryStorageClient : IStorageService
     public string GetPublicUrl(string objectPath)
     {
         var publicId = PathToPublicId(objectPath);
-        return _cloudinary.Api.UrlImgUp.BuildUrl(publicId);
+        var ext = Path.GetExtension(objectPath).TrimStart('.');
+        var withFormat = string.IsNullOrEmpty(ext) ? publicId : $"{publicId}.{ext}";
+        return _cloudinary.Api.UrlImgUp.BuildUrl(withFormat);
     }
 
     // Strips the extension so Cloudinary uses it as public_id.

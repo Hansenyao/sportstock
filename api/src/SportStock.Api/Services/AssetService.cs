@@ -369,7 +369,7 @@ internal sealed class AssetService(
     {
         var ext = Path.GetExtension(fileName).TrimStart('.');
         if (string.IsNullOrWhiteSpace(ext)) ext = "bin";
-        var path = $"assets/{clubId}/{typeId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
+        var path = $"sportstock/assets/{clubId}/{typeId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
 
         var url = await storage.UploadAsync(path, content, contentType, ct);
 

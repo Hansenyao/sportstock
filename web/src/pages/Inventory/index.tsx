@@ -323,7 +323,7 @@ export default function InventoryPage() {
   function openCreate() {
     typeForm.resetFields();
     batchForm.resetFields();
-    batchForm.setFieldsValue({ total_quantity: 1 });
+    batchForm.setFieldsValue({ total_quantity: 1, warehouse_id: warehouses[0]?.id });
     setImageFile(null);
     setImagePreview(null);
     setModalMode('create');
@@ -351,7 +351,7 @@ export default function InventoryPage() {
 
   function openAddBatch(type: AssetType) {
     batchForm.resetFields();
-    batchForm.setFieldsValue({ total_quantity: 1 });
+    batchForm.setFieldsValue({ total_quantity: 1, warehouse_id: warehouses[0]?.id });
     setTargetTypeId(type.id);
     setModalMode('addBatch');
     setModalOpen(true);

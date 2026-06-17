@@ -102,7 +102,7 @@ internal sealed class ClubService(
     {
         var ext = Path.GetExtension(originalFileName).TrimStart('.');
         if (string.IsNullOrWhiteSpace(ext)) ext = "bin";
-        var path = $"clubs/{clubId}/logo_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
+        var path = $"sportstock/clubs/{clubId}/logo_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
 
         var url = await storage.UploadAsync(path, content, contentType, ct);
 

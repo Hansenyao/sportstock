@@ -20,10 +20,10 @@ public sealed class LoansController(ILoanService service) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var page = await service.ListAsync(
-            currentUser.ClubId.Value, currentUser.UserId, currentUser.Role, query, ct);
+            currentUser.ActiveClubId.Value, currentUser.UserId, currentUser.Role, query, ct);
         return Ok(page);
     }
 
@@ -35,10 +35,10 @@ public sealed class LoansController(ILoanService service) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var loan = await service.CreateAsync(
-            currentUser.ClubId.Value, currentUser.UserId, currentUser.Role, body, ct);
+            currentUser.ActiveClubId.Value, currentUser.UserId, currentUser.Role, body, ct);
         return StatusCode(201, loan);
     }
 
@@ -48,10 +48,10 @@ public sealed class LoansController(ILoanService service) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var loan = await service.GetAsync(
-            id, currentUser.ClubId.Value, currentUser.UserId, currentUser.Role, ct);
+            id, currentUser.ActiveClubId.Value, currentUser.UserId, currentUser.Role, ct);
         return Ok(loan);
     }
 
@@ -61,10 +61,10 @@ public sealed class LoansController(ILoanService service) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         await service.DeleteAsync(
-            id, currentUser.ClubId.Value, currentUser.UserId, currentUser.Role, ct);
+            id, currentUser.ActiveClubId.Value, currentUser.UserId, currentUser.Role, ct);
         return NoContent();
     }
 
@@ -77,56 +77,60 @@ public sealed class LoansController(ILoanService service) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var loan = await service.UpdateAsync(
-            id, currentUser.ClubId.Value, currentUser.UserId, currentUser.Role, body, ct);
+            id, currentUser.ActiveClubId.Value, currentUser.UserId, currentUser.Role, body, ct);
         return Ok(loan);
     }
 
     [HttpPost("{id:guid}/approve")]
-    [RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Approve(
         Guid id,
+        [FromBody] ApproveLoanRequest? body,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var loan = await service.ApproveAsync(id, currentUser.UserId, currentUser.ClubId.Value, ct);
+        var loan = await service.ApproveAsync(
+            id, currentUser.UserId, currentUser.ActiveClubId.Value,
+            body?.WarehouseId == Guid.Empty ? null : body?.WarehouseId,
+            ct);
         return Ok(loan);
     }
 
     [HttpPost("{id:guid}/reject")]
-    [RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Reject(
         Guid id,
         [FromBody] RejectLoanRequest body,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var loan = await service.RejectAsync(
-            id, currentUser.UserId, currentUser.ClubId.Value, body.Reason, ct);
+            id, currentUser.UserId, currentUser.ActiveClubId.Value, body.Reason, ct);
         return Ok(loan);
     }
 
     [HttpPost("{id:guid}/checkout")]
-    [RequireRole(UserRole.Coach, UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.Coach, ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Checkout(
         Guid id,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var loan = await service.CheckoutAsync(id, currentUser.UserId, currentUser.ClubId.Value, ct);
+        var loan = await service.CheckoutAsync(id, currentUser.UserId, currentUser.ActiveClubId.Value, ct);
         return Ok(loan);
     }
 
     [HttpPost("{id:guid}/return")]
-    [RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> ConfirmReturn(
         Guid id,
         [FromBody] ReturnLoanRequest body,
@@ -135,10 +139,10 @@ public sealed class LoansController(ILoanService service) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
         var loan = await service.ConfirmReturnAsync(
-            id, currentUser.UserId, currentUser.ClubId.Value, body, ct);
+            id, currentUser.UserId, currentUser.ActiveClubId.Value, body, ct);
         return Ok(loan);
     }
 }

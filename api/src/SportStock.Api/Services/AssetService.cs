@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using SportStock.Api.Audit;
 using SportStock.Api.Data;
 using SportStock.Api.Data.Entities;
 using SportStock.Api.Data.Enums;
@@ -28,7 +29,8 @@ namespace SportStock.Api.Services;
 //     status filter into a CASE expression mapped via FromSqlInterpolated.
 internal sealed class AssetService(
     SportStockDbContext db,
-    ISupabaseStorage storage) : IAssetService
+    IStorageService storage,
+    AuditContext auditContext) : IAssetService
 {
     private static readonly HashSet<string> ValidStatusFilter = new(StringComparer.Ordinal)
     {
@@ -158,11 +160,13 @@ internal sealed class AssetService(
         if (qty < 1)
             throw new AppException("total_quantity must be at least 1", 400);
 
-        // Verify asset_name belongs to this club.
-        var nameExists = await db.AssetNames
+        // Verify asset_name belongs to this club and fetch name for audit log.
+        var assetNameStr = await db.AssetNames
             .IgnoreQueryFilters()
-            .AnyAsync(an => an.Id == req.AssetNameId.Value && an.ClubId == clubId, ct);
-        if (!nameExists)
+            .Where(an => an.Id == req.AssetNameId.Value && an.ClubId == clubId)
+            .Select(an => an.Name)
+            .FirstOrDefaultAsync(ct);
+        if (assetNameStr is null)
             throw new AppException("Asset name not found in this club", 404);
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -209,6 +213,14 @@ internal sealed class AssetService(
             typeId = type.Id;
         }
 
+        // Set override before batch save so the interceptor logs one clean entry
+        // covering the full create operation (whether type is new or existing).
+        auditContext.Override("asset_type.create",
+            entityType: "asset_type",
+            entityId:   typeId,
+            clubId:     clubId,
+            meta: new { asset_name = assetNameStr, brand = req.Brand, model = req.Model, size = req.Size, quantity = qty });
+
         var batch = new AssetBatch
         {
             Id = Guid.NewGuid(),
@@ -217,12 +229,41 @@ internal sealed class AssetService(
             PurchasePrice = req.PurchasePrice,
             UsefulLifeYears = req.UsefulLifeYears,
             TotalQuantity = qty,
-            AvailableQuantity = qty,
-            Status = AssetStatus.Available,
             Notes = req.Notes,
         };
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
+
+        // Resolve warehouse: use caller's choice if provided, else auto-select first active
+        Warehouse warehouse;
+        if (req.WarehouseId.HasValue)
+        {
+            warehouse = await db.Warehouses
+                .FirstOrDefaultAsync(w => w.Id == req.WarehouseId.Value && w.ClubId == clubId && w.IsActive, ct)
+                ?? throw new AppException("Warehouse not found", 404);
+        }
+        else
+        {
+            warehouse = await db.Warehouses
+                .Where(w => w.ClubId == clubId && w.IsActive)
+                .OrderBy(w => w.CreatedAt)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+        }
+
+        // Create individual asset items for v2 item-level tracking
+        for (int i = 0; i < qty; i++)
+        {
+            db.AssetItems.Add(new AssetItem
+            {
+                Id = Guid.NewGuid(),
+                AssetTypeId = typeId,
+                BatchId = batch.Id,
+                ClubId = clubId,
+                WarehouseId = warehouse.Id,
+                Status = AssetItemStatus.Available,
+            });
+        }
 
         db.StockMovements.Add(new StockMovement
         {
@@ -258,8 +299,14 @@ internal sealed class AssetService(
 
         var type = await db.AssetTypes
             .IgnoreQueryFilters()
+            .Include(at => at.AssetName)
             .FirstOrDefaultAsync(at => at.Id == typeId && at.ClubId == clubId && at.IsActive, ct);
         if (type is null) throw new AppException("Asset not found", 404);
+
+        var oldBrand = type.Brand;
+        var oldModel = type.Model;
+        var oldSize  = type.Size;
+        var oldThreshold = type.LowStockThreshold;
 
         if (req.AssetNameId is { } newName) type.AssetNameId = newName;
         ApplyNullableString(req.Brand, v => type.Brand = v);
@@ -267,6 +314,23 @@ internal sealed class AssetService(
         ApplyNullableString(req.Size, v => type.Size = v);
         ApplyNullableInt(req.LowStockThreshold, v => type.LowStockThreshold = v);
         type.UpdatedAt = DateTime.UtcNow;
+
+        var changes = new Dictionary<string, object?>();
+        if (!string.Equals(type.Brand, oldBrand, StringComparison.Ordinal))
+            changes["brand"] = new { from = oldBrand, to = type.Brand };
+        if (!string.Equals(type.Model, oldModel, StringComparison.Ordinal))
+            changes["model"] = new { from = oldModel, to = type.Model };
+        if (!string.Equals(type.Size, oldSize, StringComparison.Ordinal))
+            changes["size"] = new { from = oldSize, to = type.Size };
+        if (type.LowStockThreshold != oldThreshold)
+            changes["low_stock_threshold"] = new { from = oldThreshold, to = type.LowStockThreshold };
+
+        if (changes.Count > 0)
+            auditContext.Override("asset_type.update",
+                entityType: "asset_type",
+                entityId:   typeId,
+                clubId:     type.ClubId,
+                meta: new { asset_name = type.AssetName?.Name, brand = type.Brand, model = type.Model, size = type.Size, changes });
 
         await db.SaveChangesAsync(ct);
 
@@ -305,7 +369,7 @@ internal sealed class AssetService(
     {
         var ext = Path.GetExtension(fileName).TrimStart('.');
         if (string.IsNullOrWhiteSpace(ext)) ext = "bin";
-        var path = $"assets/{clubId}/{typeId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
+        var path = $"sportstock/assets/{clubId}/{typeId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
 
         var url = await storage.UploadAsync(path, content, contentType, ct);
 
@@ -344,12 +408,41 @@ internal sealed class AssetService(
             PurchasePrice = req.PurchasePrice,
             UsefulLifeYears = req.UsefulLifeYears,
             TotalQuantity = qty,
-            AvailableQuantity = qty,
-            Status = AssetStatus.Available,
             Notes = req.Notes,
         };
         db.AssetBatches.Add(batch);
         await db.SaveChangesAsync(ct);
+
+        // Resolve warehouse: use caller's choice if provided, else auto-select first active
+        Warehouse warehouse;
+        if (req.WarehouseId.HasValue)
+        {
+            warehouse = await db.Warehouses
+                .FirstOrDefaultAsync(w => w.Id == req.WarehouseId.Value && w.ClubId == clubId && w.IsActive, ct)
+                ?? throw new AppException("Warehouse not found", 404);
+        }
+        else
+        {
+            warehouse = await db.Warehouses
+                .Where(w => w.ClubId == clubId && w.IsActive)
+                .OrderBy(w => w.CreatedAt)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new AppException("Create a warehouse first before adding stock items", 422);
+        }
+
+        // Create individual asset items for v2 item-level tracking
+        for (int i = 0; i < qty; i++)
+        {
+            db.AssetItems.Add(new AssetItem
+            {
+                Id = Guid.NewGuid(),
+                AssetTypeId = typeId,
+                BatchId = batch.Id,
+                ClubId = clubId,
+                WarehouseId = warehouse.Id,
+                Status = AssetItemStatus.Available,
+            });
+        }
 
         db.StockMovements.Add(new StockMovement
         {
@@ -371,14 +464,13 @@ internal sealed class AssetService(
     }
 
     public async Task<AssetTypeResponse> UpdateBatchAsync(
-        Guid batchId, Guid typeId, Guid clubId, UpdateBatchRequest req, CancellationToken ct = default)
+        Guid batchId, Guid typeId, Guid clubId, Guid operatorId, UpdateBatchRequest req, CancellationToken ct = default)
     {
-        var batch = await (
-            from b in db.AssetBatches.IgnoreQueryFilters()
-            join at in db.AssetTypes.IgnoreQueryFilters() on b.AssetTypeId equals at.Id
-            where b.Id == batchId && b.AssetTypeId == typeId && at.ClubId == clubId
-            select b
-        ).FirstOrDefaultAsync(ct);
+        var batch = await db.AssetBatches
+            .IgnoreQueryFilters()
+            .Include(b => b.AssetType).ThenInclude(t => t.AssetName)
+            .Where(b => b.Id == batchId && b.AssetTypeId == typeId && b.AssetType.ClubId == clubId)
+            .FirstOrDefaultAsync(ct);
         if (batch is null) throw new AppException("Batch not found", 404);
 
         ApplyNullableDate(req.PurchaseDate, v => batch.PurchaseDate = v);
@@ -386,22 +478,10 @@ internal sealed class AssetService(
         ApplyNullableInt(req.UsefulLifeYears, v => batch.UsefulLifeYears = v);
         ApplyNullableString(req.Notes, v => batch.Notes = v);
 
-        if (req.Status is not null)
-        {
-            if (!ValidBatchStatus.Contains(req.Status))
-                throw new AppException("Invalid batch status", 400);
-            batch.Status = req.Status switch
-            {
-                "available" => AssetStatus.Available,
-                "on_loan" => AssetStatus.OnLoan,
-                "maintenance" => AssetStatus.Maintenance,
-                "retired" => AssetStatus.Retired,
-                _ => batch.Status,
-            };
-        }
         batch.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
+
         return await GetAsync(typeId, clubId, ct);
     }
 
@@ -436,6 +516,175 @@ internal sealed class AssetService(
         };
     }
 
+    // ── Item-level operations (v2) ───────────────────────────────────────────
+
+    public async Task<AssetItemDto> AddItemAsync(Guid assetTypeId, AddAssetItemRequest req, Guid clubId)
+    {
+        var warehouse = await db.Warehouses
+            .FirstOrDefaultAsync(w => w.Id == req.WarehouseId && w.ClubId == clubId && w.IsActive)
+            ?? throw new AppException("Warehouse not found", 404);
+
+        if (req.BatchId.HasValue)
+        {
+            _ = await db.AssetBatches
+                .FirstOrDefaultAsync(b => b.Id == req.BatchId && b.AssetTypeId == assetTypeId)
+                ?? throw new AppException("Batch not found", 404);
+        }
+
+        var item = new AssetItem
+        {
+            Id           = Guid.NewGuid(),
+            ClubId       = clubId,
+            AssetTypeId  = assetTypeId,
+            BatchId      = req.BatchId,
+            WarehouseId  = req.WarehouseId,
+            SerialNumber = req.SerialNumber,
+            Status       = AssetItemStatus.Available,
+            Notes        = req.Notes,
+        };
+        db.AssetItems.Add(item);
+        await db.SaveChangesAsync();
+
+        return MapItemToDto(item, warehouse.Name);
+    }
+
+    public async Task<List<AssetItemDto>> ListItemsAsync(Guid assetTypeId, Guid clubId)
+    {
+        var rows = await db.AssetItems
+            .Include(i => i.Warehouse)
+            .Where(i => i.AssetTypeId == assetTypeId && i.ClubId == clubId
+                   && i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff)
+            .OrderBy(i => i.CreatedAt)
+            .ToListAsync();
+
+        return rows.Select(i => MapItemToDto(i, i.Warehouse.Name)).ToList();
+    }
+
+    public async Task<AssetItemDto> UpdateItemAsync(Guid itemId, UpdateAssetItemRequest req, Guid clubId)
+    {
+        var item = await db.AssetItems.Include(i => i.Warehouse)
+            .FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+
+        if (req.WarehouseId.HasValue)
+        {
+            var wh = await db.Warehouses.FirstOrDefaultAsync(w => w.Id == req.WarehouseId && w.ClubId == clubId && w.IsActive)
+                ?? throw new AppException("Warehouse not found", 404);
+            item.WarehouseId = wh.Id;
+            item.Warehouse   = wh;
+        }
+        if (req.SerialNumber is not null) item.SerialNumber = req.SerialNumber;
+        if (req.Notes is not null)        item.Notes        = req.Notes;
+        item.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return MapItemToDto(item, item.Warehouse.Name);
+    }
+
+    public async Task RetireItemAsync(Guid itemId, Guid clubId)
+    {
+        var item = await db.AssetItems.FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+        item.Status    = AssetItemStatus.Retired;
+        item.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RetireItemsByQuantityAsync(Guid assetTypeId, int quantity, string? notes, Guid clubId)
+    {
+        var items = await db.AssetItems
+            .Where(i => i.AssetTypeId == assetTypeId && i.ClubId == clubId && i.Status == AssetItemStatus.Available)
+            .OrderBy(i => i.CreatedAt)
+            .Take(quantity)
+            .ToListAsync();
+
+        if (items.Count < quantity)
+            throw new AppException($"Not enough available items: requested {quantity}, found {items.Count}", 409);
+
+        foreach (var item in items)
+        {
+            item.Status    = AssetItemStatus.Retired;
+            item.Notes     = notes ?? item.Notes;
+            item.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+    }
+
+    public async Task WriteOffItemAsync(Guid itemId, string reason, Guid clubId)
+    {
+        var item = await db.AssetItems.FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+        item.Status    = AssetItemStatus.WrittenOff;
+        item.Notes     = reason;
+        item.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task WriteOffItemsByQuantityAsync(Guid assetTypeId, int quantity, string reason, Guid clubId)
+    {
+        var items = await db.AssetItems
+            .Where(i => i.AssetTypeId == assetTypeId && i.ClubId == clubId && i.Status == AssetItemStatus.Available)
+            .OrderBy(i => i.CreatedAt)
+            .Take(quantity)
+            .ToListAsync();
+
+        if (items.Count < quantity)
+            throw new AppException($"Not enough available items: requested {quantity}, found {items.Count}", 409);
+
+        foreach (var item in items)
+        {
+            item.Status    = AssetItemStatus.WrittenOff;
+            item.Notes     = reason;
+            item.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+    }
+
+    public async Task DeleteItemAsync(Guid itemId, Guid clubId, Guid operatorId)
+    {
+        var item = await db.AssetItems
+            .Include(i => i.AssetType).ThenInclude(t => t.AssetName)
+            .Include(i => i.Warehouse)
+            .FirstOrDefaultAsync(i => i.Id == itemId && i.ClubId == clubId)
+            ?? throw new AppException("Item not found", 404);
+
+        if (item.Status != AssetItemStatus.Available)
+            throw new AppException("Only available items can be deleted (correction use only)", 409);
+
+        var hasLoanHistory = await db.LoanItemAssignments
+            .AnyAsync(a => a.AssetItemId == itemId);
+        if (hasLoanHistory)
+            throw new AppException("Item has loan history and cannot be deleted", 409);
+
+        var nameParts = new[] { item.AssetType?.AssetName?.Name, item.AssetType?.Brand, item.AssetType?.Model, item.AssetType?.Size }
+            .Where(s => !string.IsNullOrEmpty(s));
+        auditContext.Override("asset_item.deleted",
+            entityType: "asset_item",
+            entityId:   item.Id,
+            clubId:     item.ClubId,
+            meta: new {
+                serial_number  = item.SerialNumber,
+                asset          = string.Join(" · ", nameParts),
+                warehouse_name = item.Warehouse?.Name,
+            });
+
+        db.AssetItems.Remove(item);
+        await db.SaveChangesAsync();
+    }
+
+    private static string AssetItemStatusToSnakeCase(AssetItemStatus status) => status switch
+    {
+        AssetItemStatus.Available  => "available",
+        AssetItemStatus.OnLoan     => "on_loan",
+        AssetItemStatus.Maintenance => "maintenance",
+        AssetItemStatus.Retired    => "retired",
+        AssetItemStatus.WrittenOff => "written_off",
+        _                          => status.ToString().ToLowerInvariant(),
+    };
+
+    private static AssetItemDto MapItemToDto(AssetItem i, string warehouseName) =>
+        new(i.Id, i.AssetTypeId, i.BatchId, i.WarehouseId, warehouseName, i.SerialNumber,
+            AssetItemStatusToSnakeCase(i.Status), i.Notes, i.CreatedAt);
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     // EF Core 10 cannot translate a static helper *method* invocation inside a
@@ -459,13 +708,15 @@ internal sealed class AssetService(
         IsActive = at.IsActive,
         CreatedAt = at.CreatedAt,
         UpdatedAt = at.UpdatedAt,
-        TotalQuantity = at.AssetBatches.Sum(b => (int?)b.TotalQuantity) ?? 0,
-        AvailableQuantity = at.AssetBatches.Sum(b => (int?)b.AvailableQuantity) ?? 0,
+        // v2: quantities derived from asset_items instead of batch-level counters.
+        TotalQuantity = at.AssetItems.Count(i =>
+            i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff),
+        AvailableQuantity = at.AssetItems.Count(i => i.Status == AssetItemStatus.Available),
         BatchCount = at.AssetBatches.Count(),
-        Status = at.AssetBatches.Count() == 0
-                 || at.AssetBatches.Sum(b => (int?)b.TotalQuantity) == 0
+        Status = at.AssetItems.Count(i =>
+                     i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff) == 0
                     ? "retired"
-                    : at.AssetBatches.Sum(b => (int?)b.AvailableQuantity) == 0
+                    : at.AssetItems.Count(i => i.Status == AssetItemStatus.Available) == 0
                         ? "on_loan"
                         : "available",
         Batches = at.AssetBatches
@@ -478,8 +729,13 @@ internal sealed class AssetService(
                 PurchasePrice = b.PurchasePrice,
                 UsefulLifeYears = b.UsefulLifeYears,
                 TotalQuantity = b.TotalQuantity,
-                AvailableQuantity = b.AvailableQuantity,
-                Status = b.Status,
+                AvailableQuantity = b.AssetItems.Count(i => i.Status == AssetItemStatus.Available),
+                Status = b.AssetItems.Count(i =>
+                             i.Status != AssetItemStatus.Retired && i.Status != AssetItemStatus.WrittenOff) == 0
+                             ? AssetStatus.Retired
+                             : b.AssetItems.Count(i => i.Status == AssetItemStatus.Available) == 0
+                                 ? AssetStatus.OnLoan
+                                 : AssetStatus.Available,
                 Notes = b.Notes,
                 CreatedAt = b.CreatedAt,
             })

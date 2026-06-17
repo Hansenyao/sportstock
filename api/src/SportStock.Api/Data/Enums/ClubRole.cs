@@ -1,9 +1,9 @@
 namespace SportStock.Api.Data.Enums;
 
-public enum UserRole
+public enum ClubRole
 {
-    SuperAdmin,
     ClubAdmin,
     AssetManager,
     Coach,
+    Accountant,
 }

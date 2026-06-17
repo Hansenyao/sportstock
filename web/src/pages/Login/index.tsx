@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Form, Input, Button, Typography, Card, Divider, Space, Steps, App, Grid,
+  Form, Input, Button, Typography, Card, Divider, Flex, Steps, App, Grid,
 } from 'antd';
 import {
   MailOutlined, LockOutlined, AppstoreOutlined, ArrowLeftOutlined,
@@ -34,8 +34,7 @@ export default function LoginPage() {
     setLoginLoading(true);
     try {
       const res = await authApi.login(values.email, values.password);
-      login(res.data.token, res.data.user);
-      message.success(`Welcome back, ${res.data.user.name}!`);
+      await login(res.data);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? 'Login failed. Please try again.';
@@ -228,14 +227,16 @@ export default function LoginPage() {
           </Form>
 
           <Divider style={{ margin: '24px 0' }}>
-            <Text style={{ color: '#bfbfbf', fontSize: 12 }}>Don't have an account?</Text>
+            <Text style={{ color: '#bfbfbf', fontSize: 12 }}>New to SportStock?</Text>
           </Divider>
-
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Button block style={{ height: 44 }} onClick={() => navigate('/register')}>
-              Register Your Club
+          <Flex gap={12}>
+            <Button block style={{ height: 44 }} onClick={() => navigate('/register-club')}>
+              Register a Club
             </Button>
-          </Space>
+            <Button block style={{ height: 44 }} onClick={() => navigate('/register-user')}>
+              Create an Account
+            </Button>
+          </Flex>
         </Card>
       </div>
     </div>

@@ -10,7 +10,6 @@ public sealed class RetirementRiskItem
     public DateOnly PurchaseDate { get; set; }
     public int UsefulLifeYears { get; set; }
     public int TotalQuantity { get; set; }
-    public string BatchStatus { get; set; } = string.Empty;
     public int LifeUsedPercent { get; set; }
 }
 

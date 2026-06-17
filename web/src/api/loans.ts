@@ -13,6 +13,9 @@ export interface LoanItem {
   model?: string | null;
   size?: string | null;
   quantity: number;
+  kit_id?: string | null;
+  kit_name?: string | null;
+  kit_quantity?: number | null;
   returned_quantity?: number | null;
   good_quantity?: number | null;
   minor_damage_quantity?: number | null;
@@ -27,6 +30,7 @@ export interface Loan {
   coach_id: string;
   coach_name: string;
   coach_email?: string;
+  coach_avatar_url?: string | null;
   team_id?: string | null;
   team_name?: string | null;
   created_by?: string | null;
@@ -37,6 +41,8 @@ export interface Loan {
   checkout_by_name?: string | null;
   return_confirmed_by?: string | null;
   return_confirmed_by_name?: string | null;
+  warehouse_id?: string | null;
+  warehouse_name?: string | null;
   reason?: string | null;
   status: LoanStatus;
   due_date: string;
@@ -60,7 +66,25 @@ export interface LoanFilters {
   limit?: number;
 }
 
-export interface CartItem {
+export interface KitCartEntry {
+  type: 'kit';
+  kit_id: string;
+  kit_name: string;
+  kit_quantity: number;
+  items: {
+    asset_type_id: string;
+    asset_name: string;
+    asset_image?: string | null;
+    brand?: string | null;
+    model?: string | null;
+    size?: string | null;
+    per_kit_quantity: number;
+    available_quantity: number;
+  }[];
+}
+
+export interface AssetCartEntry {
+  type: 'asset';
   asset_type_id: string;
   asset_name: string;
   asset_image?: string | null;
@@ -71,16 +95,30 @@ export interface CartItem {
   quantity: number;
 }
 
+export type CartEntry = KitCartEntry | AssetCartEntry;
+
 export interface CreateLoanPayload {
-  items: { asset_type_id: string; quantity: number }[];
+  items: {
+    asset_type_id: string;
+    quantity: number;
+    kit_id?: string | null;
+    kit_name?: string | null;
+    kit_quantity?: number | null;
+  }[];
   due_date: string;
   reason?: string;
   coach_id?: string;
-  team_id?: string;
+  team_id?: string | null;
 }
 
 export interface UpdateLoanPayload {
-  items?: { asset_type_id: string; quantity: number }[];
+  items?: {
+    asset_type_id: string;
+    quantity: number;
+    kit_id?: string | null;
+    kit_name?: string | null;
+    kit_quantity?: number | null;
+  }[];
   due_date?: string;
   reason?: string;
   coach_id?: string;
@@ -94,6 +132,7 @@ export interface ReturnItemPayload {
   write_off_quantity: number;
   lost_quantity: number;
   notes?: string;
+  warehouse_id?: string | null;
 }
 
 export interface ConfirmReturnPayload {
@@ -116,8 +155,8 @@ export const updateLoan = (id: string, data: UpdateLoanPayload) =>
 export const deleteLoan = (id: string) =>
   client.delete(`/loans/${id}`);
 
-export const approveLoan = (id: string) =>
-  client.post<Loan>(`/loans/${id}/approve`);
+export const approveLoan = (id: string, warehouseId?: string) =>
+  client.post<Loan>(`/loans/${id}/approve`, warehouseId ? { warehouse_id: warehouseId } : {});
 
 export const rejectLoan = (id: string, reason?: string) =>
   client.post<Loan>(`/loans/${id}/reject`, { reason });

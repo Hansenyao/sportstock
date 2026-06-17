@@ -5,19 +5,16 @@ namespace SportStock.Api.Services;
 
 public interface IAuthService
 {
-    Task RegisterAsync(RegisterRequest req, CancellationToken ct = default);
+    Task<RegisterUserResult> RegisterUserAsync(RegisterUserRequest req);
+    Task<RegisterClubResult> RegisterClubAsync(RegisterClubRequest req, Guid callerId);
+    Task<LoginResult> LoginAsync(LoginRequest req);
+    Task<string> SelectClubAsync(Guid userId, Guid clubId);
+    Task<MeResult> GetMeAsync(Guid userId, Guid? activeClubId);
+    Task VerifyEmailAsync(string email, string code);
+    Task ForgotPasswordAsync(string email);
+    Task ResetPasswordAsync(ResetPasswordRequest req);
 
-    Task SendVerificationCodeAsync(string email, VerificationCodeKind kind, CancellationToken ct = default);
-
-    Task VerifyEmailAsync(string email, string code, CancellationToken ct = default);
-
-    Task<LoginResponse> LoginAsync(string email, string password, CancellationToken ct = default);
-
-    Task ForgotPasswordAsync(string email, CancellationToken ct = default);
-
-    Task ResetPasswordAsync(string email, string code, string newPassword, CancellationToken ct = default);
-
+    // Legacy helpers kept for ChangePassword and ResendVerification endpoints
     Task ChangePasswordAsync(Guid userId, string currentPassword, string newPassword, CancellationToken ct = default);
-
-    Task<ProfileResponse?> GetProfileAsync(Guid userId, CancellationToken ct = default);
+    Task SendVerificationCodeAsync(string email, VerificationCodeKind kind, CancellationToken ct = default);
 }

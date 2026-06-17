@@ -23,6 +23,8 @@ public partial class Loan
 
     public Guid? ReturnConfirmedBy { get; set; }
 
+    public Guid? WarehouseId { get; set; }
+
     public string? Reason { get; set; }
 
     public DateOnly DueDate { get; set; }
@@ -42,6 +44,8 @@ public partial class Loan
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+
+    public virtual Warehouse? Warehouse { get; set; }
 
     public virtual User? ApprovedByNavigation { get; set; }
 

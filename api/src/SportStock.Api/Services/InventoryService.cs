@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using SportStock.Api.Data;
 using SportStock.Api.Data.Entities;
 using SportStock.Api.Data.Enums;
@@ -9,18 +8,12 @@ using SportStock.Api.Exceptions;
 
 namespace SportStock.Api.Services;
 
-// Ports backend/src/services/inventory.service.ts. First service to call
-// stored procedures via StoredProcedures.* extension methods; PG `RAISE
-// EXCEPTION` from inside a CALL surfaces as PostgresException SqlState
-// "P0001" (raise_exception). We translate those to AppException with the
-// 409 status code Node assigned to "Cannot retire ..." and "not in
-// maintenance status ..." business-rule violations.
+// Ports backend/src/services/inventory.service.ts.
+// In v2, asset quantities and statuses live in asset_items rows.
+// Stored procedures for retire/maintenance have been removed; all status
+// transitions are performed inline via EF Core.
 internal sealed class InventoryService(SportStockDbContext db) : IInventoryService
 {
-    // PG raise_exception SqlState. Used to distinguish business-rule
-    // violations raised by a procedure body from transport-level errors.
-    private const string RaiseExceptionSqlState = "P0001";
-
     private static readonly HashSet<string> ValidMovementTypeFilter = new(StringComparer.Ordinal)
     {
         "purchase", "loan_out", "loan_return", "write_off", "adjustment",
@@ -96,7 +89,8 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
                     ? sm.AssetBatch.AssetType.Model : null,
                 Size = sm.AssetBatch != null && sm.AssetBatch.AssetType != null
                     ? sm.AssetBatch.AssetType.Size : null,
-                OperatorName = sm.Operator != null ? sm.Operator.Name : null,
+                OperatorName = sm.Operator != null
+                    ? sm.Operator.FirstName + " " + sm.Operator.LastName : null,
             })
             .ToListAsync(ct);
 
@@ -109,7 +103,7 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         };
     }
 
-    // ── Adjust batch (inline SQL, no SP) ─────────────────────────────────────
+    // ── Adjust batch (add or remove asset_item rows) ──────────────────────────
 
     public async Task<AssetBatchResponse> AdjustBatchAsync(
         Guid clubId, Guid operatorId, Guid batchId, AdjustBatchRequest req, CancellationToken ct = default)
@@ -117,40 +111,102 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         if (req.QuantityDelta is null)
             throw new AppException("quantity_delta is required", 400);
 
-        var batch = await LoadBatchInClubAsync(batchId, clubId, ct);
+        var batch = await LoadBatchWithItemsAsync(batchId, clubId, ct);
         var delta = req.QuantityDelta.Value;
-        var newAvail = batch.AvailableQuantity + delta;
 
-        if (newAvail < 0)
-            throw new AppException("Adjustment would result in negative available quantity", 409);
-
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        var quantityBefore = batch.AvailableQuantity;
-        batch.AvailableQuantity = newAvail;
-        batch.TotalQuantity = Math.Max(batch.TotalQuantity + delta, 0);
-        batch.UpdatedAt = DateTime.UtcNow;
-
-        db.StockMovements.Add(new StockMovement
+        if (delta > 0)
         {
-            Id = Guid.NewGuid(),
-            ClubId = clubId,
-            AssetBatchId = batchId,
-            OperatorId = operatorId,
-            Type = StockMovementType.Adjustment,
-            QuantityDelta = delta,
-            QuantityBefore = quantityBefore,
-            QuantityAfter = newAvail,
-            Notes = req.Notes ?? "Manual adjustment",
-        });
+            // Adding stock: need a warehouse to place new items in.
+            var warehouseId = await db.Warehouses
+                .IgnoreQueryFilters()
+                .Where(w => w.ClubId == clubId && w.IsActive)
+                .OrderBy(w => w.CreatedAt)
+                .Select(w => (Guid?)w.Id)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new AppException("No active warehouse found for this club", 409);
 
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-        return MapBatch(batch);
+            var availableBefore = batch.AssetItems.Count(i => i.Status == AssetItemStatus.Available);
+
+            for (int i = 0; i < delta; i++)
+            {
+                db.AssetItems.Add(new AssetItem
+                {
+                    Id          = Guid.NewGuid(),
+                    ClubId      = clubId,
+                    AssetTypeId = batch.AssetTypeId,
+                    BatchId     = batchId,
+                    WarehouseId = warehouseId,
+                    Status      = AssetItemStatus.Available,
+                });
+            }
+
+            batch.TotalQuantity += delta;
+            batch.UpdatedAt = DateTime.UtcNow;
+
+            db.StockMovements.Add(new StockMovement
+            {
+                Id = Guid.NewGuid(),
+                ClubId = clubId,
+                AssetBatchId = batchId,
+                OperatorId = operatorId,
+                Type = StockMovementType.Adjustment,
+                QuantityDelta = delta,
+                QuantityBefore = availableBefore,
+                QuantityAfter = availableBefore + delta,
+                Notes = req.Notes ?? "Manual adjustment (add)",
+            });
+
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+        else if (delta < 0)
+        {
+            // Removing stock: retire that many available items.
+            var toRemove = -delta;
+            var availableItems = batch.AssetItems
+                .Where(i => i.Status == AssetItemStatus.Available)
+                .Take(toRemove)
+                .ToList();
+
+            if (availableItems.Count < toRemove)
+                throw new AppException("Adjustment would result in negative available quantity", 409);
+
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            var availableBefore = batch.AssetItems.Count(i => i.Status == AssetItemStatus.Available);
+
+            foreach (var item in availableItems)
+            {
+                item.Status    = AssetItemStatus.WrittenOff;
+                item.UpdatedAt = DateTime.UtcNow;
+            }
+
+            batch.TotalQuantity = Math.Max(batch.TotalQuantity + delta, 0);
+            batch.UpdatedAt = DateTime.UtcNow;
+
+            db.StockMovements.Add(new StockMovement
+            {
+                Id = Guid.NewGuid(),
+                ClubId = clubId,
+                AssetBatchId = batchId,
+                OperatorId = operatorId,
+                Type = StockMovementType.Adjustment,
+                QuantityDelta = delta,
+                QuantityBefore = availableBefore,
+                QuantityAfter = availableBefore + delta,
+                Notes = req.Notes ?? "Manual adjustment (remove)",
+            });
+
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+
+        return await MapBatchAsync(batchId, ct);
     }
 
-    // ── Retire batch (calls SP retire_batch) ─────────────────────────────────
+    // ── Retire batch (mark all available items as Retired) ───────────────────
 
     public async Task<AssetBatchResponse> RetireBatchAsync(
         Guid clubId, Guid operatorId, Guid batchId, RetireBatchRequest req, CancellationToken ct = default)
@@ -158,21 +214,41 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         if (req.Quantity is null || req.Quantity < 1)
             throw new AppException("Positive quantity is required", 400);
 
-        await AssertBatchInClubAsync(batchId, clubId, ct);
+        var batch = await LoadBatchWithItemsAsync(batchId, clubId, ct);
 
-        try
+        var availableItems = batch.AssetItems
+            .Where(i => i.Status == AssetItemStatus.Available)
+            .Take(req.Quantity.Value)
+            .ToList();
+
+        if (availableItems.Count < req.Quantity.Value)
+            throw new AppException(
+                $"Cannot retire {req.Quantity.Value} items: only {availableItems.Count} available", 409);
+
+        var availableBefore = batch.AssetItems.Count(i => i.Status == AssetItemStatus.Available);
+
+        foreach (var item in availableItems)
         {
-            await db.RetireBatchAsync(batchId, operatorId, req.Quantity.Value, req.Notes, ct);
-        }
-        catch (PostgresException ex) when (ex.SqlState == RaiseExceptionSqlState
-            && ex.MessageText.Contains("Cannot retire", StringComparison.Ordinal))
-        {
-            throw new AppException(ex.MessageText, 409);
+            item.Status    = AssetItemStatus.Retired;
+            item.UpdatedAt = DateTime.UtcNow;
         }
 
-        // Detach the cached entity (if any) so the post-call read returns the
-        // SP-modified row from PG rather than EF Core's stale snapshot.
-        return await ReloadBatchAsync(batchId, ct);
+        db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(),
+            ClubId = clubId,
+            AssetBatchId = batchId,
+            OperatorId = operatorId,
+            Type = StockMovementType.WriteOff,
+            QuantityDelta = -req.Quantity.Value,
+            QuantityBefore = availableBefore,
+            QuantityAfter = availableBefore - req.Quantity.Value,
+            Notes = req.Notes ?? "Retirement",
+        });
+
+        await db.SaveChangesAsync(ct);
+
+        return await MapBatchAsync(batchId, ct);
     }
 
     // ── Complete maintenance (calls SP complete_maintenance) ────────────────
@@ -183,19 +259,26 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         if (req.QuantityRestored is null)
             throw new AppException("quantity_restored is required", 400);
 
-        await AssertBatchInClubAsync(batchId, clubId, ct);
+        var batch = await LoadBatchWithItemsAsync(batchId, clubId, ct);
 
-        try
+        var maintenanceItems = batch.AssetItems
+            .Where(i => i.Status == AssetItemStatus.Maintenance)
+            .Take(req.QuantityRestored.Value)
+            .ToList();
+
+        if (maintenanceItems.Count < req.QuantityRestored.Value)
+            throw new AppException(
+                $"Cannot restore {req.QuantityRestored.Value} items: only {maintenanceItems.Count} in maintenance", 409);
+
+        foreach (var item in maintenanceItems)
         {
-            await db.CompleteMaintenanceAsync(batchId, operatorId, req.QuantityRestored.Value, req.Notes, ct);
-        }
-        catch (PostgresException ex) when (ex.SqlState == RaiseExceptionSqlState
-            && ex.MessageText.Contains("not in maintenance status", StringComparison.Ordinal))
-        {
-            throw new AppException(ex.MessageText, 409);
+            item.Status    = AssetItemStatus.Available;
+            item.UpdatedAt = DateTime.UtcNow;
         }
 
-        return await ReloadBatchAsync(batchId, ct);
+        await db.SaveChangesAsync(ct);
+
+        return await MapBatchAsync(batchId, ct);
     }
 
     // ── Stocktakes ───────────────────────────────────────────────────────────
@@ -222,7 +305,8 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
                 StartedAt = s.StartedAt,
                 CompletedAt = s.CompletedAt,
                 CreatedAt = s.CreatedAt,
-                ConductedByName = s.ConductedByNavigation.Name,
+                ConductedByName = s.ConductedByNavigation != null
+                    ? s.ConductedByNavigation.FirstName + " " + s.ConductedByNavigation.LastName : string.Empty,
             })
             .ToListAsync(ct);
     }
@@ -244,7 +328,7 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         var conductedByName = await db.Users
             .IgnoreQueryFilters()
             .Where(u => u.Id == conductedBy)
-            .Select(u => u.Name)
+            .Select(u => u.FirstName + " " + u.LastName)
             .FirstAsync(ct);
 
         return new StocktakeSessionListItem
@@ -269,9 +353,8 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
             .FirstOrDefaultAsync(s => s.Id == sessionId && s.ClubId == clubId, ct);
         if (session is null) throw new AppException("Stocktake session not found", 404);
 
-        // Live sum of available_quantity across batches per asset_type — used
-        // for the items[].current_quantity column. We fetch all items for the
-        // session and compute the sum per asset_type_id, then project.
+        // Live count of available asset_items per asset_type — used for the
+        // items[].current_quantity column.
         var items = await db.StocktakeItems
             .IgnoreQueryFilters()
             .Where(si => si.SessionId == sessionId)
@@ -290,9 +373,9 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
                 Brand = si.AssetType.Brand,
                 Model = si.AssetType.Model,
                 Size = si.AssetType.Size,
-                CurrentQuantity = db.AssetBatches
-                    .Where(ab => ab.AssetTypeId == si.AssetTypeId)
-                    .Sum(ab => (int?)ab.AvailableQuantity) ?? 0,
+                CurrentQuantity = db.AssetItems
+                    .Count(ai => ai.AssetTypeId == si.AssetTypeId
+                              && ai.Status == AssetItemStatus.Available),
             })
             .ToListAsync(ct);
 
@@ -328,24 +411,21 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
             {
                 if (input.AssetTypeId is null || input.PhysicalQuantity is null) continue;
 
-                // Verify the asset_type belongs to this club AND get live qty.
-                var systemQty = await db.AssetTypes
+                // Verify the asset_type belongs to this club AND get live available count.
+                var assetTypeExists = await db.AssetTypes
                     .IgnoreQueryFilters()
-                    .Where(at => at.Id == input.AssetTypeId.Value
-                              && at.ClubId == clubId
-                              && at.IsActive)
-                    .Select(at => (int?)db.AssetBatches
-                        .Where(ab => ab.AssetTypeId == at.Id)
-                        .Sum(ab => (int?)ab.AvailableQuantity))
-                    .FirstOrDefaultAsync(ct);
+                    .AnyAsync(at => at.Id == input.AssetTypeId.Value
+                                 && at.ClubId == clubId
+                                 && at.IsActive, ct);
 
-                if (systemQty is null) continue; // type not in this club / inactive
+                if (!assetTypeExists) continue; // type not in this club / inactive
+
+                var systemQty = await db.AssetItems
+                    .IgnoreQueryFilters()
+                    .CountAsync(ai => ai.AssetTypeId == input.AssetTypeId.Value
+                                   && ai.Status == AssetItemStatus.Available, ct);
 
                 // Upsert: query existing row first, then either update or insert.
-                // EF Core 10 has no native ON CONFLICT DO UPDATE; this two-step
-                // mirrors the Node UPSERT semantics including the special case
-                // where the existing system_quantity is preserved on update
-                // (the Node version overwrites it though — we follow Node).
                 var existing = await db.StocktakeItems
                     .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(si =>
@@ -358,7 +438,7 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
                         Id = Guid.NewGuid(),
                         SessionId = sessionId,
                         AssetTypeId = input.AssetTypeId.Value,
-                        SystemQuantity = systemQty.Value,
+                        SystemQuantity = systemQty,
                         PhysicalQuantity = input.PhysicalQuantity.Value,
                         Notes = input.Notes,
                     });
@@ -385,7 +465,7 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
         var conductedByName = await db.Users
             .IgnoreQueryFilters()
             .Where(u => u.Id == session.ConductedBy)
-            .Select(u => u.Name)
+            .Select(u => u.FirstName + " " + u.LastName)
             .FirstAsync(ct);
 
         return new StocktakeSessionListItem
@@ -404,55 +484,40 @@ internal sealed class InventoryService(SportStockDbContext db) : IInventoryServi
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private async Task<AssetBatch> LoadBatchInClubAsync(Guid batchId, Guid clubId, CancellationToken ct)
+    private async Task<AssetBatch> LoadBatchWithItemsAsync(Guid batchId, Guid clubId, CancellationToken ct)
     {
-        var batch = await (
-            from b in db.AssetBatches.IgnoreQueryFilters()
-            join at in db.AssetTypes.IgnoreQueryFilters() on b.AssetTypeId equals at.Id
-            where b.Id == batchId && at.ClubId == clubId
-            select b
-        ).FirstOrDefaultAsync(ct);
+        var batch = await db.AssetBatches
+            .IgnoreQueryFilters()
+            .Include(b => b.AssetItems)
+            .Include(b => b.AssetType)
+            .FirstOrDefaultAsync(b => b.Id == batchId && b.AssetType.ClubId == clubId, ct);
         return batch ?? throw new AppException("Batch not found", 404);
     }
 
-    private async Task AssertBatchInClubAsync(Guid batchId, Guid clubId, CancellationToken ct)
+    // Map batch to response DTO, computing item-level counts from asset_items.
+    private async Task<AssetBatchResponse> MapBatchAsync(Guid batchId, CancellationToken ct)
     {
-        var exists = await (
-            from b in db.AssetBatches.IgnoreQueryFilters()
-            join at in db.AssetTypes.IgnoreQueryFilters() on b.AssetTypeId equals at.Id
-            where b.Id == batchId && at.ClubId == clubId
-            select b.Id
-        ).AnyAsync(ct);
-        if (!exists) throw new AppException("Batch not found", 404);
-    }
-
-    // SP calls bypass the EF Core change tracker, so any cached AssetBatch
-    // in the current scope is stale. Detach + reload to pick up the new row.
-    private async Task<AssetBatchResponse> ReloadBatchAsync(Guid batchId, CancellationToken ct)
-    {
-        var tracked = db.ChangeTracker.Entries<AssetBatch>()
-            .FirstOrDefault(e => e.Entity.Id == batchId);
-        if (tracked is not null) tracked.State = EntityState.Detached;
-
         var batch = await db.AssetBatches
             .IgnoreQueryFilters()
             .AsNoTracking()
+            .Include(b => b.AssetItems)
             .FirstAsync(b => b.Id == batchId, ct);
-        return MapBatch(batch);
-    }
 
-    private static AssetBatchResponse MapBatch(AssetBatch b) => new()
-    {
-        Id = b.Id,
-        AssetTypeId = b.AssetTypeId,
-        PurchaseDate = b.PurchaseDate,
-        PurchasePrice = b.PurchasePrice,
-        UsefulLifeYears = b.UsefulLifeYears,
-        TotalQuantity = b.TotalQuantity,
-        AvailableQuantity = b.AvailableQuantity,
-        Status = b.Status,
-        Notes = b.Notes,
-        CreatedAt = b.CreatedAt,
-        UpdatedAt = b.UpdatedAt,
-    };
+        return new AssetBatchResponse
+        {
+            Id              = batch.Id,
+            AssetTypeId     = batch.AssetTypeId,
+            PurchaseDate    = batch.PurchaseDate,
+            PurchasePrice   = batch.PurchasePrice,
+            UsefulLifeYears = batch.UsefulLifeYears,
+            TotalQuantity   = batch.TotalQuantity,
+            AvailableCount  = batch.AssetItems.Count(i => i.Status == AssetItemStatus.Available),
+            OnLoanCount     = batch.AssetItems.Count(i => i.Status == AssetItemStatus.OnLoan),
+            MaintenanceCount = batch.AssetItems.Count(i => i.Status == AssetItemStatus.Maintenance),
+            RetiredCount    = batch.AssetItems.Count(i => i.Status == AssetItemStatus.Retired),
+            Notes           = batch.Notes,
+            CreatedAt       = batch.CreatedAt,
+            UpdatedAt       = batch.UpdatedAt,
+        };
+    }
 }

@@ -15,6 +15,8 @@ public sealed class LoanResponse
     public Guid? ApprovedBy { get; set; }
     public Guid? CheckoutBy { get; set; }
     public Guid? ReturnConfirmedBy { get; set; }
+    public Guid? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
     public string? Reason { get; set; }
     public LoanStatus Status { get; set; }
     public DateOnly DueDate { get; set; }
@@ -29,6 +31,7 @@ public sealed class LoanResponse
 
     public string CoachName { get; set; } = string.Empty;
     public string CoachEmail { get; set; } = string.Empty;
+    public string? CoachAvatarUrl { get; set; }
     public string? CreatedByName { get; set; }
     public string? ApprovedByName { get; set; }
     public string? CheckoutByName { get; set; }

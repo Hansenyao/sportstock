@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportStock.Api.Auth;
-using SportStock.Api.Data.Enums;
 using SportStock.Api.Dtos.Admin;
+using SportStock.Api.Dtos.AuditLog;
+using SportStock.Api.Dtos.SportType;
 using SportStock.Api.Exceptions;
 using SportStock.Api.Services;
 
@@ -11,8 +12,8 @@ namespace SportStock.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/admin")]
-[RequireRole(UserRole.SuperAdmin)]
-public sealed class AdminController(IAdminService service) : ControllerBase
+[RequireSuperAdmin]
+public sealed class AdminController(IAdminService service, IAuditLogService auditLogService, ISportTypeService sportTypeService) : ControllerBase
 {
     [HttpGet("stats")]
     public async Task<IActionResult> Stats(CancellationToken ct) =>
@@ -113,4 +114,33 @@ public sealed class AdminController(IAdminService service) : ControllerBase
         [FromQuery] string? status,
         CancellationToken ct) =>
         Ok(await service.ListClubLoansAsync(id, page == 0 ? 1 : page, limit == 0 ? 20 : limit, status, ct));
+
+    // GET /api/v1/admin/audit-logs — super-admin view across all clubs
+    [HttpGet("audit-logs")]
+    public async Task<IActionResult> ListAll([FromQuery] AuditLogQuery q)
+        => Ok(await auditLogService.ListAsync(q, clubId: null));
+
+    // ── Sport-type settings ──────────────────────────────────────────────────
+
+    [HttpGet("settings/sport-types")]
+    public async Task<IActionResult> AdminListSportTypes()
+        => Ok(await sportTypeService.ListAllAsync());
+
+    [HttpPost("settings/sport-types")]
+    public async Task<IActionResult> CreateSportType([FromBody] CreateSportTypeRequest req)
+        => StatusCode(201, await sportTypeService.CreateAsync(req));
+
+    [HttpPut("settings/sport-types/{id:guid}")]
+    public async Task<IActionResult> UpdateSportType(Guid id, [FromBody] UpdateSportTypeRequest req)
+    {
+        await sportTypeService.UpdateAsync(id, req);
+        return NoContent();
+    }
+
+    [HttpDelete("settings/sport-types/{id:guid}")]
+    public async Task<IActionResult> DeleteSportType(Guid id)
+    {
+        await sportTypeService.DeleteAsync(id);
+        return NoContent();
+    }
 }

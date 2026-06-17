@@ -16,4 +16,5 @@ public sealed class CreateAssetRequest
     public int? UsefulLifeYears { get; set; }
     public string? Notes { get; set; }
     public int? LowStockThreshold { get; set; }
+    public Guid? WarehouseId { get; set; }
 }

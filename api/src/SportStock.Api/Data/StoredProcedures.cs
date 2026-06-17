@@ -16,9 +16,10 @@ public static class StoredProcedures
         this SportStockDbContext db,
         Guid loanId,
         Guid approverId,
+        Guid? warehouseId,
         CancellationToken ct = default) =>
         db.Database.ExecuteSqlAsync(
-            $"CALL approve_loan({loanId}, {approverId})", ct);
+            $"CALL approve_loan({loanId}, {approverId}, {warehouseId})", ct);
 
     public static Task<int> RejectLoanAsync(
         this SportStockDbContext db,
@@ -32,10 +33,18 @@ public static class StoredProcedures
     public static Task<int> CheckoutLoanAsync(
         this SportStockDbContext db,
         Guid loanId,
-        Guid operatorId,
         CancellationToken ct = default) =>
         db.Database.ExecuteSqlAsync(
-            $"CALL checkout_loan({loanId}, {operatorId})", ct);
+            $"CALL checkout_loan({loanId})", ct);
+
+    public static Task<int> ReturnLoanItemAsync(
+        this SportStockDbContext db,
+        Guid loanItemId,
+        string condition,
+        Guid? warehouseId = null,
+        CancellationToken ct = default) =>
+        db.Database.ExecuteSqlAsync(
+            $"CALL return_loan_item({loanItemId}, {condition}, {warehouseId})", ct);
 
     public static Task<int> CompleteMaintenanceAsync(
         this SportStockDbContext db,

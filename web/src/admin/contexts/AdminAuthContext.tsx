@@ -39,7 +39,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         { headers: { Authorization: `Bearer ${stored}` } }
       )
       .then(res => {
-        if (res.data.role !== 'super_admin') { clearStorage(); setToken(null); setUser(null); return; }
+        if (!res.data.is_sup_admin) { clearStorage(); setToken(null); setUser(null); return; }
         localStorage.setItem(USER_KEY, JSON.stringify(res.data));
         setUser(res.data);
       })

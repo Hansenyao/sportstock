@@ -19,14 +19,14 @@ public sealed class AssetNamesController(IAssetNameService service) : Controller
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var rows = await service.ListAsync(currentUser.ClubId.Value, ct);
+        var rows = await service.ListAsync(currentUser.ActiveClubId.Value, ct);
         return Ok(rows);
     }
 
     [HttpPost]
-    [RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Create(
         [FromBody] CreateAssetNameRequest body,
         [FromServices] IValidator<CreateAssetNameRequest> validator,
@@ -34,14 +34,14 @@ public sealed class AssetNamesController(IAssetNameService service) : Controller
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var created = await service.CreateAsync(currentUser.ClubId.Value, body, ct);
+        var created = await service.CreateAsync(currentUser.ActiveClubId.Value, body, ct);
         return StatusCode(201, created);
     }
 
     [HttpPut("{id:guid}")]
-    [RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Update(
         Guid id,
         [FromBody] UpdateAssetNameRequest body,
@@ -50,22 +50,22 @@ public sealed class AssetNamesController(IAssetNameService service) : Controller
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var updated = await service.UpdateAsync(id, currentUser.ClubId.Value, body, ct);
+        var updated = await service.UpdateAsync(id, currentUser.ActiveClubId.Value, body, ct);
         return Ok(updated);
     }
 
     [HttpDelete("{id:guid}")]
-    [RequireRole(UserRole.ClubAdmin, UserRole.AssetManager)]
+    [RequireRole(ClubRole.ClubAdmin, ClubRole.AssetManager)]
     public async Task<IActionResult> Delete(
         Guid id,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        await service.DeleteAsync(id, currentUser.ClubId.Value, ct);
+        await service.DeleteAsync(id, currentUser.ActiveClubId.Value, ct);
         return NoContent();
     }
 }

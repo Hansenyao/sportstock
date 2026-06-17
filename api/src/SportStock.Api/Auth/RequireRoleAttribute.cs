@@ -9,7 +9,7 @@ namespace SportStock.Api.Auth;
 // default 401/403 responses are plain text and would diverge from the rest
 // of the API's { statusCode, error, message } shape.
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
-public sealed class RequireRoleAttribute(params UserRole[] allowedRoles) : Attribute, IAsyncAuthorizationFilter
+public sealed class RequireRoleAttribute(params ClubRole[] allowedRoles) : Attribute, IAsyncAuthorizationFilter
 {
     public Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
@@ -18,7 +18,7 @@ public sealed class RequireRoleAttribute(params UserRole[] allowedRoles) : Attri
         if (!currentUser.IsAuthenticated)
             throw new AppException("Missing Bearer token", 401);
 
-        if (!allowedRoles.Contains(currentUser.Role))
+        if (currentUser.Role is null || !allowedRoles.Contains(currentUser.Role.Value))
             throw new AppException("Insufficient permissions", 403);
 
         return Task.CompletedTask;

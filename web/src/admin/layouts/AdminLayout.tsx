@@ -2,6 +2,7 @@
 import { Layout, Menu, Button, Typography } from 'antd';
 import {
   DashboardOutlined, BarChartOutlined, BankOutlined, LogoutOutlined,
+  SettingOutlined, AuditOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAdminAuth } from '../contexts/AdminAuthContext';
@@ -10,9 +11,11 @@ const { Sider, Content } = Layout;
 const { Text } = Typography;
 
 const NAV_ITEMS = [
-  { key: '/admin/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
-  { key: '/admin/analytics', icon: <BarChartOutlined />,  label: 'Analytics' },
-  { key: '/admin/clubs',     icon: <BankOutlined />,      label: 'Clubs' },
+  { key: '/admin/dashboard',  icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/admin/analytics',  icon: <BarChartOutlined />,  label: 'Analytics' },
+  { key: '/admin/clubs',      icon: <BankOutlined />,      label: 'Clubs' },
+  { key: '/admin/settings',   icon: <SettingOutlined />,   label: 'Settings' },
+  { key: '/admin/audit-logs', icon: <AuditOutlined />,     label: 'Audit Logs' },
 ];
 
 export default function AdminLayout() {

@@ -85,7 +85,7 @@ export default function HomePage() {
         <Space>
           {user ? (
             <>
-              <Text style={{ color: '#595959' }}>Hi, {user.name}</Text>
+              <Text style={{ color: '#595959' }}>Hi, {`${user.first_name} ${user.last_name}`}</Text>
               <Button onClick={logout}>Sign Out</Button>
             </>
           ) : (

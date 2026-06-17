@@ -3,11 +3,13 @@ import {
   Table, Button, Tag, Modal, Form, Input, Select, Typography, Flex, App,
   Space, Tabs, DatePicker, Popconfirm, InputNumber, Drawer, Badge,
   Avatar, Card, List, Divider, Empty, Grid, Tooltip, Row, Col,
+  Collapse, Spin,
 } from 'antd';
 import {
   PlusOutlined, PictureOutlined, CheckOutlined, CloseOutlined,
   ArrowDownOutlined, ShoppingCartOutlined, DeleteOutlined, EditOutlined,
   MinusOutlined, DeleteFilled, CheckCircleOutlined, SearchOutlined,
+  AppstoreAddOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -15,11 +17,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   listLoans, createLoan, updateLoan, deleteLoan, approveLoan, rejectLoan,
   checkoutLoan, confirmReturn,
-  type Loan, type LoanStatus, type LoanItem, type CartItem, type ReturnItemPayload, type LoanFilters,
+  type Loan, type LoanStatus, type LoanItem, type CartEntry, type KitCartEntry, type AssetCartEntry, type ReturnItemPayload, type LoanFilters,
 } from '../../api/loans';
 import { listAssets, type AssetType } from '../../api/assets';
 import { listUsers, getUser, type ClubUser } from '../../api/users';
 import { listTeams, type Team, type UserTeamMembership } from '../../api/teams';
+import * as kitsApi from '../../api/kits';
+import type { KitListItem } from '../../api/kits';
+import { listWarehouses, type Warehouse } from '../../api/warehouses';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -58,14 +63,20 @@ const PAGE_SIZE = 20;
 
 // ── Cart helpers ──────────────────────────────────────────────────────────────
 
-function cartKey(userId: string | undefined) {
-  return `sportstock_loan_cart_${userId ?? 'anon'}`;
+function loadCart(userId: string | undefined): CartEntry[] {
+  if (!userId) return [];
+  try {
+    const raw = localStorage.getItem(`cart_${userId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as CartEntry[];
+    if (parsed.length > 0 && !('type' in parsed[0])) return [];
+    return parsed;
+  } catch { return []; }
 }
-function loadCart(userId: string | undefined): CartItem[] {
-  try { return JSON.parse(localStorage.getItem(cartKey(userId)) ?? '[]'); } catch { return []; }
-}
-function saveCart(userId: string | undefined, items: CartItem[]) {
-  localStorage.setItem(cartKey(userId), JSON.stringify(items));
+
+function saveCart(userId: string | undefined, items: CartEntry[]) {
+  if (!userId) return;
+  localStorage.setItem(`cart_${userId}`, JSON.stringify(items));
 }
 
 // ── Asset thumbnail ───────────────────────────────────────────────────────────
@@ -80,7 +91,7 @@ function AssetThumb({ src, size = 36 }: { src?: string | null; size?: number }) 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function LoansPage() {
-  const { user } = useAuth();
+  const { user, activeClub } = useAuth();
   const { message } = App.useApp();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -88,8 +99,8 @@ export default function LoansPage() {
   const [rejectForm] = Form.useForm();
   const [editForm] = Form.useForm();
 
-  const isManager = user?.role === 'club_admin' || user?.role === 'asset_manager';
-  const isCoach   = user?.role === 'coach';
+  const isManager = activeClub?.role === 'club_admin' || activeClub?.role === 'asset_manager';
+  const isCoach   = activeClub?.role === 'coach';
 
   // List state
   const [loans, setLoans]       = useState<Loan[]>([]);
@@ -113,13 +124,21 @@ export default function LoansPage() {
   const [editCoachTeams, setEditCoachTeams] = useState<UserTeamMembership[]>([]);
 
   // Cart & create drawer state
-  const [cart, setCart]             = useState<CartItem[]>(() => loadCart(user?.id));
+  const [cart, setCart]             = useState<CartEntry[]>(() => loadCart(user?.id));
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [createForm] = Form.useForm();
   const [creating, setCreating]     = useState(false);
 
+  // Warehouses for approve modal
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+
   // Action modals
+  const [approveOpen, setApproveOpen]     = useState(false);
+  const [approvingLoan, setApprovingLoan] = useState<Loan | null>(null);
+  const [approveForm] = Form.useForm();
+  const [approving, setApproving]         = useState(false);
+
   const [rejectOpen, setRejectOpen]   = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejecting, setRejecting]     = useState(false);
@@ -132,12 +151,20 @@ export default function LoansPage() {
 
   const [editOpen, setEditOpen]       = useState(false);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
-  const [editCart, setEditCart]       = useState<CartItem[]>([]);
+  const [editCart, setEditCart]       = useState<CartEntry[]>([]);
   const [editing, setEditing]         = useState(false);
 
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const setAL = (key: string, val: boolean) =>
     setActionLoading(prev => ({ ...prev, [key]: val }));
+
+  // Kit selector state
+  const [kitModalOpen, setKitModalOpen]   = useState(false);
+  const [kitModalTarget, setKitModalTarget] = useState<'create' | 'edit'>('create');
+  const [kitList, setKitList]             = useState<KitListItem[]>([]);
+  const [kitsLoading, setKitsLoading]     = useState(false);
+  const [drawerTab, setDrawerTab]         = useState<'assets' | 'kits'>('assets');
+  const [kitQtyMap, setKitQtyMap]         = useState<Record<string, number>>({});
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -193,6 +220,7 @@ export default function LoansPage() {
     if (isManager) {
       listUsers({ role: 'coach', limit: 200 }).then(r => setCoaches(r.data.data)).catch(() => {});
       listTeams().then(r => setTeams(r.data)).catch(() => {});
+      listWarehouses().then(r => setWarehouses(r.data.items)).catch(() => {});
     }
     if (isCoach && user?.id) {
       getUser(user.id).then(r => setCreateCoachTeams(r.data.teams ?? [])).catch(() => {});
@@ -203,52 +231,148 @@ export default function LoansPage() {
 
   function cartAdd(asset: AssetType) {
     setCart(prev => {
-      const existing = prev.find(i => i.asset_type_id === asset.id);
-      const next = existing
-        ? prev.map(i => i.asset_type_id === asset.id
-            ? { ...i, quantity: Math.min(i.quantity + 1, asset.available_quantity) }
-            : i)
-        : [...prev, {
-            asset_type_id: asset.id,
-            asset_name: asset.name,
-            asset_image: asset.image_url,
-            brand: asset.brand,
-            model: asset.model,
-            size: asset.size,
-            available_quantity: asset.available_quantity,
-            quantity: 1,
-          }];
+      if (prev.find(e => e.type === 'asset' && e.asset_type_id === asset.id)) return prev;
+      const next: CartEntry[] = [...prev, {
+        type: 'asset',
+        asset_type_id: asset.id,
+        asset_name: asset.name,
+        asset_image: asset.image_url ?? null,
+        brand: asset.brand ?? null,
+        model: asset.model ?? null,
+        size: asset.size ?? null,
+        available_quantity: asset.available_quantity,
+        quantity: 1,
+      }];
       saveCart(user?.id, next);
       return next;
     });
   }
 
-  function cartSetQty(assetTypeId: string, qty: number) {
+  function cartRemove(type: 'kit' | 'asset', id: string) {
     setCart(prev => {
-      const next = qty < 1
-        ? prev.filter(i => i.asset_type_id !== assetTypeId)
-        : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i);
+      const next = type === 'kit'
+        ? prev.filter(e => !(e.type === 'kit' && e.kit_id === id))
+        : prev.filter(e => !(e.type === 'asset' && e.asset_type_id === id));
       saveCart(user?.id, next);
       return next;
     });
   }
 
-  function cartRemove(assetTypeId: string) {
-    setCart(prev => { const next = prev.filter(i => i.asset_type_id !== assetTypeId); saveCart(user?.id, next); return next; });
+  function cartSetQty(type: 'kit' | 'asset', id: string, qty: number) {
+    setCart(prev => {
+      const next = prev.map(e => {
+        if (type === 'asset' && e.type === 'asset' && e.asset_type_id === id)
+          return qty < 1 ? null : { ...e, quantity: qty };
+        if (type === 'kit' && e.type === 'kit' && e.kit_id === id)
+          return qty < 1 ? null : { ...e, kit_quantity: qty };
+        return e;
+      }).filter((e): e is CartEntry => e !== null);
+      saveCart(user?.id, next);
+      return next;
+    });
   }
 
-  function clearCart() { setCart([]); saveCart(user?.id, []); }
+  function clearCart() {
+    setCart([]);
+    saveCart(user?.id, []);
+  }
+
+  function expandCartToItems(entries: CartEntry[]) {
+    return entries.flatMap(e => {
+      if (e.type === 'kit') {
+        return e.items.map(i => ({
+          asset_type_id: i.asset_type_id,
+          quantity: i.per_kit_quantity * e.kit_quantity,
+          kit_id: e.kit_id,
+          kit_name: e.kit_name,
+          kit_quantity: e.kit_quantity,
+        }));
+      }
+      return [{
+        asset_type_id: e.asset_type_id,
+        quantity: e.quantity,
+        kit_id: null as string | null,
+        kit_name: null as string | null,
+        kit_quantity: null as number | null,
+      }];
+    });
+  }
+
+  // ── Kit selector ─────────────────────────────────────────────────────────────
+
+  async function openKitModal(target: 'create' | 'edit') {
+    setKitModalTarget(target);
+    setKitModalOpen(true);
+    setKitsLoading(true);
+    try {
+      const res = await kitsApi.listKits();
+      setKitList(res.data);
+    } catch {
+      message.error('Failed to load kits');
+    } finally {
+      setKitsLoading(false);
+    }
+  }
+
+  async function handleKitAdd(kitId: string, kitQty: number, target: 'create' | 'edit') {
+    try {
+      const res = await kitsApi.getKit(kitId);
+      const kit = res.data;
+      const entry: KitCartEntry = {
+        type: 'kit',
+        kit_id: kitId,
+        kit_name: kit.name,
+        kit_quantity: kitQty,
+        items: kit.items.map(ki => ({
+          asset_type_id: ki.asset_type_id,
+          asset_name: ki.asset_type_name,
+          asset_image: ki.image_url ?? null,
+          brand: null,
+          model: null,
+          size: null,
+          per_kit_quantity: ki.quantity,
+          available_quantity: ki.available_quantity,
+        })),
+      };
+      if (target === 'create') {
+        setCart(prev => {
+          const exists = prev.find(e => e.type === 'kit' && e.kit_id === kitId);
+          const next = exists
+            ? prev.map(e => e.type === 'kit' && e.kit_id === kitId ? entry : e)
+            : [...prev, entry];
+          saveCart(user?.id, next);
+          return next;
+        });
+      } else {
+        setEditCart(prev => {
+          const exists = prev.find(e => e.type === 'kit' && e.kit_id === kitId);
+          return exists
+            ? prev.map(e => e.type === 'kit' && e.kit_id === kitId ? entry : e)
+            : [...prev, entry];
+        });
+      }
+      message.success('Kit added');
+    } catch {
+      message.error('Failed to load kit');
+    }
+  }
 
   // ── Create loan ─────────────────────────────────────────────────────────────
 
   function openCreate() {
     setCreateStep(1);
+    setDrawerTab('assets');
     createForm.resetFields();
     // Pre-select team for coaches already in exactly one team
     if (isCoach && createCoachTeams.length === 1) {
       createForm.setFieldValue('team_id', createCoachTeams[0].team_id);
     }
     setCartDrawerOpen(true);
+    setKitsLoading(true);
+    kitsApi.listKits()
+      .then(r => setKitList(r.data))
+      .catch(() => {})
+      .finally(() => setKitsLoading(false));
   }
 
   async function handleCoachSelect(coachId: string) {
@@ -271,7 +395,7 @@ export default function LoansPage() {
     setCreating(true);
     try {
       await createLoan({
-        items: cart.map(i => ({ asset_type_id: i.asset_type_id, quantity: i.quantity })),
+        items: expandCartToItems(cart),
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
@@ -289,15 +413,25 @@ export default function LoansPage() {
 
   // ── Approve / Reject ────────────────────────────────────────────────────────
 
-  async function handleApprove(loan: Loan) {
-    setAL(loan.id + '_approve', true);
+  function handleApprove(loan: Loan) {
+    approveForm.resetFields();
+    if (warehouses.length === 1) approveForm.setFieldsValue({ warehouse_id: warehouses[0].id });
+    setApprovingLoan(loan);
+    setApproveOpen(true);
+  }
+
+  async function handleApproveConfirm() {
+    if (!approvingLoan) return;
+    const { warehouse_id } = approveForm.getFieldsValue();
+    setApproving(true);
     try {
-      await approveLoan(loan.id);
+      await approveLoan(approvingLoan.id, warehouse_id);
       message.success('Loan approved');
+      setApproveOpen(false);
       fetchLoans();
     } catch (err: unknown) {
       message.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to approve');
-    } finally { setAL(loan.id + '_approve', false); }
+    } finally { setApproving(false); }
   }
 
   function openReject(loan: Loan) {
@@ -343,6 +477,7 @@ export default function LoansPage() {
       minor_damage_quantity: 0,
       write_off_quantity: 0,
       lost_quantity: 0,
+      warehouse_id: loan.warehouse_id ?? null,
     })));
     setReturnNotes('');
     setReturnOpen(true);
@@ -367,7 +502,10 @@ export default function LoansPage() {
     if (!returningLoan) return;
     setConfirming(true);
     try {
-      await confirmReturn(returningLoan.id, { items: returnItems, notes: returnNotes || undefined });
+      await confirmReturn(returningLoan.id, {
+        items: returnItems,
+        notes: returnNotes || undefined,
+      });
       message.success('Return confirmed');
       setReturnOpen(false);
       fetchLoans();
@@ -399,16 +537,46 @@ export default function LoansPage() {
       coach_id: loan.coach_id,
       team_id:  loan.team_id ?? undefined,
     });
-    setEditCart(loan.items.map(item => ({
-      asset_type_id: item.asset_type_id,
-      asset_name: item.asset_name,
-      asset_image: item.asset_image,
-      brand: item.brand,
-      model: item.model,
-      size: item.size,
-      available_quantity: 9999,
-      quantity: item.quantity,
-    })));
+    // Reconstruct CartEntry[] from loan items
+    const kitMap = new Map<string, KitCartEntry>();
+    const standaloneItems: AssetCartEntry[] = [];
+
+    for (const item of loan.items) {
+      if (item.kit_id && item.kit_name && item.kit_quantity) {
+        if (!kitMap.has(item.kit_id)) {
+          kitMap.set(item.kit_id, {
+            type: 'kit',
+            kit_id: item.kit_id,
+            kit_name: item.kit_name,
+            kit_quantity: item.kit_quantity,
+            items: [],
+          });
+        }
+        kitMap.get(item.kit_id)!.items.push({
+          asset_type_id: item.asset_type_id,
+          asset_name: item.asset_name,
+          asset_image: item.asset_image ?? null,
+          brand: item.brand ?? null,
+          model: item.model ?? null,
+          size: item.size ?? null,
+          per_kit_quantity: item.quantity / item.kit_quantity,
+          available_quantity: 9999,
+        });
+      } else {
+        standaloneItems.push({
+          type: 'asset',
+          asset_type_id: item.asset_type_id,
+          asset_name: item.asset_name,
+          asset_image: item.asset_image ?? null,
+          brand: item.brand ?? null,
+          model: item.model ?? null,
+          size: item.size ?? null,
+          available_quantity: 9999,
+          quantity: item.quantity,
+        });
+      }
+    }
+    setEditCart([...kitMap.values(), ...standaloneItems]);
     // Load teams for this loan's coach
     if (isCoach) {
       setEditCoachTeams(createCoachTeams);
@@ -423,19 +591,41 @@ export default function LoansPage() {
     setEditOpen(true);
   }
 
-  function editCartSetQty(assetTypeId: string, qty: number) {
-    setEditCart(prev => qty < 1 ? prev.filter(i => i.asset_type_id !== assetTypeId) : prev.map(i => i.asset_type_id === assetTypeId ? { ...i, quantity: qty } : i));
-  }
-
   function editCartAdd(asset: AssetType) {
     setEditCart(prev => {
-      if (prev.find(i => i.asset_type_id === asset.id)) return prev;
+      if (prev.find(e => e.type === 'asset' && e.asset_type_id === asset.id)) return prev;
       return [...prev, {
-        asset_type_id: asset.id, asset_name: asset.name, asset_image: asset.image_url,
-        brand: asset.brand, model: asset.model, size: asset.size,
-        available_quantity: asset.available_quantity, quantity: 1,
+        type: 'asset' as const,
+        asset_type_id: asset.id,
+        asset_name: asset.name,
+        asset_image: asset.image_url ?? null,
+        brand: asset.brand ?? null,
+        model: asset.model ?? null,
+        size: asset.size ?? null,
+        available_quantity: 9999,
+        quantity: 1,
       }];
     });
+  }
+
+  function editCartSetQty(type: 'kit' | 'asset', id: string, qty: number) {
+    setEditCart(prev =>
+      prev.map(e => {
+        if (type === 'asset' && e.type === 'asset' && e.asset_type_id === id)
+          return qty < 1 ? null : { ...e, quantity: qty };
+        if (type === 'kit' && e.type === 'kit' && e.kit_id === id)
+          return qty < 1 ? null : { ...e, kit_quantity: qty };
+        return e;
+      }).filter((e): e is CartEntry => e !== null)
+    );
+  }
+
+  function editCartRemove(type: 'kit' | 'asset', id: string) {
+    setEditCart(prev =>
+      type === 'kit'
+        ? prev.filter(e => !(e.type === 'kit' && e.kit_id === id))
+        : prev.filter(e => !(e.type === 'asset' && e.asset_type_id === id))
+    );
   }
 
   async function handleEdit(values: Record<string, unknown>) {
@@ -444,7 +634,7 @@ export default function LoansPage() {
     setEditing(true);
     try {
       await updateLoan(editingLoan.id, {
-        items:    editCart.map(i => ({ asset_type_id: i.asset_type_id, quantity: i.quantity })),
+        items:    expandCartToItems(editCart),
         due_date: (values.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
         reason:   values.reason as string | undefined,
         coach_id: values.coach_id as string | undefined,
@@ -470,10 +660,74 @@ export default function LoansPage() {
   // ── Expandable row: item list ────────────────────────────────────────────────
 
   function renderExpandedRow(loan: Loan) {
+    // ── Group items by kit ──────────────────────────────────────────
+    const kitGroups = new Map<string, { name: string; qty: number; items: LoanItem[] }>();
+    const standalone: LoanItem[] = [];
+    for (const item of loan.items) {
+      if (item.kit_id && item.kit_name && item.kit_quantity) {
+        if (!kitGroups.has(item.kit_id))
+          kitGroups.set(item.kit_id, { name: item.kit_name, qty: item.kit_quantity, items: [] });
+        kitGroups.get(item.kit_id)!.items.push(item);
+      } else {
+        standalone.push(item);
+      }
+    }
+
+    // ── Item row renderer ───────────────────────────────────────────
+    function renderLoanItemRow(item: LoanItem) {
+      return (
+        <div key={item.id} style={{ padding: '6px 0' }}>
+          <Flex align="center" gap={10} style={{ width: '100%' }}>
+            <AssetThumb src={item.asset_image} size={40} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Text strong style={{ display: 'block', fontSize: 13 }}>{item.asset_name}</Text>
+              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
+                {[item.brand, item.model, item.size && `Size: ${item.size}`]
+                  .filter(Boolean).join(' · ')}
+              </Text>
+              {item.return_notes && (
+                <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                  Note: {item.return_notes}
+                </Text>
+              )}
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <Text strong>×{item.quantity}</Text>
+              {item.good_quantity != null && (
+                <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+                  {item.good_quantity > 0 && (
+                    <Text style={{ color: '#52c41a', display: 'block' }}>{item.good_quantity} good</Text>
+                  )}
+                  {(item.minor_damage_quantity ?? 0) > 0 && (
+                    <Text style={{ color: '#faad14', display: 'block' }}>{item.minor_damage_quantity} minor dmg</Text>
+                  )}
+                  {(item.write_off_quantity ?? 0) > 0 && (
+                    <Text style={{ color: '#ff7a45', display: 'block' }}>{item.write_off_quantity} written off</Text>
+                  )}
+                  {(item.lost_quantity ?? 0) > 0 && (
+                    <Text style={{ color: '#ff4d4f', display: 'block' }}>{item.lost_quantity} lost</Text>
+                  )}
+                </div>
+              )}
+            </div>
+          </Flex>
+        </div>
+      );
+    }
+
     return (
       <div style={{ padding: '4px 0 12px 40px' }}>
 
         {/* Loan-level notes */}
+        {loan.warehouse_name && (loan.status === 'approved' || loan.status === 'checked_out') && (
+          <div style={{ marginBottom: 8 }}>
+            <Text style={{ fontSize: 12 }}>
+              <Text style={{ fontSize: 12, color: '#8c8c8c' }}>Pick up from: </Text>
+              <Text strong style={{ fontSize: 12 }}>{loan.warehouse_name}</Text>
+            </Text>
+          </div>
+        )}
+
         {(loan.reason || loan.rejection_reason || loan.return_notes) && (
           <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
             {loan.reason && (
@@ -497,49 +751,27 @@ export default function LoansPage() {
           </div>
         )}
 
-        {/* Asset items */}
-        <List
-          size="small"
-          dataSource={loan.items}
-          renderItem={(item: LoanItem) => (
-            <List.Item style={{ padding: '6px 0', border: 'none' }}>
-              <Flex align="center" gap={10} style={{ width: '100%' }}>
-                <AssetThumb src={item.asset_image} size={40} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong style={{ display: 'block', fontSize: 13 }}>{item.asset_name}</Text>
-                  <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
-                    {[item.brand, item.model, item.size && `Size: ${item.size}`]
-                      .filter(Boolean).join(' · ')}
-                  </Text>
-                  {item.return_notes && (
-                    <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
-                      Note: {item.return_notes}
-                    </Text>
-                  )}
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <Text strong>×{item.quantity}</Text>
-                  {item.good_quantity != null && (
-                    <div style={{ fontSize: 11, lineHeight: 1.4 }}>
-                      {item.good_quantity > 0 && (
-                        <Text style={{ color: '#52c41a', display: 'block' }}>{item.good_quantity} good</Text>
-                      )}
-                      {(item.minor_damage_quantity ?? 0) > 0 && (
-                        <Text style={{ color: '#faad14', display: 'block' }}>{item.minor_damage_quantity} minor dmg</Text>
-                      )}
-                      {(item.write_off_quantity ?? 0) > 0 && (
-                        <Text style={{ color: '#ff7a45', display: 'block' }}>{item.write_off_quantity} written off</Text>
-                      )}
-                      {(item.lost_quantity ?? 0) > 0 && (
-                        <Text style={{ color: '#ff4d4f', display: 'block' }}>{item.lost_quantity} lost</Text>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </Flex>
-            </List.Item>
-          )}
-        />
+        {/* Kit groups */}
+        {kitGroups.size > 0 && (
+          <Collapse
+            size="small"
+            style={{ marginBottom: 8 }}
+            defaultActiveKey={[...kitGroups.keys()]}
+            items={[...kitGroups.entries()].map(([kitId, group]) => ({
+              key: kitId,
+              label: (
+                <Text strong style={{ fontSize: 13 }}>
+                  {group.name}{' '}
+                  <Text type="secondary" style={{ fontSize: 12 }}>×{group.qty}</Text>
+                </Text>
+              ),
+              children: <div>{group.items.map(item => renderLoanItemRow(item))}</div>,
+            }))}
+          />
+        )}
+
+        {/* Standalone items */}
+        {standalone.map(item => renderLoanItemRow(item))}
       </div>
     );
   }
@@ -574,12 +806,21 @@ export default function LoansPage() {
                 )}
               </Flex>
               {/* Coach name — no "Borrower:" prefix on mobile */}
-              <Text style={{
-                fontSize: 12, color: '#8c8c8c',
-                display: 'block', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-              }}>
-                {isMobile ? loan.coach_name : `Borrower: ${loan.coach_name}`}
-              </Text>
+              <Flex align="center" gap={4} style={{ overflow: 'hidden' }}>
+                <Avatar
+                  size={20}
+                  src={loan.coach_avatar_url ?? undefined}
+                  style={{ flexShrink: 0, backgroundColor: '#1677ff' }}
+                >
+                  {!loan.coach_avatar_url && loan.coach_name.charAt(0).toUpperCase()}
+                </Avatar>
+                <Text style={{
+                  fontSize: 12, color: '#8c8c8c',
+                  overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                }}>
+                  {isMobile ? loan.coach_name : `Borrower: ${loan.coach_name}`}
+                </Text>
+              </Flex>
               {loan.team_name && (
                 <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', marginTop: 2 }}>
                   {loan.team_name}
@@ -715,38 +956,90 @@ export default function LoansPage() {
     _asset: a,
   }));
 
-  const renderCartItems = (cartItems: CartItem[], setQty: (id: string, q: number) => void, remove: (id: string) => void) => (
-    cartItems.length === 0
-      ? <Empty description="No items" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '20px 0' }} />
-      : <List
-          dataSource={cartItems}
-          renderItem={item => (
-            <List.Item style={{ padding: '8px 0' }}>
+  const renderCartEntries = (
+    entries: CartEntry[],
+    setQty: (type: 'kit' | 'asset', id: string, q: number) => void,
+    remove: (type: 'kit' | 'asset', id: string) => void,
+  ) => {
+    if (entries.length === 0)
+      return <Empty description="No items" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '20px 0' }} />;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {entries.map(entry => {
+          if (entry.type === 'kit') {
+            return (
+              <Collapse
+                key={`kit_${entry.kit_id}`}
+                size="small"
+                defaultActiveKey={[entry.kit_id]}
+                items={[{
+                  key: entry.kit_id,
+                  label: (
+                    <Flex align="center" gap={8} style={{ width: '100%' }}>
+                      <Text strong style={{ flex: 1, fontSize: 13 }}>{entry.kit_name}</Text>
+                      <Flex align="center" gap={4} onClick={e => e.stopPropagation()}>
+                        <Button size="small" icon={<MinusOutlined />}
+                          onClick={() => setQty('kit', entry.kit_id, entry.kit_quantity - 1)} />
+                        <InputNumber
+                          size="small" min={1} value={entry.kit_quantity}
+                          onChange={v => setQty('kit', entry.kit_id, v ?? 1)}
+                          style={{ width: 48 }} controls={false} />
+                        <Button size="small" icon={<PlusOutlined />}
+                          onClick={() => setQty('kit', entry.kit_id, entry.kit_quantity + 1)} />
+                        <Button size="small" danger icon={<DeleteOutlined />}
+                          onClick={() => remove('kit', entry.kit_id)} />
+                      </Flex>
+                    </Flex>
+                  ),
+                  children: (
+                    <div style={{ paddingLeft: 8 }}>
+                      {entry.items.map(i => (
+                        <Flex key={i.asset_type_id} align="center" gap={8} style={{ padding: '4px 0' }}>
+                          <AssetThumb src={i.asset_image} size={28} />
+                          <Text style={{ flex: 1, fontSize: 12 }}>{i.asset_name}</Text>
+                          <Text style={{ fontSize: 12, color: '#8c8c8c' }}>
+                            ×{i.per_kit_quantity * entry.kit_quantity}
+                          </Text>
+                        </Flex>
+                      ))}
+                    </div>
+                  ),
+                }]}
+              />
+            );
+          }
+
+          return (
+            <List.Item key={`asset_${entry.asset_type_id}`} style={{ padding: '8px 0' }}>
               <Flex align="center" gap={8} style={{ width: '100%' }}>
-                <AssetThumb src={item.asset_image} size={36} />
+                <AssetThumb src={entry.asset_image} size={36} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong style={{ fontSize: 13, display: 'block' }}>{item.asset_name}</Text>
+                  <Text strong style={{ fontSize: 13, display: 'block' }}>{entry.asset_name}</Text>
                   <Text style={{ fontSize: 11, color: '#8c8c8c' }}>
-                    {[item.size && `Size: ${item.size}`, item.brand].filter(Boolean).join(' · ')}
+                    {[entry.size && `Size: ${entry.size}`, entry.brand].filter(Boolean).join(' · ')}
                   </Text>
                 </div>
                 <Flex align="center" gap={4}>
-                  <Button size="small" icon={<MinusOutlined />} onClick={() => setQty(item.asset_type_id, item.quantity - 1)} />
+                  <Button size="small" icon={<MinusOutlined />}
+                    onClick={() => setQty('asset', entry.asset_type_id, entry.quantity - 1)} />
                   <InputNumber
-                    size="small" min={1} max={item.available_quantity} value={item.quantity}
-                    onChange={v => setQty(item.asset_type_id, v ?? 1)}
-                    style={{ width: 48 }} controls={false}
-                  />
+                    size="small" min={1} max={entry.available_quantity} value={entry.quantity}
+                    onChange={v => setQty('asset', entry.asset_type_id, v ?? 1)}
+                    style={{ width: 48 }} controls={false} />
                   <Button size="small" icon={<PlusOutlined />}
-                    disabled={item.quantity >= item.available_quantity}
-                    onClick={() => setQty(item.asset_type_id, item.quantity + 1)} />
-                  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(item.asset_type_id)} />
+                    disabled={entry.quantity >= entry.available_quantity}
+                    onClick={() => setQty('asset', entry.asset_type_id, entry.quantity + 1)} />
+                  <Button size="small" danger icon={<DeleteOutlined />}
+                    onClick={() => remove('asset', entry.asset_type_id)} />
                 </Flex>
               </Flex>
             </List.Item>
-          )}
-        />
-  );
+          );
+        })}
+      </div>
+    );
+  };
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -872,49 +1165,107 @@ export default function LoansPage() {
       >
         {createStep === 1 ? (
           <div>
-            {/* Asset picker */}
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-              Tap an asset to add it to your cart. Items with 0 available cannot be added.
-            </Text>
-            <List
-              dataSource={assets}
-              renderItem={(asset: AssetType) => {
-                const inCart = cart.find(i => i.asset_type_id === asset.id);
-                const disabled = asset.available_quantity === 0;
-                return (
-                  <List.Item
-                    style={{ padding: '8px 0', opacity: disabled ? 0.45 : 1 }}
-                    actions={[
-                      inCart
-                        ? <Tag color="blue">×{inCart.quantity}</Tag>
-                        : <Button size="small" type="primary" icon={<PlusOutlined />}
-                            disabled={disabled} onClick={() => cartAdd(asset)}>
-                            Add
-                          </Button>
-                    ]}
-                  >
-                    <Flex align="center" gap={10}>
-                      <AssetThumb src={asset.image_url} size={40} />
-                      <div>
-                        <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
-                        <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
-                          {[asset.brand, asset.size && `Size: ${asset.size}`].filter(Boolean).join(' · ')}
-                          {' '}· {asset.available_quantity} available
-                        </Text>
-                      </div>
-                    </Flex>
-                  </List.Item>
-                );
-              }}
+            <Tabs
+              activeKey={drawerTab}
+              onChange={k => setDrawerTab(k as 'assets' | 'kits')}
+              items={[
+                {
+                  key: 'assets',
+                  label: 'Assets',
+                  children: (
+                    <List
+                      dataSource={assets}
+                      renderItem={(asset: AssetType) => {
+                        const inCart = cart.find(e => e.type === 'asset' && e.asset_type_id === asset.id) as AssetCartEntry | undefined;
+                        const disabled = asset.available_quantity === 0;
+                        return (
+                          <List.Item
+                            style={{ padding: '8px 0', opacity: disabled ? 0.45 : 1 }}
+                            actions={[
+                              inCart
+                                ? <Tag color="blue">×{inCart.quantity}</Tag>
+                                : <Button size="small" type="primary" icon={<PlusOutlined />}
+                                    disabled={disabled} onClick={() => cartAdd(asset)}>
+                                    Add
+                                  </Button>
+                            ]}
+                          >
+                            <Flex align="center" gap={10}>
+                              <AssetThumb src={asset.image_url} size={40} />
+                              <div>
+                                <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
+                                <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                                  {[asset.brand, asset.size && `Size: ${asset.size}`].filter(Boolean).join(' · ')}
+                                  {' '}· {asset.available_quantity} available
+                                </Text>
+                              </div>
+                            </Flex>
+                          </List.Item>
+                        );
+                      }}
+                    />
+                  ),
+                },
+                {
+                  key: 'kits',
+                  label: 'Kits',
+                  children: kitsLoading
+                    ? <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+                    : kitList.length === 0
+                      ? <Empty description="No kits" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      : (
+                        <List
+                          dataSource={kitList}
+                          renderItem={(kit: KitListItem) => {
+                            const inCart = cart.find(e => e.type === 'kit' && e.kit_id === kit.id) as KitCartEntry | undefined;
+                            const qty = kitQtyMap[kit.id] ?? 1;
+                            return (
+                              <List.Item style={{ padding: '8px 0' }}>
+                                <Flex align="center" gap={8} style={{ width: '100%' }}>
+                                  <div style={{ flex: 1 }}>
+                                    <Text strong style={{ fontSize: 13 }}>{kit.name}</Text>
+                                    {kit.description && (
+                                      <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block' }}>
+                                        {kit.description}
+                                      </Text>
+                                    )}
+                                    {inCart && (
+                                      <Tag color="blue" style={{ marginTop: 2 }}>
+                                        In cart ×{inCart.kit_quantity}
+                                      </Tag>
+                                    )}
+                                  </div>
+                                  <Flex align="center" gap={4}>
+                                    <InputNumber
+                                      size="small" min={1} value={qty}
+                                      onChange={v => setKitQtyMap(m => ({ ...m, [kit.id]: v ?? 1 }))}
+                                      style={{ width: 48 }} controls={false}
+                                    />
+                                    <Button
+                                      size="small" type="primary" icon={<PlusOutlined />}
+                                      onClick={() => { void handleKitAdd(kit.id, qty, 'create'); }}
+                                    >
+                                      Add
+                                    </Button>
+                                  </Flex>
+                                </Flex>
+                              </List.Item>
+                            );
+                          }}
+                        />
+                      ),
+                },
+              ]}
             />
+
             {cart.length > 0 && (
               <>
                 <Divider style={{ margin: '12px 0' }} />
                 <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
-                  <Text strong>Cart ({cart.length} item{cart.length > 1 ? 's' : ''})</Text>
+                  <Text strong>Cart</Text>
                   <Button size="small" danger onClick={clearCart}>Clear</Button>
                 </Flex>
-                {renderCartItems(cart, cartSetQty, cartRemove)}
+                {renderCartEntries(cart, cartSetQty, cartRemove)}
                 <Button type="primary" block style={{ marginTop: 12 }} onClick={() => setCreateStep(2)}>
                   Continue →
                 </Button>
@@ -924,7 +1275,7 @@ export default function LoansPage() {
         ) : (
           <div>
             <Card size="small" style={{ marginBottom: 16 }} title="Cart Summary">
-              {renderCartItems(cart, cartSetQty, cartRemove)}
+              {renderCartEntries(cart, cartSetQty, cartRemove)}
             </Card>
 
             <Form form={createForm} layout="vertical" onFinish={handleCreate}>
@@ -976,6 +1327,26 @@ export default function LoansPage() {
         )}
       </Drawer>
 
+      {/* ── Approve Modal ─────────────────────────────────────────────────────── */}
+      <Modal open={approveOpen} title="Approve Loan Request" onCancel={() => setApproveOpen(false)}
+        footer={null} destroyOnClose width={400}>
+        <Form form={approveForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="warehouse_id" label="Issue from Warehouse"
+            rules={[{ required: true, message: 'Please select a warehouse' }]}>
+            <Select
+              placeholder="Select warehouse"
+              options={warehouses.map(w => ({ value: w.id, label: w.name }))}
+            />
+          </Form.Item>
+          <Flex gap={8} justify="flex-end">
+            <Button onClick={() => setApproveOpen(false)}>Cancel</Button>
+            <Button type="primary" icon={<CheckOutlined />} loading={approving} onClick={handleApproveConfirm}>
+              Approve
+            </Button>
+          </Flex>
+        </Form>
+      </Modal>
+
       {/* ── Reject Modal ──────────────────────────────────────────────────────── */}
       <Modal open={rejectOpen} title="Reject Loan Request" onCancel={() => setRejectOpen(false)}
         footer={null} destroyOnClose>
@@ -992,108 +1363,137 @@ export default function LoansPage() {
 
       {/* ── Confirm Return Modal ──────────────────────────────────────────────── */}
       <Modal open={returnOpen} title="Confirm Return" onCancel={() => setReturnOpen(false)}
-        footer={null} width={isMobile ? '95vw' : 580} destroyOnClose>
-        {returningLoan && (
-          <div style={{ marginTop: 12 }}>
-            {returningLoan.items.map((item) => {
-              const ri = returnItems.find(r => r.loan_item_id === item.id);
-              if (!ri) return null;
-              const total = ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity;
-              const isValid = total === item.quantity;
-              const autoNote = buildReturnNote(ri);
-              return (
-                <Card key={item.id} size="small" style={{ marginBottom: 12 }}>
-                  <Flex align="center" gap={10} style={{ marginBottom: 10 }}>
-                    <AssetThumb src={item.asset_image} size={36} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text strong>{item.asset_name}</Text>
-                      <Text style={{ fontSize: 12, color: '#8c8c8c', display: 'block' }}>
-                        {[item.brand, item.size && `Size: ${item.size}`]
-                          .filter(Boolean).join(' · ')}
-                        {' '}· Loaned: <Text strong>{item.quantity}</Text>
-                      </Text>
-                    </div>
-                  </Flex>
+        footer={null} width={isMobile ? '95vw' : 600} destroyOnClose>
+        {returningLoan && (() => {
+          // Group items by kit (same logic as expanded row)
+          const kitGroups = new Map<string, { name: string; qty: number; items: LoanItem[] }>();
+          const standalone: LoanItem[] = [];
+          for (const item of returningLoan.items) {
+            if (item.kit_id && item.kit_name && item.kit_quantity) {
+              if (!kitGroups.has(item.kit_id))
+                kitGroups.set(item.kit_id, { name: item.kit_name, qty: item.kit_quantity, items: [] });
+              kitGroups.get(item.kit_id)!.items.push(item);
+            } else {
+              standalone.push(item);
+            }
+          }
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#52c41a', display: 'block', marginBottom: 4 }}>Good</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.good_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'good_quantity', v ?? 0)}
-                      />
-                    </div>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#faad14', display: 'block', marginBottom: 4 }}>Minor Damage</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.minor_damage_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'minor_damage_quantity', v ?? 0)}
-                      />
-                    </div>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#ff7a45', display: 'block', marginBottom: 4 }}>Write-off</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.write_off_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'write_off_quantity', v ?? 0)}
-                      />
-                    </div>
-                    <div>
-                      <Text style={{ fontSize: 11, color: '#ff4d4f', display: 'block', marginBottom: 4 }}>Lost</Text>
-                      <InputNumber
-                        min={0} max={item.quantity} value={ri.lost_quantity} size="small"
-                        style={{ width: '100%' }}
-                        onChange={v => updateReturnItem(item.id, 'lost_quantity', v ?? 0)}
-                      />
+          const isAllValid = !returnItems.some(ri => {
+            const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
+            return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
+          });
+
+          function renderReturnItemCard(item: LoanItem) {
+            const ri = returnItems.find(r => r.loan_item_id === item.id);
+            if (!ri) return null;
+            const total = ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity;
+            const isValid = total === item.quantity;
+            const autoNote = buildReturnNote(ri);
+            return (
+              <Card key={item.id} size="small" style={{ marginBottom: 8 }}>
+                <Flex align="center" gap={10} style={{ marginBottom: 10 }}>
+                  <AssetThumb src={item.asset_image} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Text strong>{item.asset_name}</Text>
+                    <Text style={{ fontSize: 12, color: '#8c8c8c', display: 'block' }}>
+                      {[item.brand, item.size && `Size: ${item.size}`].filter(Boolean).join(' · ')}
+                      {' '}· Loaned: <Text strong>{item.quantity}</Text>
+                    </Text>
+                  </div>
+                </Flex>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#52c41a', display: 'block', marginBottom: 4 }}>Good</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.good_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'good_quantity', v ?? 0)} />
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#faad14', display: 'block', marginBottom: 4 }}>Minor Damage</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.minor_damage_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'minor_damage_quantity', v ?? 0)} />
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#ff7a45', display: 'block', marginBottom: 4 }}>Write-off</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.write_off_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'write_off_quantity', v ?? 0)} />
+                  </div>
+                  <div>
+                    <Text style={{ fontSize: 11, color: '#ff4d4f', display: 'block', marginBottom: 4 }}>Lost</Text>
+                    <InputNumber min={0} max={item.quantity} value={ri.lost_quantity} size="small"
+                      style={{ width: '100%' }} onChange={v => updateReturnItem(item.id, 'lost_quantity', v ?? 0)} />
+                  </div>
+                </div>
+
+                <Flex align="center" gap={8} style={{ marginBottom: 6 }}>
+                  <Text style={{ fontSize: 11, color: '#8c8c8c', flexShrink: 0 }}>Return to:</Text>
+                  <Select
+                    size="small" style={{ flex: 1 }}
+                    value={ri.warehouse_id ?? undefined}
+                    onChange={v => updateReturnItem(item.id, 'warehouse_id', v)}
+                    options={warehouses.map(w => ({ value: w.id, label: w.name }))}
+                    placeholder="Select warehouse"
+                  />
+                </Flex>
+
+                <div style={{ marginBottom: 4 }}>
+                  {isValid
+                    ? <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Summary: {autoNote}</Text>
+                    : <Text type="danger" style={{ fontSize: 11 }}>⚠ Total must equal {item.quantity} (currently {total})</Text>
+                  }
+                </div>
+
+                <Input.TextArea rows={1} placeholder="Additional notes (optional)"
+                  value={ri.notes ?? ''} onChange={e => updateReturnItem(item.id, 'notes', e.target.value)} />
+              </Card>
+            );
+          }
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '70vh', marginTop: 12 }}>
+              {/* Scrollable items area */}
+              <div style={{ overflowY: 'auto', flex: 1, paddingRight: 4 }}>
+                {/* Kit groups */}
+                {[...kitGroups.entries()].map(([kitId, group]) => (
+                  <div key={kitId} style={{ marginBottom: 12 }}>
+                    <Flex align="center" gap={6} style={{ marginBottom: 6 }}>
+                      <Text strong style={{ fontSize: 13 }}>{group.name}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>×{group.qty}</Text>
+                    </Flex>
+                    <div style={{ paddingLeft: 12, borderLeft: '2px solid #f0f0f0' }}>
+                      {group.items.map(renderReturnItemCard)}
                     </div>
                   </div>
+                ))}
 
-                  <div style={{ marginTop: 8 }}>
-                    {isValid ? (
-                      <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Summary: {autoNote}</Text>
-                    ) : (
-                      <Text type="danger" style={{ fontSize: 11 }}>
-                        ⚠ Total must equal {item.quantity} (currently {total})
-                      </Text>
-                    )}
-                  </div>
+                {/* Standalone items */}
+                {standalone.map(renderReturnItemCard)}
+              </div>
 
-                  <Input.TextArea rows={1} placeholder="Additional notes (optional)" style={{ marginTop: 6 }}
-                    value={ri.notes ?? ''} onChange={e => updateReturnItem(item.id, 'notes', e.target.value)} />
-                </Card>
-              );
-            })}
-
-            <Form.Item label="Overall return notes (optional)" style={{ marginBottom: 12 }}>
-              <TextArea rows={2} value={returnNotes} onChange={e => setReturnNotes(e.target.value)} />
-            </Form.Item>
-            <Flex gap={8} justify="flex-end">
-              <Button onClick={() => setReturnOpen(false)}>Cancel</Button>
-              <Popconfirm
-                title="Confirm Return"
-                description="This action cannot be undone. Write-offs and lost items will be recorded immediately."
-                onConfirm={handleConfirmReturn}
-                okText="Confirm"
-                disabled={returnItems.some(ri => {
-                  const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
-                  return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
-                })}
-              >
-                <Button
-                  type="primary" loading={confirming}
-                  disabled={returnItems.some(ri => {
-                    const item = returningLoan.items.find(i => i.id === ri.loan_item_id);
-                    return item && (ri.good_quantity + ri.minor_damage_quantity + ri.write_off_quantity + ri.lost_quantity) !== item.quantity;
-                  })}
-                >
-                  Confirm Return
-                </Button>
-              </Popconfirm>
-            </Flex>
-          </div>
-        )}
+              {/* Fixed footer */}
+              <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, marginTop: 8, flexShrink: 0 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <Text style={{ display: 'block', marginBottom: 4, fontSize: 14 }}>Overall return notes (optional)</Text>
+                  <TextArea rows={2} value={returnNotes} onChange={e => setReturnNotes(e.target.value)} />
+                </div>
+                <Flex gap={8} justify="flex-end">
+                  <Button onClick={() => setReturnOpen(false)}>Cancel</Button>
+                  <Popconfirm
+                    title="Confirm Return"
+                    description="This action cannot be undone. Write-offs and lost items will be recorded immediately."
+                    onConfirm={handleConfirmReturn}
+                    okText="Confirm"
+                    disabled={!isAllValid}
+                  >
+                    <Button type="primary" loading={confirming} disabled={!isAllValid}>
+                      Confirm Return
+                    </Button>
+                  </Popconfirm>
+                </Flex>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* ── Edit Loan Drawer ──────────────────────────────────────────────────── */}
@@ -1106,18 +1506,23 @@ export default function LoansPage() {
             </Text>
 
             {/* Add asset picker */}
-            <Select
-              showSearch
-              placeholder="Add another asset…"
-              style={{ width: '100%', marginBottom: 12 }}
-              filterOption={(input, option) =>
-                String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-              options={assetOptions.filter(o => !editCart.find(i => i.asset_type_id === o.value))}
-              onSelect={(_val, option: typeof assetOptions[0]) => editCartAdd(option._asset)}
-              value={null}
-            />
+            <Flex gap={8} style={{ marginBottom: 12 }}>
+              <Select
+                showSearch
+                placeholder="Add another asset…"
+                style={{ flex: 1 }}
+                filterOption={(input, option) =>
+                  String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                options={assetOptions.filter(o => !editCart.find(e => e.type === 'asset' && e.asset_type_id === o.value))}
+                onSelect={(_val, option: typeof assetOptions[0]) => editCartAdd(option._asset)}
+                value={null}
+              />
+              <Button icon={<AppstoreAddOutlined />} onClick={() => openKitModal('edit')}>
+                Kit
+              </Button>
+            </Flex>
 
-            {renderCartItems(editCart, editCartSetQty, id => setEditCart(prev => prev.filter(i => i.asset_type_id !== id)))}
+            {renderCartEntries(editCart, editCartSetQty, editCartRemove)}
 
             <Divider style={{ margin: '12px 0' }} />
 
@@ -1165,6 +1570,44 @@ export default function LoansPage() {
           </div>
         )}
       </Drawer>
+
+      {/* ── Kit Selector Modal ────────────────────────────────────────────────── */}
+      <Modal
+        open={kitModalOpen}
+        title="Add Kit"
+        onCancel={() => setKitModalOpen(false)}
+        footer={null}
+        width={400}
+      >
+        {kitsLoading
+          ? <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+          : <List
+              dataSource={kitList}
+              renderItem={(kit: KitListItem) => {
+                const qty = kitQtyMap[kit.id] ?? 1;
+                return (
+                  <List.Item>
+                    <Flex align="center" gap={8} style={{ width: '100%' }}>
+                      <Text style={{ flex: 1 }}>{kit.name}</Text>
+                      <InputNumber
+                        size="small" min={1} value={qty}
+                        onChange={v => setKitQtyMap(m => ({ ...m, [kit.id]: v ?? 1 }))}
+                        style={{ width: 48 }} controls={false}
+                      />
+                      <Button size="small" type="primary"
+                        onClick={() => {
+                          void handleKitAdd(kit.id, qty, kitModalTarget);
+                          setKitModalOpen(false);
+                        }}>
+                        Add
+                      </Button>
+                    </Flex>
+                  </List.Item>
+                );
+              }}
+            />
+        }
+      </Modal>
     </div>
   );
 }

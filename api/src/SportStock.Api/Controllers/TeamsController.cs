@@ -19,14 +19,14 @@ public sealed class TeamsController(ITeamService teams) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var rows = await teams.ListAsync(currentUser.ClubId.Value, ct);
+        var rows = await teams.ListAsync(currentUser.ActiveClubId.Value, ct);
         return Ok(rows);
     }
 
     [HttpPost]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> Create(
         [FromBody] CreateTeamRequest body,
         [FromServices] IValidator<CreateTeamRequest> validator,
@@ -34,9 +34,9 @@ public sealed class TeamsController(ITeamService teams) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var team = await teams.CreateAsync(currentUser.ClubId.Value, body, ct);
+        var team = await teams.CreateAsync(currentUser.ActiveClubId.Value, body, ct);
         return StatusCode(201, team);
     }
 
@@ -46,14 +46,14 @@ public sealed class TeamsController(ITeamService teams) : ControllerBase
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var team = await teams.GetAsync(id, currentUser.ClubId.Value, ct);
+        var team = await teams.GetAsync(id, currentUser.ActiveClubId.Value, ct);
         return Ok(team);
     }
 
     [HttpPut("{id:guid}")]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> Update(
         Guid id,
         [FromBody] UpdateTeamRequest body,
@@ -62,27 +62,27 @@ public sealed class TeamsController(ITeamService teams) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var team = await teams.UpdateAsync(id, currentUser.ClubId.Value, body, ct);
+        var team = await teams.UpdateAsync(id, currentUser.ActiveClubId.Value, body, ct);
         return Ok(team);
     }
 
     [HttpDelete("{id:guid}")]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> Delete(
         Guid id,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        await teams.DeleteAsync(id, currentUser.ClubId.Value, ct);
+        await teams.DeleteAsync(id, currentUser.ActiveClubId.Value, ct);
         return NoContent();
     }
 
     [HttpPost("{id:guid}/members")]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> AddMember(
         Guid id,
         [FromBody] AddTeamMemberRequest body,
@@ -91,14 +91,14 @@ public sealed class TeamsController(ITeamService teams) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var member = await teams.AddMemberAsync(id, currentUser.ClubId.Value, body.UserId, body.TeamRole, ct);
+        var member = await teams.AddMemberAsync(id, currentUser.ActiveClubId.Value, body.UserId, body.TeamRole, ct);
         return StatusCode(201, member);
     }
 
     [HttpPut("{id:guid}/members/{userId:guid}")]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> UpdateMember(
         Guid id,
         Guid userId,
@@ -108,23 +108,23 @@ public sealed class TeamsController(ITeamService teams) : ControllerBase
         CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(body, ct);
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        var member = await teams.UpdateMemberRoleAsync(id, currentUser.ClubId.Value, userId, body.TeamRole, ct);
+        var member = await teams.UpdateMemberRoleAsync(id, currentUser.ActiveClubId.Value, userId, body.TeamRole, ct);
         return Ok(member);
     }
 
     [HttpDelete("{id:guid}/members/{userId:guid}")]
-    [RequireRole(UserRole.ClubAdmin)]
+    [RequireRole(ClubRole.ClubAdmin)]
     public async Task<IActionResult> RemoveMember(
         Guid id,
         Guid userId,
         [FromServices] ICurrentUser currentUser,
         CancellationToken ct)
     {
-        if (currentUser.ClubId is null)
+        if (currentUser.ActiveClubId is null)
             throw new AppException("You have not joined a club yet", 404);
-        await teams.RemoveMemberAsync(id, currentUser.ClubId.Value, userId, ct);
+        await teams.RemoveMemberAsync(id, currentUser.ActiveClubId.Value, userId, ct);
         return NoContent();
     }
 }

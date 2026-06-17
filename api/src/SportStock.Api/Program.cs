@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using Npgsql.NameTranslation;
 using Serilog;
+using SportStock.Api.Audit;
 using SportStock.Api.Auth;
 using SportStock.Api.Configuration;
 using SportStock.Api.Data;
@@ -49,8 +50,8 @@ Log.Logger = new LoggerConfiguration()
         .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
         .ValidateDataAnnotations()
         .ValidateOnStart();
-    builder.Services.AddOptions<SupabaseOptions>()
-        .Bind(builder.Configuration.GetSection(SupabaseOptions.SectionName))
+    builder.Services.AddOptions<CloudinaryOptions>()
+        .Bind(builder.Configuration.GetSection(CloudinaryOptions.SectionName))
         .ValidateDataAnnotations()
         .ValidateOnStart();
     builder.Services.AddOptions<FirebaseOptions>()
@@ -71,8 +72,8 @@ Log.Logger = new LoggerConfiguration()
         var connStr = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DbOptions>>()
                         .Value.ConnectionString;
         var dsb = new NpgsqlDataSourceBuilder(connStr);
-        dsb.MapEnum<UserRole>("user_role", new NpgsqlSnakeCaseNameTranslator());
-        dsb.MapEnum<AssetStatus>("asset_status", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<ClubRole>("club_role", new NpgsqlSnakeCaseNameTranslator());
+        dsb.MapEnum<AssetItemStatus>("asset_item_status", new NpgsqlSnakeCaseNameTranslator());
         dsb.MapEnum<LoanStatus>("loan_status", new NpgsqlSnakeCaseNameTranslator());
         dsb.MapEnum<WriteOffSource>("write_off_source", new NpgsqlSnakeCaseNameTranslator());
         dsb.MapEnum<StockMovementType>("stock_movement_type", new NpgsqlSnakeCaseNameTranslator());
@@ -81,24 +82,32 @@ Log.Logger = new LoggerConfiguration()
         return dsb.Build();
     });
 
-    builder.Services.AddDbContextPool<SportStockDbContext>((sp, opt) =>
+    builder.Services.AddScoped<AuditContext>();
+    builder.Services.AddSingleton<AuditInterceptor>();
+
+    // Must be created once outside the factory so EF Core always sees the same
+    // instance in DbContextOptions — a new object per request causes EF Core to
+    // build a new internal ServiceProvider on every request
+    // (ManyServiceProvidersCreatedWarning → InvalidOperationException).
+    var snake = new NpgsqlSnakeCaseNameTranslator();
+    builder.Services.AddDbContext<SportStockDbContext>((sp, opt) =>
     {
         var ds = sp.GetRequiredService<NpgsqlDataSource>();
-        var snake = new NpgsqlSnakeCaseNameTranslator();
         opt.UseNpgsql(ds, npg =>
         {
             // EF Core needs its own enum mapping in addition to what the
             // NpgsqlDataSourceBuilder did for the driver level. Without
-            // these calls EF Core sends UserRole as int, which PG rejects
-            // with 42804 "is of type user_role but expression is of type
+            // these calls EF Core sends ClubRole as int, which PG rejects
+            // with 42804 "is of type club_role but expression is of type
             // integer".
-            npg.MapEnum<UserRole>("user_role", nameTranslator: snake);
-            npg.MapEnum<AssetStatus>("asset_status", nameTranslator: snake);
+            npg.MapEnum<ClubRole>("club_role", nameTranslator: snake);
+            npg.MapEnum<AssetItemStatus>("asset_item_status", nameTranslator: snake);
             npg.MapEnum<LoanStatus>("loan_status", nameTranslator: snake);
             npg.MapEnum<WriteOffSource>("write_off_source", nameTranslator: snake);
             npg.MapEnum<StockMovementType>("stock_movement_type", nameTranslator: snake);
             npg.MapEnum<NotificationType>("notification_type", nameTranslator: snake);
         });
+        opt.AddInterceptors(sp.GetRequiredService<AuditInterceptor>());
         if (builder.Environment.IsDevelopment())
             opt.EnableSensitiveDataLogging();
     });
@@ -108,14 +117,7 @@ Log.Logger = new LoggerConfiguration()
     builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 
     // ── External integrations ────────────────────────────────────────────────
-    builder.Services.AddHttpClient(SupabaseStorageClient.HttpClientName, (sp, client) =>
-    {
-        var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SupabaseOptions>>().Value;
-        client.BaseAddress = new Uri($"{opts.Url.TrimEnd('/')}/storage/v1/");
-        client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", opts.ServiceRoleKey);
-    });
-    builder.Services.AddSingleton<ISupabaseStorage, SupabaseStorageClient>();
+    builder.Services.AddSingleton<IStorageService, CloudinaryStorageClient>();
     builder.Services.AddSingleton<IFcmClient, FcmClient>();
     builder.Services.AddScoped<IEmailSender, StubEmailSender>();
 
@@ -182,6 +184,11 @@ Log.Logger = new LoggerConfiguration()
     builder.Services.AddScoped<SportStock.Api.Services.IWriteOffService, SportStock.Api.Services.WriteOffService>();
     builder.Services.AddScoped<SportStock.Api.Services.IReportService, SportStock.Api.Services.ReportService>();
     builder.Services.AddScoped<SportStock.Api.Services.IAdminService, SportStock.Api.Services.AdminService>();
+    builder.Services.AddScoped<SportStock.Api.Services.IMembershipService, SportStock.Api.Services.MembershipService>();
+    builder.Services.AddScoped<SportStock.Api.Services.IWarehouseService, SportStock.Api.Services.WarehouseService>();
+    builder.Services.AddScoped<SportStock.Api.Services.IAuditLogService, SportStock.Api.Services.AuditLogService>();
+    builder.Services.AddScoped<SportStock.Api.Services.ISportTypeService, SportStock.Api.Services.SportTypeService>();
+    builder.Services.AddScoped<SportStock.Api.Services.IKitService, SportStock.Api.Services.KitService>();
 
     // ── JWT Bearer authentication ────────────────────────────────────────────
     // Same lazy-binding pattern as the DataSource: configure JwtBearerOptions

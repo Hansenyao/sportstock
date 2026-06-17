@@ -1,29 +1,30 @@
 import axios from 'axios';
 
-const client = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
-  headers: { 'Content-Type': 'application/json' },
-});
+const BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
-client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
+// Module-level token store — updated by AuthContext on every state change.
+// Avoids circular imports between context and api files.
+let _token: string | null = null;
+
+export function setToken(t: string | null) { _token = t; }
+export function getToken() { return _token; }
+
+const client = axios.create({ baseURL: BASE });
+
+client.interceptors.request.use(cfg => {
+  if (_token) cfg.headers.Authorization = `Bearer ${_token}`;
+  return cfg;
 });
 
 client.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    // Only force-logout on 401 from protected endpoints.
-    // Auth endpoints (/auth/login, /auth/register, etc.) returning 401 mean
-    // "wrong credentials" — let the page handle the error normally.
-    const url: string = err.config?.url ?? '';
-    const isAuthEndpoint = url.startsWith('/auth/');
-    if (err.response?.status === 401 && !isAuthEndpoint) {
+  res => res,
+  err => {
+    const url: string = (err.config?.url as string) ?? '';
+    if (err.response?.status === 401 && !url.startsWith('/auth/')) {
+      setToken(null);
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('active_club_id');
       window.location.href = '/login';
     }
     return Promise.reject(err);

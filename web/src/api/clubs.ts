@@ -23,3 +23,11 @@ export const updateMyClub = (
     | 'low_stock_threshold' | 'retirement_alert_mode' | 'retirement_alert_value'
   >>
 ) => client.put<Club>('/clubs/me', data);
+
+export const uploadLogo = (file: File) => {
+  const form = new FormData();
+  form.append('logo', file);
+  return client.put<{ logo_url: string }>('/clubs/me/logo', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};

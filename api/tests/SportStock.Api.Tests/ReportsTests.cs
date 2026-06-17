@@ -51,9 +51,13 @@ public sealed class ReportsTests : IAsyncLifetime, IDisposable
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
-            await TestData.CreateUserAsync(db, AdminEmail, _clubId, UserRole.ClubAdmin);
-            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail, _clubId, UserRole.AssetManager);
-            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail, _clubId, UserRole.Coach);
+            await TestData.CreateWarehouseAsync(db, _clubId);
+            var adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, adminUserId, ClubRole.ClubAdmin);
+            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _managerUserId, ClubRole.AssetManager);
+            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _coachUserId, ClubRole.Coach);
 
             // Seed an asset_name + asset_type + batch for non-empty summary.
             var nameId = Guid.NewGuid();
@@ -68,8 +72,6 @@ public sealed class ReportsTests : IAsyncLifetime, IDisposable
                 PurchasePrice = 10m,
                 UsefulLifeYears = 3,
                 TotalQuantity = 5,
-                AvailableQuantity = 5,
-                Status = AssetStatus.Available,
             });
 
             // Team + checked_out loan for loan-usage tests
@@ -96,11 +98,12 @@ public sealed class ReportsTests : IAsyncLifetime, IDisposable
     public Task DisposeAsync() => Task.CompletedTask;
     public void Dispose() { }
 
-    private HttpClient AuthedClient(Guid userId)
+    private HttpClient AuthedClient(Guid userId, ClubRole? role = null)
     {
+        var effectiveRole = role ?? (userId == _managerUserId ? ClubRole.AssetManager : ClubRole.Coach);
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId));
+            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId, _clubId, effectiveRole));
         return client;
     }
 
@@ -243,6 +246,9 @@ public sealed class ReportsTests : IAsyncLifetime, IDisposable
         // and a low-stock asset_type.
         Guid retirementBatchId = Guid.NewGuid();
         Guid lowStockTypeId = Guid.NewGuid();
+        var warehouseId = await _factory.WithDbContextAsync(async db =>
+            (await db.Warehouses.IgnoreQueryFilters().FirstAsync(w => w.ClubId == _clubId)).Id);
+
         await _factory.WithDbContextAsync(async db =>
         {
             var retireNameId = Guid.NewGuid();
@@ -257,11 +263,20 @@ public sealed class ReportsTests : IAsyncLifetime, IDisposable
                 Id = retirementBatchId,
                 AssetTypeId = retireTypeId,
                 TotalQuantity = 5,
-                AvailableQuantity = 5,
-                Status = AssetStatus.Available,
                 PurchaseDate = new DateOnly(2019, 1, 1),
                 PurchasePrice = 100m,
                 UsefulLifeYears = 5,
+            });
+            // The retirement alert SQL requires EXISTS(asset_items WHERE batch_id = ab.id AND status not retired/written_off).
+            // Seed at least one available asset item for this batch so the alert fires.
+            db.AssetItems.Add(new AssetItem
+            {
+                Id = Guid.NewGuid(),
+                ClubId = _clubId,
+                AssetTypeId = retireTypeId,
+                BatchId = retirementBatchId,
+                WarehouseId = warehouseId,
+                Status = AssetItemStatus.Available,
             });
 
             var stockNameId = Guid.NewGuid();
@@ -275,12 +290,11 @@ public sealed class ReportsTests : IAsyncLifetime, IDisposable
                 Id = Guid.NewGuid(),
                 AssetTypeId = lowStockTypeId,
                 TotalQuantity = 10,
-                AvailableQuantity = 1,
-                Status = AssetStatus.Available,
                 PurchaseDate = new DateOnly(2024, 1, 1),
                 PurchasePrice = 20m,
                 UsefulLifeYears = 3,
             });
+            // No asset_items for lowStockTypeId → available_qty = 0 which is ≤ threshold
             await db.SaveChangesAsync();
         });
 

@@ -25,14 +25,14 @@ interface PageData {
 }
 
 export default function AnalyticsPage() {
-  const { user } = useAuth();
+  const { user, activeClub } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState<PageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user && user.role !== 'club_admin' && user.role !== 'asset_manager') {
+    if (user && activeClub?.role !== 'club_admin' && activeClub?.role !== 'asset_manager') {
       setLoading(false);
       navigate('/dashboard', { replace: true });
       return;
@@ -57,7 +57,7 @@ export default function AnalyticsPage() {
       }
     }
     load();
-  }, [user, navigate]);
+  }, [user, activeClub, navigate]);
 
   if (loading) {
     return (

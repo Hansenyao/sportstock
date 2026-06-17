@@ -14,7 +14,7 @@ namespace SportStock.Api.Services;
 // (not in the validator) so the wire-level status code matches Node.
 internal sealed class ClubService(
     SportStockDbContext db,
-    ISupabaseStorage storage) : IClubService
+    IStorageService storage) : IClubService
 {
     private static readonly HashSet<string> AllowedAlertModes = new(StringComparer.Ordinal)
     {
@@ -26,6 +26,7 @@ internal sealed class ClubService(
     {
         var club = await db.Clubs
             .IgnoreQueryFilters()
+            .Include(c => c.SportType)
             .FirstOrDefaultAsync(c => c.Id == clubId, ct);
         if (club is null) throw new AppException("Club not found", 404);
         return Map(club);
@@ -45,11 +46,25 @@ internal sealed class ClubService(
 
         var club = await db.Clubs
             .IgnoreQueryFilters()
+            .Include(c => c.SportType)
             .FirstOrDefaultAsync(c => c.Id == clubId, ct);
         if (club is null) throw new AppException("Club not found", 404);
 
         if (req.Name is not null) club.Name = req.Name;
-        if (req.SportType is not null) club.SportType = req.SportType;
+        if (req.SportType is not null)
+        {
+            // req.SportType is the sport type name; resolve to ID or null
+            if (req.SportType.Length == 0)
+            {
+                club.SportTypeId = null;
+            }
+            else
+            {
+                var sportType = await db.SportTypes
+                    .FirstOrDefaultAsync(st => st.Name == req.SportType, ct);
+                club.SportTypeId = sportType?.Id;
+            }
+        }
         if (req.Address is not null) club.Address = req.Address;
         if (req.ContactEmail is not null) club.ContactEmail = req.ContactEmail;
         if (req.LowStockThreshold is not null) club.LowStockThreshold = req.LowStockThreshold.Value;
@@ -87,7 +102,7 @@ internal sealed class ClubService(
     {
         var ext = Path.GetExtension(originalFileName).TrimStart('.');
         if (string.IsNullOrWhiteSpace(ext)) ext = "bin";
-        var path = $"clubs/{clubId}/logo_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
+        var path = $"sportstock/clubs/{clubId}/logo_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.{ext}";
 
         var url = await storage.UploadAsync(path, content, contentType, ct);
 
@@ -103,7 +118,7 @@ internal sealed class ClubService(
     {
         Id = c.Id,
         Name = c.Name,
-        SportType = c.SportType,
+        SportType = c.SportType?.Name,
         Address = c.Address,
         ContactEmail = c.ContactEmail,
         IsActive = c.IsActive,

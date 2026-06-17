@@ -7,7 +7,6 @@ public sealed class DepreciationItem
     public string? Brand { get; set; }
     public string? Model { get; set; }
     public string? Size { get; set; }
-    public string BatchStatus { get; set; } = string.Empty;
     public DateOnly? PurchaseDate { get; set; }
     public int TotalQuantity { get; set; }
     public string? CategoryName { get; set; }

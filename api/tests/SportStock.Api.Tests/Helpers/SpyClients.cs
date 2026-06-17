@@ -54,7 +54,7 @@ public sealed class SpyEmailSender : IEmailSender
 
 // Stores uploaded bodies in memory and pretends to issue a stable URL so
 // callers can pass it through DB inserts and read it back unchanged.
-public sealed class InMemorySupabaseStorage : ISupabaseStorage
+public sealed class InMemoryStorageService : IStorageService
 {
     private readonly ConcurrentDictionary<string, byte[]> _store = new();
     public IReadOnlyDictionary<string, byte[]> Store => _store;
@@ -75,5 +75,5 @@ public sealed class InMemorySupabaseStorage : ISupabaseStorage
     }
 
     public string GetPublicUrl(string objectPath) =>
-        $"https://stub.test.invalid/storage/v1/object/public/test/{objectPath}";
+        $"https://stub.test.invalid/storage/{objectPath}";
 }

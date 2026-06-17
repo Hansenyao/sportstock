@@ -16,4 +16,8 @@ public interface IUserService
     Task<UserListItem> UpdateAsync(Guid targetId, Guid clubId, UpdateUserRequest req, CancellationToken ct = default);
 
     Task DeactivateAsync(Guid targetId, Guid clubId, Guid requesterId, CancellationToken ct = default);
+
+    Task<UploadAvatarResponse> UploadAvatarAsync(
+        Guid userId, Guid clubId, Stream content,
+        string contentType, string fileName, CancellationToken ct = default);
 }

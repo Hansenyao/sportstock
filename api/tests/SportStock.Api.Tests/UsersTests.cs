@@ -53,9 +53,13 @@ public sealed class UsersTests : IAsyncLifetime, IDisposable
         {
             await TestData.ResetAuthAsync(db, Prefix, ClubPrefix);
             _clubId = await TestData.CreateClubAsync(db, ClubPrefix + "Club");
-            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail, _clubId, UserRole.ClubAdmin);
-            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail, _clubId, UserRole.AssetManager);
-            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail, _clubId, UserRole.Coach);
+            await TestData.CreateWarehouseAsync(db, _clubId);
+            _adminUserId = await TestData.CreateUserAsync(db, AdminEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _adminUserId, ClubRole.ClubAdmin);
+            _managerUserId = await TestData.CreateUserAsync(db, ManagerEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _managerUserId, ClubRole.AssetManager);
+            _coachUserId = await TestData.CreateUserAsync(db, CoachEmail);
+            await TestData.CreateMembershipAsync(db, _clubId, _coachUserId, ClubRole.Coach);
         });
     }
 
@@ -63,11 +67,14 @@ public sealed class UsersTests : IAsyncLifetime, IDisposable
 
     public void Dispose() { /* shared static factory */ }
 
-    private HttpClient AuthedClient(Guid userId)
+    private HttpClient AuthedClient(Guid userId, ClubRole? role = null)
     {
+        var effectiveRole = role ?? (userId == _adminUserId ? ClubRole.ClubAdmin
+                                  : userId == _managerUserId ? ClubRole.AssetManager
+                                  : ClubRole.Coach);
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId));
+            new AuthenticationHeaderValue("Bearer", AuthHelper.MintToken(userId, _clubId, effectiveRole));
         return client;
     }
 
@@ -100,12 +107,13 @@ public sealed class UsersTests : IAsyncLifetime, IDisposable
     [Fact]
     public async Task List_Should_Filter_By_Is_Active_False()
     {
-        // Deactivate the coach so the filter has something to find.
+        // Deactivate the coach's club membership so the filter has something to find.
+        // In v2, user listing filters on ClubMembership.IsActive, not User.IsActive.
         await _factory.WithDbContextAsync(async db =>
         {
-            await db.Users.IgnoreQueryFilters()
-                .Where(u => u.Id == _coachUserId)
-                .ExecuteUpdateAsync(s => s.SetProperty(u => u.IsActive, false));
+            await db.ClubMemberships.IgnoreQueryFilters()
+                .Where(m => m.UserId == _coachUserId && m.ClubId == _clubId)
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsActive, false));
         });
 
         using var client = AuthedClient(_adminUserId);
@@ -184,7 +192,9 @@ public sealed class UsersTests : IAsyncLifetime, IDisposable
         var otherUserId = await _factory.WithDbContextAsync(async db =>
         {
             var otherClubId = await TestData.CreateClubAsync(db, ClubPrefix + "OtherClub");
-            return await TestData.CreateUserAsync(db, Prefix + "outsider@test.com", otherClubId, UserRole.Coach);
+            var uid = await TestData.CreateUserAsync(db, Prefix + "outsider@test.com");
+            await TestData.CreateMembershipAsync(db, otherClubId, uid, ClubRole.Coach);
+            return uid;
         });
 
         using var client = AuthedClient(_adminUserId);
@@ -302,7 +312,11 @@ public sealed class UsersTests : IAsyncLifetime, IDisposable
     public async Task Update_Should_Allow_Demoting_Admin_When_Another_Active_Admin_Exists()
     {
         var secondAdminId = await _factory.WithDbContextAsync(async db =>
-            await TestData.CreateUserAsync(db, Prefix + "admin2@test.com", _clubId, UserRole.ClubAdmin));
+        {
+            var uid = await TestData.CreateUserAsync(db, Prefix + "admin2@test.com");
+            await TestData.CreateMembershipAsync(db, _clubId, uid, ClubRole.ClubAdmin);
+            return uid;
+        });
 
         using var client = AuthedClient(_adminUserId);
         var response = await client.PutAsJsonAsync($"/api/v1/users/{_adminUserId}", new
@@ -337,8 +351,10 @@ public sealed class UsersTests : IAsyncLifetime, IDisposable
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
+        // In v2, deactivating a user deactivates their club membership, not the platform user.
         var still = await _factory.WithDbContextAsync(async db =>
-            await db.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == _managerUserId));
+            await db.ClubMemberships.IgnoreQueryFilters()
+                .FirstAsync(m => m.UserId == _managerUserId && m.ClubId == _clubId));
         still.IsActive.Should().BeFalse();
     }
 

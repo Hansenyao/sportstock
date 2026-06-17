@@ -8,26 +8,16 @@ namespace SportStock.Api.Data.Entities;
 public partial class AssetBatch
 {
     public Guid Id { get; set; }
-
     public Guid AssetTypeId { get; set; }
-
     public DateOnly? PurchaseDate { get; set; }
-
     public decimal? PurchasePrice { get; set; }
-
     public int? UsefulLifeYears { get; set; }
-
     public int TotalQuantity { get; set; }
-
-    public int AvailableQuantity { get; set; }
-
     public string? Notes { get; set; }
-
     public DateTime CreatedAt { get; set; }
-
     public DateTime UpdatedAt { get; set; }
 
     public virtual AssetType AssetType { get; set; } = null!;
-
+    public virtual ICollection<AssetItem> AssetItems { get; set; } = new List<AssetItem>();
     public virtual ICollection<StockMovement> StockMovements { get; set; } = new List<StockMovement>();
 }

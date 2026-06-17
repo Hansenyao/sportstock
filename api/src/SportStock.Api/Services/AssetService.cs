@@ -29,7 +29,7 @@ namespace SportStock.Api.Services;
 //     status filter into a CASE expression mapped via FromSqlInterpolated.
 internal sealed class AssetService(
     SportStockDbContext db,
-    ISupabaseStorage storage,
+    IStorageService storage,
     AuditContext auditContext) : IAssetService
 {
     private static readonly HashSet<string> ValidStatusFilter = new(StringComparer.Ordinal)

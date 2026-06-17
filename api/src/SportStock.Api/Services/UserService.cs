@@ -20,7 +20,7 @@ namespace SportStock.Api.Services;
 internal sealed class UserService(
     SportStockDbContext db,
     ILogger<UserService> log,
-    ISupabaseStorage storage) : IUserService
+    IStorageService storage) : IUserService
 {
     private static readonly ClubRole[] ClubRoles =
     {

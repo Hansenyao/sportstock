@@ -19,7 +19,7 @@ namespace SportStock.Api.Tests.Helpers;
 //     instance so DbContext queries hit the real schema. Use this for any
 //     test that exercises business endpoints.
 //
-// External integrations (IFcmClient, IEmailSender, ISupabaseStorage) are
+// External integrations (IFcmClient, IEmailSender, IStorageService) are
 // replaced with spy implementations regardless of mode so no test ever
 // reaches real network.
 public sealed class SportStockWebApplicationFactory : WebApplicationFactory<Program>
@@ -61,8 +61,8 @@ public sealed class SportStockWebApplicationFactory : WebApplicationFactory<Prog
             services.RemoveAll<IEmailSender>();
             services.AddSingleton<IEmailSender, SpyEmailSender>();
 
-            services.RemoveAll<ISupabaseStorage>();
-            services.AddSingleton<ISupabaseStorage, InMemorySupabaseStorage>();
+            services.RemoveAll<IStorageService>();
+            services.AddSingleton<IStorageService, InMemoryStorageService>();
         });
     }
 

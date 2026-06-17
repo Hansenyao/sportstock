@@ -14,7 +14,7 @@ namespace SportStock.Api.Services;
 // (not in the validator) so the wire-level status code matches Node.
 internal sealed class ClubService(
     SportStockDbContext db,
-    ISupabaseStorage storage) : IClubService
+    IStorageService storage) : IClubService
 {
     private static readonly HashSet<string> AllowedAlertModes = new(StringComparer.Ordinal)
     {

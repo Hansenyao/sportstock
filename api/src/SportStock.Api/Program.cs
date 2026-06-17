@@ -50,8 +50,8 @@ Log.Logger = new LoggerConfiguration()
         .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
         .ValidateDataAnnotations()
         .ValidateOnStart();
-    builder.Services.AddOptions<SupabaseOptions>()
-        .Bind(builder.Configuration.GetSection(SupabaseOptions.SectionName))
+    builder.Services.AddOptions<CloudinaryOptions>()
+        .Bind(builder.Configuration.GetSection(CloudinaryOptions.SectionName))
         .ValidateDataAnnotations()
         .ValidateOnStart();
     builder.Services.AddOptions<FirebaseOptions>()
@@ -117,14 +117,7 @@ Log.Logger = new LoggerConfiguration()
     builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 
     // ── External integrations ────────────────────────────────────────────────
-    builder.Services.AddHttpClient(SupabaseStorageClient.HttpClientName, (sp, client) =>
-    {
-        var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SupabaseOptions>>().Value;
-        client.BaseAddress = new Uri($"{opts.Url.TrimEnd('/')}/storage/v1/");
-        client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", opts.ServiceRoleKey);
-    });
-    builder.Services.AddSingleton<ISupabaseStorage, SupabaseStorageClient>();
+    builder.Services.AddSingleton<IStorageService, CloudinaryStorageClient>();
     builder.Services.AddSingleton<IFcmClient, FcmClient>();
     builder.Services.AddScoped<IEmailSender, StubEmailSender>();
 
